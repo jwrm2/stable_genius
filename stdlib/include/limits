@@ -1,0 +1,2194 @@
+#ifndef LIMITS_H
+#define LIMITS_H
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+#include <float.h>
+#include <limits.h>
+
+#include "../include/cmath"
+
+namespace NMSP {
+
+// When compiling free standing, gcc leaves these out of the compiler built-in
+// limits.h
+#ifndef LLONG_MAX
+#define LLONG_MAX __LONG_LONG_MAX__
+#endif /* LLONG_MAX */
+#ifndef LLONG_MIN
+#define LLONG_MIN (-LLONG_MAX - 1LL)
+#endif /* LLONG_MIN */
+#ifndef ULLONG_MAX
+#define ULLONG_MAX (LLONG_MAX * 2ULL + 1ULL)
+#endif /* ULLONG_MAX */
+
+// Versions of gcc before 7 define __DECIMAL_DIG__, versions after 7 define
+// __LDBL_DECIMAL_DIG__ instead.
+#ifndef __LDBL_DECIMAL_DIG__
+#define __LDBL_DECIMAL_DIG__ __DECIMAL_DIG__
+#endif /* __LDBL_DECIMAL_DIG__ */
+
+/**
+    Possible floating point denormalisation modes.
+ */
+enum float_denorm_style {
+    denorm_indeterminate = -1,
+    denorm_absent        = 0,
+    denorm_present       = 1
+};
+
+/**
+    Possible floating point rounding modes.
+ */
+enum float_round_style {
+    round_indeterminate       = -1,
+    round_toward_zero         = 0,
+    round_to_nearest          = 1,
+    round_toward_infinity     = 2,
+    round_toward_neg_infinity = 3
+};
+
+/**
+    Generic numeric_limits template.
+ */
+template<typename T>
+class numeric_limits{
+public:
+    /**
+        Whether the specialisation for this type exists.
+     */
+    static constexpr bool is_specialized = false;
+    /**
+        Whether the type is signed.
+     */
+    static constexpr bool is_signed = false;
+    /**
+        Whether the type represents integers.
+     */
+    static constexpr bool is_integer = false;
+    /**
+        Whether the type is an exact representation.
+     */
+    static constexpr bool is_exact = false;
+    /**
+        Whether the type can represent infinity.
+     */
+    static constexpr bool has_infinity = false;
+    /**
+        Whether the type can represent quiet Not a Number.
+     */
+    static constexpr bool has_quiet_NaN = false;
+    /**
+        Whether the type can represent signaling Not a Number.
+     */
+    static constexpr bool has_signaling_NaN = false;
+    /**
+        The denormalisation style for floating point types.
+     */
+    static constexpr float_denorm_style has_denorm = denorm_absent;
+    /**
+        Whether loss of precision is detected as denormalisation loss.
+     */
+    static constexpr bool has_denorm_loss = false;
+    /**
+        The rounding style for floating point types.
+     */
+    static constexpr float_round_style round_style = round_toward_zero;
+    /**
+        Whether the type is IEC 559/IEEE 754 compliant.
+     */
+    static constexpr bool is_iec559 = false;
+    /**
+        Whether the type represents one of a finite set of values.
+     */
+    static constexpr bool is_bounded = false;
+    /**
+        Whether the type handles overflow with modulo arithmetic.
+     */
+    static constexpr bool is_modulo = false;
+    /**
+        The number of radix digits that can be represented without change.
+     */
+    static constexpr int digits = 0;
+    /**
+        The number of decimal digits that can be represented without change.
+     */
+    static constexpr int digits10 = 0;
+    /**
+        The number of decimal digits necessary to differentiate all values of
+        this type.
+     */
+    static constexpr int max_digits10 = 0;
+    /**
+        The radix used by the representation of this type.
+     */
+    static constexpr int radix = 0;
+    /**
+        One more than the smallest negative power of the radix that is a valid
+        normalised value.
+     */
+    static constexpr int min_exponent = 0;
+    /**
+        The smallest power of 10 that is a valid normalised value.
+     */
+    static constexpr int min_exponent10 = 0;
+    /**
+        One more than the largest power of the radix that is a valid finite
+        value.
+     */
+    static constexpr int max_exponent = 0;
+    /**
+        The largest power of 10 that is a valid finite value.
+     */
+    static constexpr int max_exponent10 = 0;
+    /**
+        Whether any arithmetic operations can trap.
+     */
+    static constexpr bool traps = false;
+    /**
+        Whether tinyness is detected before rounding.
+     */
+    static constexpr bool tinyness_before = false;
+
+    /**
+        @return The smallest possible finite value.
+     */
+    static constexpr T min() noexcept { return T(); }
+    /**
+        @return The lowest finite value (is < all other posible values).
+     */
+    static constexpr T lowest() noexcept { return T(); }
+    /**
+        @return The largest finite value.
+     */
+    static constexpr T max() noexcept { return T(); }
+    /**
+        @return For floating point types, returns the difference between 1.0 and
+        the next representable value.
+     */
+    static constexpr T epsilon() noexcept { return T(); }
+    /**
+        @return The largest possible rounding error.
+     */
+    static constexpr T round_error() noexcept { return T(); }
+    /**
+        @return The positive infinity value.
+     */
+    static constexpr T infinity() noexcept { return T(); }
+    /**
+        @return The quiet Not a Number value.
+     */
+    static constexpr T quiet_NaN() noexcept { return T(); }
+    /**
+        @return The signaling Not a Number value.
+     */
+    static constexpr T signaling_NaN() noexcept { return T(); }
+    /**
+        @return The smallest poitive subnormal value.
+     */
+    static constexpr T denorm_min() noexcept { return T(); }
+};
+
+/**
+    Contains information about the char type.
+ */
+template<>
+class numeric_limits<char>{
+public:
+    /**
+        Whether the specialisation for this type exists.
+     */
+    static constexpr bool is_specialized = true;
+    /**
+        Whether the type is signed.
+     */
+#ifdef __CHAR_UNSIGNED__
+    static constexpr bool is_signed = false;
+#else /* __CHAR_UNSIGNED__ */
+    static constexpr bool is_signed = true;
+#endif /* __CHAR_UNSIGNED__ */
+    /**
+        Whether the type represents integers.
+     */
+    static constexpr bool is_integer = true;
+    /**
+        Whether the type is an exact representation.
+     */
+    static constexpr bool is_exact = true;
+    /**
+        Whether the type can represent infinity.
+     */
+    static constexpr bool has_infinity = false;
+    /**
+        Whether the type can represent quiet Not a Number.
+     */
+    static constexpr bool has_quiet_NaN = false;
+    /**
+        Whether the type can represent signaling Not a Number.
+     */
+    static constexpr bool has_signaling_NaN = false;
+    /**
+        The denormalisation style for floating point types.
+     */
+    static constexpr float_denorm_style has_denorm = denorm_absent;
+    /**
+        Whether loss of precision is detected as denormalisation loss.
+     */
+    static constexpr bool has_denorm_loss = false;
+    /**
+        The rounding style for floating point types.
+     */
+    static constexpr float_round_style round_style = round_toward_zero;
+    /**
+        Whether the type is IEC 559/IEEE 754 compliant.
+     */
+    static constexpr bool is_iec559 = false;
+    /**
+        Whether the type represents one of a finite set of values.
+     */
+    static constexpr bool is_bounded = true;
+    /**
+        Whether the type handles overflow with modulo arithmetic.
+     */
+    static constexpr bool is_modulo = false;
+    /**
+        The number of radix digits that can be represented without change.
+     */
+#ifdef __CHAR_UNSIGNED__
+    static constexpr int digits = CHAR_BIT*sizeof(char);
+#else /* __CHAR_UNSIGNED__ */
+    static constexpr int digits = CHAR_BIT*sizeof(char) - 1;
+#endif /* __CHAR_UNSIGNED__ */
+    /**
+        The number of decimal digits that can be represented without change.
+     */
+    static constexpr int digits10 = digits * 0.3010299957;
+    /**
+        The number of decimal digits necessary to differentiate all values of
+        this type.
+     */
+    static constexpr int max_digits10 = 0;
+    /**
+        The radix used by the representation of this type.
+     */
+    static constexpr int radix = 2;
+    /**
+        One more than the smallest negative power of the radix that is a valid
+        normalised value.
+     */
+    static constexpr int min_exponent = 0;
+    /**
+        The smallest power of 10 that is a valid normalised value.
+     */
+    static constexpr int min_exponent10 = 0;
+    /**
+        One more than the largest power of the radix that is a valid finite
+        value.
+     */
+    static constexpr int max_exponent = 0;
+    /**
+        The largest power of 10 that is a valid finite value.
+     */
+    static constexpr int max_exponent10 = 0;
+    /**
+        Whether any arithmetic operations can trap.
+     */
+    static constexpr bool traps = true;
+    /**
+        Whether tinyness is detected before rounding.
+     */
+    static constexpr bool tinyness_before = false;
+
+    /**
+        @return The smallest possible finite value.
+     */
+    static constexpr char min() noexcept { return CHAR_MIN; }
+    /**
+        @return The lowest finite value (is < all other posible values).
+     */
+    static constexpr char lowest() noexcept { return CHAR_MIN; }
+    /**
+        @return The largest finite value.
+     */
+    static constexpr char max() noexcept { return CHAR_MAX; }
+    /**
+        @return For floating point types, returns the difference between 1.0 and
+        the next representable value.
+     */
+    static constexpr char epsilon() noexcept { return 0; }
+    /**
+        @return The largest possible rounding error.
+     */
+    static constexpr char round_error() noexcept { return 0; }
+    /**
+        @return The positive infinity value.
+     */
+    static constexpr char infinity() noexcept { return 0; }
+    /**
+        @return The quiet Not a Number value.
+     */
+    static constexpr char quiet_NaN() noexcept { return 0; }
+    /**
+        @return The signaling Not a Number value.
+     */
+    static constexpr char signaling_NaN() noexcept { return 0; }
+    /**
+        @return The smallest poitive subnormal value.
+     */
+    static constexpr char denorm_min() noexcept { return 0; }
+};
+
+/**
+    Contains information about the signed char type.
+ */
+template<>
+class numeric_limits<signed char>{
+public:
+    /**
+        Whether the specialisation for this type exists.
+     */
+    static constexpr bool is_specialized = true;
+    /**
+        Whether the type is signed.
+     */
+    static constexpr bool is_signed = true;
+    /**
+        Whether the type represents integers.
+     */
+    static constexpr bool is_integer = true;
+    /**
+        Whether the type is an exact representation.
+     */
+    static constexpr bool is_exact = true;
+    /**
+        Whether the type can represent infinity.
+     */
+    static constexpr bool has_infinity = false;
+    /**
+        Whether the type can represent quiet Not a Number.
+     */
+    static constexpr bool has_quiet_NaN = false;
+    /**
+        Whether the type can represent signaling Not a Number.
+     */
+    static constexpr bool has_signaling_NaN = false;
+    /**
+        The denormalisation style for floating point types.
+     */
+    static constexpr float_denorm_style has_denorm = denorm_absent;
+    /**
+        Whether loss of precision is detected as denormalisation loss.
+     */
+    static constexpr bool has_denorm_loss = false;
+    /**
+        The rounding style for floating point types.
+     */
+    static constexpr float_round_style round_style = round_toward_zero;
+    /**
+        Whether the type is IEC 559/IEEE 754 compliant.
+     */
+    static constexpr bool is_iec559 = false;
+    /**
+        Whether the type represents one of a finite set of values.
+     */
+    static constexpr bool is_bounded = true;
+    /**
+        Whether the type handles overflow with modulo arithmetic.
+     */
+    static constexpr bool is_modulo = false;
+    /**
+        The number of radix digits that can be represented without change.
+     */
+    static constexpr int digits = CHAR_BIT*sizeof(char) - 1;
+    /**
+        The number of decimal digits that can be represented without change.
+     */
+    static constexpr int digits10 = digits * 0.3010299957;
+    /**
+        The number of decimal digits necessary to differentiate all values of
+        this type.
+     */
+    static constexpr int max_digits10 = 0;
+    /**
+        The radix used by the representation of this type.
+     */
+    static constexpr int radix = 2;
+    /**
+        One more than the smallest negative power of the radix that is a valid
+        normalised value.
+     */
+    static constexpr int min_exponent = 0;
+    /**
+        The smallest power of 10 that is a valid normalised value.
+     */
+    static constexpr int min_exponent10 = 0;
+    /**
+        One more than the largest power of the radix that is a valid finite
+        value.
+     */
+    static constexpr int max_exponent = 0;
+    /**
+        The largest power of 10 that is a valid finite value.
+     */
+    static constexpr int max_exponent10 = 0;
+    /**
+        Whether any arithmetic operations can trap.
+     */
+    static constexpr bool traps = true;
+    /**
+        Whether tinyness is detected before rounding.
+     */
+    static constexpr bool tinyness_before = false;
+
+    /**
+        @return The smallest possible finite value.
+     */
+    static constexpr signed char min() noexcept { return SCHAR_MIN; }
+    /**
+        @return The lowest finite value (is < all other posible values).
+     */
+    static constexpr signed char lowest() noexcept { return SCHAR_MIN; }
+    /**
+        @return The largest finite value.
+     */
+    static constexpr signed char max() noexcept { return SCHAR_MAX; }
+    /**
+        @return For floating point types, returns the difference between 1.0 and
+        the next representable value.
+     */
+    static constexpr signed char epsilon() noexcept { return 0; }
+    /**
+        @return The largest possible rounding error.
+     */
+    static constexpr signed char round_error() noexcept { return 0; }
+    /**
+        @return The positive infinity value.
+     */
+    static constexpr signed char infinity() noexcept { return 0; }
+    /**
+        @return The quiet Not a Number value.
+     */
+    static constexpr signed char quiet_NaN() noexcept { return 0; }
+    /**
+        @return The signaling Not a Number value.
+     */
+    static constexpr signed char signaling_NaN() noexcept { return 0; }
+    /**
+        @return The smallest poitive subnormal value.
+     */
+    static constexpr signed char denorm_min() noexcept { return 0; }
+};
+
+/**
+    Contains information about the unsigned char type.
+ */
+template<>
+class numeric_limits<unsigned char>{
+public:
+    /**
+        Whether the specialisation for this type exists.
+     */
+    static constexpr bool is_specialized = true;
+    /**
+        Whether the type is signed.
+     */
+    static constexpr bool is_signed = false;
+    /**
+        Whether the type represents integers.
+     */
+    static constexpr bool is_integer = true;
+    /**
+        Whether the type is an exact representation.
+     */
+    static constexpr bool is_exact = true;
+    /**
+        Whether the type can represent infinity.
+     */
+    static constexpr bool has_infinity = false;
+    /**
+        Whether the type can represent quiet Not a Number.
+     */
+    static constexpr bool has_quiet_NaN = false;
+    /**
+        Whether the type can represent signaling Not a Number.
+     */
+    static constexpr bool has_signaling_NaN = false;
+    /**
+        The denormalisation style for floating point types.
+     */
+    static constexpr float_denorm_style has_denorm = denorm_absent;
+    /**
+        Whether loss of precision is detected as denormalisation loss.
+     */
+    static constexpr bool has_denorm_loss = false;
+    /**
+        The rounding style for floating point types.
+     */
+    static constexpr float_round_style round_style = round_toward_zero;
+    /**
+        Whether the type is IEC 559/IEEE 754 compliant.
+     */
+    static constexpr bool is_iec559 = false;
+    /**
+        Whether the type represents one of a finite set of values.
+     */
+    static constexpr bool is_bounded = true;
+    /**
+        Whether the type handles overflow with modulo arithmetic.
+     */
+    static constexpr bool is_modulo = true;
+    /**
+        The number of radix digits that can be represented without change.
+     */
+    static constexpr int digits = CHAR_BIT*sizeof(char);
+    /**
+        The number of decimal digits that can be represented without change.
+     */
+    static constexpr int digits10 = digits * 0.3010299957;
+    /**
+        The number of decimal digits necessary to differentiate all values of
+        this type.
+     */
+    static constexpr int max_digits10 = 0;
+    /**
+        The radix used by the representation of this type.
+     */
+    static constexpr int radix = 2;
+    /**
+        One more than the smallest negative power of the radix that is a valid
+        normalised value.
+     */
+    static constexpr int min_exponent = 0;
+    /**
+        The smallest power of 10 that is a valid normalised value.
+     */
+    static constexpr int min_exponent10 = 0;
+    /**
+        One more than the largest power of the radix that is a valid finite
+        value.
+     */
+    static constexpr int max_exponent = 0;
+    /**
+        The largest power of 10 that is a valid finite value.
+     */
+    static constexpr int max_exponent10 = 0;
+    /**
+        Whether any arithmetic operations can trap.
+     */
+    static constexpr bool traps = true;
+    /**
+        Whether tinyness is detected before rounding.
+     */
+    static constexpr bool tinyness_before = false;
+
+    /**
+        @return The smallest possible finite value.
+     */
+    static constexpr unsigned char min() noexcept { return 0; }
+    /**
+        @return The lowest finite value (is < all other posible values).
+     */
+    static constexpr unsigned char lowest() noexcept { return 0; }
+    /**
+        @return The largest finite value.
+     */
+    static constexpr unsigned char max() noexcept { return UCHAR_MAX; }
+    /**
+        @return For floating point types, returns the difference between 1.0 and
+        the next representable value.
+     */
+    static constexpr unsigned char epsilon() noexcept { return 0; }
+    /**
+        @return The largest possible rounding error.
+     */
+    static constexpr unsigned char round_error() noexcept { return 0; }
+    /**
+        @return The positive infinity value.
+     */
+    static constexpr unsigned char infinity() noexcept { return 0; }
+    /**
+        @return The quiet Not a Number value.
+     */
+    static constexpr unsigned char quiet_NaN() noexcept { return 0; }
+    /**
+        @return The signaling Not a Number value.
+     */
+    static constexpr unsigned char signaling_NaN() noexcept { return 0; }
+    /**
+        @return The smallest poitive subnormal value.
+     */
+    static constexpr unsigned char denorm_min() noexcept { return 0; }
+};
+
+/**
+    Contains information about the short type.
+ */
+template<>
+class numeric_limits<short>{
+public:
+    /**
+        Whether the specialisation for this type exists.
+     */
+    static constexpr bool is_specialized = true;
+    /**
+        Whether the type is signed.
+     */
+    static constexpr bool is_signed = true;
+    /**
+        Whether the type represents integers.
+     */
+    static constexpr bool is_integer = true;
+    /**
+        Whether the type is an exact representation.
+     */
+    static constexpr bool is_exact = true;
+    /**
+        Whether the type can represent infinity.
+     */
+    static constexpr bool has_infinity = false;
+    /**
+        Whether the type can represent quiet Not a Number.
+     */
+    static constexpr bool has_quiet_NaN = false;
+    /**
+        Whether the type can represent signaling Not a Number.
+     */
+    static constexpr bool has_signaling_NaN = false;
+    /**
+        The denormalisation style for floating point types.
+     */
+    static constexpr float_denorm_style has_denorm = denorm_absent;
+    /**
+        Whether loss of precision is detected as denormalisation loss.
+     */
+    static constexpr bool has_denorm_loss = false;
+    /**
+        The rounding style for floating point types.
+     */
+    static constexpr float_round_style round_style = round_toward_zero;
+    /**
+        Whether the type is IEC 559/IEEE 754 compliant.
+     */
+    static constexpr bool is_iec559 = false;
+    /**
+        Whether the type represents one of a finite set of values.
+     */
+    static constexpr bool is_bounded = true;
+    /**
+        Whether the type handles overflow with modulo arithmetic.
+     */
+    static constexpr bool is_modulo = false;
+    /**
+        The number of radix digits that can be represented without change.
+     */
+    static constexpr int digits = CHAR_BIT*sizeof(short) - 1;
+    /**
+        The number of decimal digits that can be represented without change.
+     */
+    static constexpr int digits10 = digits * 0.3010299957;
+    /**
+        The number of decimal digits necessary to differentiate all values of
+        this type.
+     */
+    static constexpr int max_digits10 = 0;
+    /**
+        The radix used by the representation of this type.
+     */
+    static constexpr int radix = 2;
+    /**
+        One more than the smallest negative power of the radix that is a valid
+        normalised value.
+     */
+    static constexpr int min_exponent = 0;
+    /**
+        The smallest power of 10 that is a valid normalised value.
+     */
+    static constexpr int min_exponent10 = 0;
+    /**
+        One more than the largest power of the radix that is a valid finite
+        value.
+     */
+    static constexpr int max_exponent = 0;
+    /**
+        The largest power of 10 that is a valid finite value.
+     */
+    static constexpr int max_exponent10 = 0;
+    /**
+        Whether any arithmetic operations can trap.
+     */
+    static constexpr bool traps = true;
+    /**
+        Whether tinyness is detected before rounding.
+     */
+    static constexpr bool tinyness_before = false;
+
+    /**
+        @return The smallest possible finite value.
+     */
+    static constexpr short min() noexcept { return SHRT_MIN; }
+    /**
+        @return The lowest finite value (is < all other posible values).
+     */
+    static constexpr short lowest() noexcept { return SHRT_MIN; }
+    /**
+        @return The largest finite value.
+     */
+    static constexpr short max() noexcept { return SHRT_MAX; }
+    /**
+        @return For floating point types, returns the difference between 1.0 and
+        the next representable value.
+     */
+    static constexpr short epsilon() noexcept { return 0; }
+    /**
+        @return The largest possible rounding error.
+     */
+    static constexpr short round_error() noexcept { return 0; }
+    /**
+        @return The positive infinity value.
+     */
+    static constexpr short infinity() noexcept { return 0; }
+    /**
+        @return The quiet Not a Number value.
+     */
+    static constexpr short quiet_NaN() noexcept { return 0; }
+    /**
+        @return The signaling Not a Number value.
+     */
+    static constexpr short signaling_NaN() noexcept { return 0; }
+    /**
+        @return The smallest poitive subnormal value.
+     */
+    static constexpr short denorm_min() noexcept { return 0; }
+};
+
+/**
+    Contains information about the unsigned short type.
+ */
+template<>
+class numeric_limits<unsigned short>{
+public:
+    /**
+        Whether the specialisation for this type exists.
+     */
+    static constexpr bool is_specialized = true;
+    /**
+        Whether the type is signed.
+     */
+    static constexpr bool is_signed = false;
+    /**
+        Whether the type represents integers.
+     */
+    static constexpr bool is_integer = true;
+    /**
+        Whether the type is an exact representation.
+     */
+    static constexpr bool is_exact = true;
+    /**
+        Whether the type can represent infinity.
+     */
+    static constexpr bool has_infinity = false;
+    /**
+        Whether the type can represent quiet Not a Number.
+     */
+    static constexpr bool has_quiet_NaN = false;
+    /**
+        Whether the type can represent signaling Not a Number.
+     */
+    static constexpr bool has_signaling_NaN = false;
+    /**
+        The denormalisation style for floating point types.
+     */
+    static constexpr float_denorm_style has_denorm = denorm_absent;
+    /**
+        Whether loss of precision is detected as denormalisation loss.
+     */
+    static constexpr bool has_denorm_loss = false;
+    /**
+        The rounding style for floating point types.
+     */
+    static constexpr float_round_style round_style = round_toward_zero;
+    /**
+        Whether the type is IEC 559/IEEE 754 compliant.
+     */
+    static constexpr bool is_iec559 = false;
+    /**
+        Whether the type represents one of a finite set of values.
+     */
+    static constexpr bool is_bounded = true;
+    /**
+        Whether the type handles overflow with modulo arithmetic.
+     */
+    static constexpr bool is_modulo = true;
+    /**
+        The number of radix digits that can be represented without change.
+     */
+    static constexpr int digits = CHAR_BIT*sizeof(short);
+    /**
+        The number of decimal digits that can be represented without change.
+     */
+    static constexpr int digits10 = digits * 0.3010299957;
+    /**
+        The number of decimal digits necessary to differentiate all values of
+        this type.
+     */
+    static constexpr int max_digits10 = 0;
+    /**
+        The radix used by the representation of this type.
+     */
+    static constexpr int radix = 2;
+    /**
+        One more than the smallest negative power of the radix that is a valid
+        normalised value.
+     */
+    static constexpr int min_exponent = 0;
+    /**
+        The smallest power of 10 that is a valid normalised value.
+     */
+    static constexpr int min_exponent10 = 0;
+    /**
+        One more than the largest power of the radix that is a valid finite
+        value.
+     */
+    static constexpr int max_exponent = 0;
+    /**
+        The largest power of 10 that is a valid finite value.
+     */
+    static constexpr int max_exponent10 = 0;
+    /**
+        Whether any arithmetic operations can trap.
+     */
+    static constexpr bool traps = true;
+    /**
+        Whether tinyness is detected before rounding.
+     */
+    static constexpr bool tinyness_before = false;
+
+    /**
+        @return The smallest possible finite value.
+     */
+    static constexpr unsigned short min() noexcept { return 0; }
+    /**
+        @return The lowest finite value (is < all other posible values).
+     */
+    static constexpr unsigned short lowest() noexcept { return 0; }
+    /**
+        @return The largest finite value.
+     */
+    static constexpr unsigned short max() noexcept { return USHRT_MAX; }
+    /**
+        @return For floating point types, returns the difference between 1.0 and
+        the next representable value.
+     */
+    static constexpr unsigned short epsilon() noexcept { return 0; }
+    /**
+        @return The largest possible rounding error.
+     */
+    static constexpr unsigned short round_error() noexcept { return 0; }
+    /**
+        @return The positive infinity value.
+     */
+    static constexpr unsigned short infinity() noexcept { return 0; }
+    /**
+        @return The quiet Not a Number value.
+     */
+    static constexpr unsigned short quiet_NaN() noexcept { return 0; }
+    /**
+        @return The signaling Not a Number value.
+     */
+    static constexpr unsigned short signaling_NaN() noexcept { return 0; }
+    /**
+        @return The smallest poitive subnormal value.
+     */
+    static constexpr unsigned short denorm_min() noexcept { return 0; }
+};
+
+/**
+    Contains information about the int type.
+ */
+template<>
+class numeric_limits<int>{
+public:
+    /**
+        Whether the specialisation for this type exists.
+     */
+    static constexpr bool is_specialized = true;
+    /**
+        Whether the type is signed.
+     */
+    static constexpr bool is_signed = true;
+    /**
+        Whether the type represents integers.
+     */
+    static constexpr bool is_integer = true;
+    /**
+        Whether the type is an exact representation.
+     */
+    static constexpr bool is_exact = true;
+    /**
+        Whether the type can represent infinity.
+     */
+    static constexpr bool has_infinity = false;
+    /**
+        Whether the type can represent quiet Not a Number.
+     */
+    static constexpr bool has_quiet_NaN = false;
+    /**
+        Whether the type can represent signaling Not a Number.
+     */
+    static constexpr bool has_signaling_NaN = false;
+    /**
+        The denormalisation style for floating point types.
+     */
+    static constexpr float_denorm_style has_denorm = denorm_absent;
+    /**
+        Whether loss of precision is detected as denormalisation loss.
+     */
+    static constexpr bool has_denorm_loss = false;
+    /**
+        The rounding style for floating point types.
+     */
+    static constexpr float_round_style round_style = round_toward_zero;
+    /**
+        Whether the type is IEC 559/IEEE 754 compliant.
+     */
+    static constexpr bool is_iec559 = false;
+    /**
+        Whether the type represents one of a finite set of values.
+     */
+    static constexpr bool is_bounded = true;
+    /**
+        Whether the type handles overflow with modulo arithmetic.
+     */
+    static constexpr bool is_modulo = false;
+    /**
+        The number of radix digits that can be represented without change.
+     */
+    static constexpr int digits = CHAR_BIT*sizeof(int) - 1;
+    /**
+        The number of decimal digits that can be represented without change.
+     */
+    static constexpr int digits10 = digits * 0.3010299957;
+    /**
+        The number of decimal digits necessary to differentiate all values of
+        this type.
+     */
+    static constexpr int max_digits10 = 0;
+    /**
+        The radix used by the representation of this type.
+     */
+    static constexpr int radix = 2;
+    /**
+        One more than the smallest negative power of the radix that is a valid
+        normalised value.
+     */
+    static constexpr int min_exponent = 0;
+    /**
+        The smallest power of 10 that is a valid normalised value.
+     */
+    static constexpr int min_exponent10 = 0;
+    /**
+        One more than the largest power of the radix that is a valid finite
+        value.
+     */
+    static constexpr int max_exponent = 0;
+    /**
+        The largest power of 10 that is a valid finite value.
+     */
+    static constexpr int max_exponent10 = 0;
+    /**
+        Whether any arithmetic operations can trap.
+     */
+    static constexpr bool traps = true;
+    /**
+        Whether tinyness is detected before rounding.
+     */
+    static constexpr bool tinyness_before = false;
+
+    /**
+        @return The smallest possible finite value.
+     */
+    static constexpr int min() noexcept { return INT_MIN; }
+    /**
+        @return The lowest finite value (is < all other posible values).
+     */
+    static constexpr int lowest() noexcept { return INT_MIN; }
+    /**
+        @return The largest finite value.
+     */
+    static constexpr int max() noexcept { return INT_MAX; }
+    /**
+        @return For floating point types, returns the difference between 1.0 and
+        the next representable value.
+     */
+    static constexpr int epsilon() noexcept { return 0; }
+    /**
+        @return The largest possible rounding error.
+     */
+    static constexpr int round_error() noexcept { return 0; }
+    /**
+        @return The positive infinity value.
+     */
+    static constexpr int infinity() noexcept { return 0; }
+    /**
+        @return The quiet Not a Number value.
+     */
+    static constexpr int quiet_NaN() noexcept { return 0; }
+    /**
+        @return The signaling Not a Number value.
+     */
+    static constexpr int signaling_NaN() noexcept { return 0; }
+    /**
+        @return The smallest poitive subnormal value.
+     */
+    static constexpr int denorm_min() noexcept { return 0; }
+};
+
+/**
+    Contains information about the unsigned int type.
+ */
+template<>
+class numeric_limits<unsigned int>{
+public:
+    /**
+        Whether the specialisation for this type exists.
+     */
+    static constexpr bool is_specialized = true;
+    /**
+        Whether the type is signed.
+     */
+    static constexpr bool is_signed = false;
+    /**
+        Whether the type represents integers.
+     */
+    static constexpr bool is_integer = true;
+    /**
+        Whether the type is an exact representation.
+     */
+    static constexpr bool is_exact = true;
+    /**
+        Whether the type can represent infinity.
+     */
+    static constexpr bool has_infinity = false;
+    /**
+        Whether the type can represent quiet Not a Number.
+     */
+    static constexpr bool has_quiet_NaN = false;
+    /**
+        Whether the type can represent signaling Not a Number.
+     */
+    static constexpr bool has_signaling_NaN = false;
+    /**
+        The denormalisation style for floating point types.
+     */
+    static constexpr float_denorm_style has_denorm = denorm_absent;
+    /**
+        Whether loss of precision is detected as denormalisation loss.
+     */
+    static constexpr bool has_denorm_loss = false;
+    /**
+        The rounding style for floating point types.
+     */
+    static constexpr float_round_style round_style = round_toward_zero;
+    /**
+        Whether the type is IEC 559/IEEE 754 compliant.
+     */
+    static constexpr bool is_iec559 = false;
+    /**
+        Whether the type represents one of a finite set of values.
+     */
+    static constexpr bool is_bounded = true;
+    /**
+        Whether the type handles overflow with modulo arithmetic.
+     */
+    static constexpr bool is_modulo = true;
+    /**
+        The number of radix digits that can be represented without change.
+     */
+    static constexpr int digits = CHAR_BIT*sizeof(int);
+    /**
+        The number of decimal digits that can be represented without change.
+     */
+    static constexpr int digits10 = digits * 0.3010299957;
+    /**
+        The number of decimal digits necessary to differentiate all values of
+        this type.
+     */
+    static constexpr int max_digits10 = 0;
+    /**
+        The radix used by the representation of this type.
+     */
+    static constexpr int radix = 2;
+    /**
+        One more than the smallest negative power of the radix that is a valid
+        normalised value.
+     */
+    static constexpr int min_exponent = 0;
+    /**
+        The smallest power of 10 that is a valid normalised value.
+     */
+    static constexpr int min_exponent10 = 0;
+    /**
+        One more than the largest power of the radix that is a valid finite
+        value.
+     */
+    static constexpr int max_exponent = 0;
+    /**
+        The largest power of 10 that is a valid finite value.
+     */
+    static constexpr int max_exponent10 = 0;
+    /**
+        Whether any arithmetic operations can trap.
+     */
+    static constexpr bool traps = true;
+    /**
+        Whether tinyness is detected before rounding.
+     */
+    static constexpr bool tinyness_before = false;
+
+    /**
+        @return The smallest possible finite value.
+     */
+    static constexpr unsigned int min() noexcept { return 0; }
+    /**
+        @return The lowest finite value (is < all other posible values).
+     */
+    static constexpr unsigned int lowest() noexcept { return 0; }
+    /**
+        @return The largest finite value.
+     */
+    static constexpr unsigned int max() noexcept { return UINT_MAX; }
+    /**
+        @return For floating point types, returns the difference between 1.0 and
+        the next representable value.
+     */
+    static constexpr unsigned int epsilon() noexcept { return 0; }
+    /**
+        @return The largest possible rounding error.
+     */
+    static constexpr unsigned int round_error() noexcept { return 0; }
+    /**
+        @return The positive infinity value.
+     */
+    static constexpr unsigned int infinity() noexcept { return 0; }
+    /**
+        @return The quiet Not a Number value.
+     */
+    static constexpr unsigned int quiet_NaN() noexcept { return 0; }
+    /**
+        @return The signaling Not a Number value.
+     */
+    static constexpr unsigned int signaling_NaN() noexcept { return 0; }
+    /**
+        @return The smallest poitive subnormal value.
+     */
+    static constexpr unsigned int denorm_min() noexcept { return 0; }
+};
+
+/**
+    Contains information about the long type.
+ */
+template<>
+class numeric_limits<long>{
+public:
+    /**
+        Whether the specialisation for this type exists.
+     */
+    static constexpr bool is_specialized = true;
+    /**
+        Whether the type is signed.
+     */
+    static constexpr bool is_signed = true;
+    /**
+        Whether the type represents integers.
+     */
+    static constexpr bool is_integer = true;
+    /**
+        Whether the type is an exact representation.
+     */
+    static constexpr bool is_exact = true;
+    /**
+        Whether the type can represent infinity.
+     */
+    static constexpr bool has_infinity = false;
+    /**
+        Whether the type can represent quiet Not a Number.
+     */
+    static constexpr bool has_quiet_NaN = false;
+    /**
+        Whether the type can represent signaling Not a Number.
+     */
+    static constexpr bool has_signaling_NaN = false;
+    /**
+        The denormalisation style for floating point types.
+     */
+    static constexpr float_denorm_style has_denorm = denorm_absent;
+    /**
+        Whether loss of precision is detected as denormalisation loss.
+     */
+    static constexpr bool has_denorm_loss = false;
+    /**
+        The rounding style for floating point types.
+     */
+    static constexpr float_round_style round_style = round_toward_zero;
+    /**
+        Whether the type is IEC 559/IEEE 754 compliant.
+     */
+    static constexpr bool is_iec559 = false;
+    /**
+        Whether the type represents one of a finite set of values.
+     */
+    static constexpr bool is_bounded = true;
+    /**
+        Whether the type handles overflow with modulo arithmetic.
+     */
+    static constexpr bool is_modulo = false;
+    /**
+        The number of radix digits that can be represented without change.
+     */
+    static constexpr int digits = CHAR_BIT*sizeof(long) - 1;
+    /**
+        The number of decimal digits that can be represented without change.
+     */
+    static constexpr int digits10 = digits * 0.3010299957;
+    /**
+        The number of decimal digits necessary to differentiate all values of
+        this type.
+     */
+    static constexpr int max_digits10 = 0;
+    /**
+        The radix used by the representation of this type.
+     */
+    static constexpr int radix = 2;
+    /**
+        One more than the smallest negative power of the radix that is a valid
+        normalised value.
+     */
+    static constexpr int min_exponent = 0;
+    /**
+        The smallest power of 10 that is a valid normalised value.
+     */
+    static constexpr int min_exponent10 = 0;
+    /**
+        One more than the largest power of the radix that is a valid finite
+        value.
+     */
+    static constexpr int max_exponent = 0;
+    /**
+        The largest power of 10 that is a valid finite value.
+     */
+    static constexpr int max_exponent10 = 0;
+    /**
+        Whether any arithmetic operations can trap.
+     */
+    static constexpr bool traps = true;
+    /**
+        Whether tinyness is detected before rounding.
+     */
+    static constexpr bool tinyness_before = false;
+
+    /**
+        @return The smallest possible finite value.
+     */
+    static constexpr long min() noexcept { return LONG_MIN; }
+    /**
+        @return The lowest finite value (is < all other posible values).
+     */
+    static constexpr long lowest() noexcept { return LONG_MIN; }
+    /**
+        @return The largest finite value.
+     */
+    static constexpr long max() noexcept { return LONG_MAX; }
+    /**
+        @return For floating point types, returns the difference between 1.0 and
+        the next representable value.
+     */
+    static constexpr long epsilon() noexcept { return 0; }
+    /**
+        @return The largest possible rounding error.
+     */
+    static constexpr long round_error() noexcept { return 0; }
+    /**
+        @return The positive infinity value.
+     */
+    static constexpr long infinity() noexcept { return 0; }
+    /**
+        @return The quiet Not a Number value.
+     */
+    static constexpr long quiet_NaN() noexcept { return 0; }
+    /**
+        @return The signaling Not a Number value.
+     */
+    static constexpr long signaling_NaN() noexcept { return 0; }
+    /**
+        @return The smallest poitive subnormal value.
+     */
+    static constexpr long denorm_min() noexcept { return 0; }
+};
+
+/**
+    Contains information about the unsigned long type.
+ */
+template<>
+class numeric_limits<unsigned long>{
+public:
+    /**
+        Whether the specialisation for this type exists.
+     */
+    static constexpr bool is_specialized = true;
+    /**
+        Whether the type is signed.
+     */
+    static constexpr bool is_signed = false;
+    /**
+        Whether the type represents integers.
+     */
+    static constexpr bool is_integer = true;
+    /**
+        Whether the type is an exact representation.
+     */
+    static constexpr bool is_exact = true;
+    /**
+        Whether the type can represent infinity.
+     */
+    static constexpr bool has_infinity = false;
+    /**
+        Whether the type can represent quiet Not a Number.
+     */
+    static constexpr bool has_quiet_NaN = false;
+    /**
+        Whether the type can represent signaling Not a Number.
+     */
+    static constexpr bool has_signaling_NaN = false;
+    /**
+        The denormalisation style for floating point types.
+     */
+    static constexpr float_denorm_style has_denorm = denorm_absent;
+    /**
+        Whether loss of precision is detected as denormalisation loss.
+     */
+    static constexpr bool has_denorm_loss = false;
+    /**
+        The rounding style for floating point types.
+     */
+    static constexpr float_round_style round_style = round_toward_zero;
+    /**
+        Whether the type is IEC 559/IEEE 754 compliant.
+     */
+    static constexpr bool is_iec559 = false;
+    /**
+        Whether the type represents one of a finite set of values.
+     */
+    static constexpr bool is_bounded = true;
+    /**
+        Whether the type handles overflow with modulo arithmetic.
+     */
+    static constexpr bool is_modulo = true;
+    /**
+        The number of radix digits that can be represented without change.
+     */
+    static constexpr int digits = CHAR_BIT*sizeof(long);
+    /**
+        The number of decimal digits that can be represented without change.
+     */
+    static constexpr int digits10 = digits * 0.3010299957;
+    /**
+        The number of decimal digits necessary to differentiate all values of
+        this type.
+     */
+    static constexpr int max_digits10 = 0;
+    /**
+        The radix used by the representation of this type.
+     */
+    static constexpr int radix = 2;
+    /**
+        One more than the smallest negative power of the radix that is a valid
+        normalised value.
+     */
+    static constexpr int min_exponent = 0;
+    /**
+        The smallest power of 10 that is a valid normalised value.
+     */
+    static constexpr int min_exponent10 = 0;
+    /**
+        One more than the largest power of the radix that is a valid finite
+        value.
+     */
+    static constexpr int max_exponent = 0;
+    /**
+        The largest power of 10 that is a valid finite value.
+     */
+    static constexpr int max_exponent10 = 0;
+    /**
+        Whether any arithmetic operations can trap.
+     */
+    static constexpr bool traps = true;
+    /**
+        Whether tinyness is detected before rounding.
+     */
+    static constexpr bool tinyness_before = false;
+
+    /**
+        @return The smallest possible finite value.
+     */
+    static constexpr unsigned long min() noexcept { return 0; }
+    /**
+        @return The lowest finite value (is < all other posible values).
+     */
+    static constexpr unsigned long lowest() noexcept { return 0; }
+    /**
+        @return The largest finite value.
+     */
+    static constexpr unsigned long max() noexcept { return ULONG_MAX; }
+    /**
+        @return For floating point types, returns the difference between 1.0 and
+        the next representable value.
+     */
+    static constexpr unsigned long epsilon() noexcept { return 0; }
+    /**
+        @return The largest possible rounding error.
+     */
+    static constexpr unsigned long round_error() noexcept { return 0; }
+    /**
+        @return The positive infinity value.
+     */
+    static constexpr unsigned long infinity() noexcept { return 0; }
+    /**
+        @return The quiet Not a Number value.
+     */
+    static constexpr unsigned long quiet_NaN() noexcept { return 0; }
+    /**
+        @return The signaling Not a Number value.
+     */
+    static constexpr unsigned long signaling_NaN() noexcept { return 0; }
+    /**
+        @return The smallest poitive subnormal value.
+     */
+    static constexpr unsigned long denorm_min() noexcept { return 0; }
+};
+
+/**
+    Contains information about the long long type.
+ */
+template<>
+class numeric_limits<long long>{
+public:
+    /**
+        Whether the specialisation for this type exists.
+     */
+    static constexpr bool is_specialized = true;
+    /**
+        Whether the type is signed.
+     */
+    static constexpr bool is_signed = true;
+    /**
+        Whether the type represents integers.
+     */
+    static constexpr bool is_integer = true;
+    /**
+        Whether the type is an exact representation.
+     */
+    static constexpr bool is_exact = true;
+    /**
+        Whether the type can represent infinity.
+     */
+    static constexpr bool has_infinity = false;
+    /**
+        Whether the type can represent quiet Not a Number.
+     */
+    static constexpr bool has_quiet_NaN = false;
+    /**
+        Whether the type can represent signaling Not a Number.
+     */
+    static constexpr bool has_signaling_NaN = false;
+    /**
+        The denormalisation style for floating point types.
+     */
+    static constexpr float_denorm_style has_denorm = denorm_absent;
+    /**
+        Whether loss of precision is detected as denormalisation loss.
+     */
+    static constexpr bool has_denorm_loss = false;
+    /**
+        The rounding style for floating point types.
+     */
+    static constexpr float_round_style round_style = round_toward_zero;
+    /**
+        Whether the type is IEC 559/IEEE 754 compliant.
+     */
+    static constexpr bool is_iec559 = false;
+    /**
+        Whether the type represents one of a finite set of values.
+     */
+    static constexpr bool is_bounded = true;
+    /**
+        Whether the type handles overflow with modulo arithmetic.
+     */
+    static constexpr bool is_modulo = false;
+    /**
+        The number of radix digits that can be represented without change.
+     */
+    static constexpr int digits = CHAR_BIT*sizeof(long long) - 1;
+    /**
+        The number of decimal digits that can be represented without change.
+     */
+    static constexpr int digits10 = digits * 0.3010299957;
+    /**
+        The number of decimal digits necessary to differentiate all values of
+        this type.
+     */
+    static constexpr int max_digits10 = 0;
+    /**
+        The radix used by the representation of this type.
+     */
+    static constexpr int radix = 2;
+    /**
+        One more than the smallest negative power of the radix that is a valid
+        normalised value.
+     */
+    static constexpr int min_exponent = 0;
+    /**
+        The smallest power of 10 that is a valid normalised value.
+     */
+    static constexpr int min_exponent10 = 0;
+    /**
+        One more than the largest power of the radix that is a valid finite
+        value.
+     */
+    static constexpr int max_exponent = 0;
+    /**
+        The largest power of 10 that is a valid finite value.
+     */
+    static constexpr int max_exponent10 = 0;
+    /**
+        Whether any arithmetic operations can trap.
+     */
+    static constexpr bool traps = true;
+    /**
+        Whether tinyness is detected before rounding.
+     */
+    static constexpr bool tinyness_before = false;
+
+    /**
+        @return The smallest possible finite value.
+     */
+    static constexpr long long min() noexcept { return LLONG_MIN; }
+    /**
+        @return The lowest finite value (is < all other posible values).
+     */
+    static constexpr long long lowest() noexcept { return LLONG_MIN; }
+    /**
+        @return The largest finite value.
+     */
+    static constexpr long long max() noexcept { return LLONG_MAX; }
+    /**
+        @return For floating point types, returns the difference between 1.0 and
+        the next representable value.
+     */
+    static constexpr long long epsilon() noexcept { return 0; }
+    /**
+        @return The largest possible rounding error.
+     */
+    static constexpr long long round_error() noexcept { return 0; }
+    /**
+        @return The positive infinity value.
+     */
+    static constexpr long long infinity() noexcept { return 0; }
+    /**
+        @return The quiet Not a Number value.
+     */
+    static constexpr long long quiet_NaN() noexcept { return 0; }
+    /**
+        @return The signaling Not a Number value.
+     */
+    static constexpr long long signaling_NaN() noexcept { return 0; }
+    /**
+        @return The smallest poitive subnormal value.
+     */
+    static constexpr long long denorm_min() noexcept { return 0; }
+};
+
+/**
+    Contains information about the unsigned long type.
+ */
+template<>
+class numeric_limits<unsigned long long>{
+public:
+    /**
+        Whether the specialisation for this type exists.
+     */
+    static constexpr bool is_specialized = true;
+    /**
+        Whether the type is signed.
+     */
+    static constexpr bool is_signed = false;
+    /**
+        Whether the type represents integers.
+     */
+    static constexpr bool is_integer = true;
+    /**
+        Whether the type is an exact representation.
+     */
+    static constexpr bool is_exact = true;
+    /**
+        Whether the type can represent infinity.
+     */
+    static constexpr bool has_infinity = false;
+    /**
+        Whether the type can represent quiet Not a Number.
+     */
+    static constexpr bool has_quiet_NaN = false;
+    /**
+        Whether the type can represent signaling Not a Number.
+     */
+    static constexpr bool has_signaling_NaN = false;
+    /**
+        The denormalisation style for floating point types.
+     */
+    static constexpr float_denorm_style has_denorm = denorm_absent;
+    /**
+        Whether loss of precision is detected as denormalisation loss.
+     */
+    static constexpr bool has_denorm_loss = false;
+    /**
+        The rounding style for floating point types.
+     */
+    static constexpr float_round_style round_style = round_toward_zero;
+    /**
+        Whether the type is IEC 559/IEEE 754 compliant.
+     */
+    static constexpr bool is_iec559 = false;
+    /**
+        Whether the type represents one of a finite set of values.
+     */
+    static constexpr bool is_bounded = true;
+    /**
+        Whether the type handles overflow with modulo arithmetic.
+     */
+    static constexpr bool is_modulo = true;
+    /**
+        The number of radix digits that can be represented without change.
+     */
+    static constexpr int digits = CHAR_BIT*sizeof(long long);
+    /**
+        The number of decimal digits that can be represented without change.
+     */
+    static constexpr int digits10 = digits * 0.3010299957;
+    /**
+        The number of decimal digits necessary to differentiate all values of
+        this type.
+     */
+    static constexpr int max_digits10 = 0;
+    /**
+        The radix used by the representation of this type.
+     */
+    static constexpr int radix = 2;
+    /**
+        One more than the smallest negative power of the radix that is a valid
+        normalised value.
+     */
+    static constexpr int min_exponent = 0;
+    /**
+        The smallest power of 10 that is a valid normalised value.
+     */
+    static constexpr int min_exponent10 = 0;
+    /**
+        One more than the largest power of the radix that is a valid finite
+        value.
+     */
+    static constexpr int max_exponent = 0;
+    /**
+        The largest power of 10 that is a valid finite value.
+     */
+    static constexpr int max_exponent10 = 0;
+    /**
+        Whether any arithmetic operations can trap.
+     */
+    static constexpr bool traps = true;
+    /**
+        Whether tinyness is detected before rounding.
+     */
+    static constexpr bool tinyness_before = false;
+
+    /**
+        @return The smallest possible finite value.
+     */
+    static constexpr unsigned long long min() noexcept { return 0; }
+    /**
+        @return The lowest finite value (is < all other posible values).
+     */
+    static constexpr unsigned long long lowest() noexcept { return 0; }
+    /**
+        @return The largest finite value.
+     */
+    static constexpr unsigned long long max() noexcept { return ULLONG_MAX; }
+    /**
+        @return For floating point types, returns the difference between 1.0 and
+        the next representable value.
+     */
+    static constexpr unsigned long long epsilon() noexcept { return 0; }
+    /**
+        @return The largest possible rounding error.
+     */
+    static constexpr unsigned long long round_error() noexcept { return 0; }
+    /**
+        @return The positive infinity value.
+     */
+    static constexpr unsigned long long infinity() noexcept { return 0; }
+    /**
+        @return The quiet Not a Number value.
+     */
+    static constexpr unsigned long long quiet_NaN() noexcept { return 0; }
+    /**
+        @return The signaling Not a Number value.
+     */
+    static constexpr unsigned long long signaling_NaN() noexcept { return 0; }
+    /**
+        @return The smallest poitive subnormal value.
+     */
+    static constexpr unsigned long long denorm_min() noexcept { return 0; }
+};
+
+/**
+    Contains information about the float type.
+ */
+template<>
+class numeric_limits<float>{
+public:
+    /**
+        Whether the specialisation for this type exists.
+     */
+    static constexpr bool is_specialized = true;
+    /**
+        Whether the type is signed.
+     */
+    static constexpr bool is_signed = true;
+    /**
+        Whether the type represents integers.
+     */
+    static constexpr bool is_integer = false;
+    /**
+        Whether the type is an exact representation.
+     */
+    static constexpr bool is_exact = false;
+    /**
+        Whether the type can represent infinity.
+     */
+    static constexpr bool has_infinity = __FLT_HAS_INFINITY__;
+    /**
+        Whether the type can represent quiet Not a Number.
+     */
+    static constexpr bool has_quiet_NaN = __FLT_HAS_QUIET_NAN__;
+    /**
+        Whether the type can represent signaling Not a Number.
+     */
+    static constexpr bool has_signaling_NaN = has_quiet_NaN;
+    /**
+        The denormalisation style for floating point types.
+     */
+    static constexpr float_denorm_style has_denorm = denorm_present;
+    /**
+        Whether loss of precision is detected as denormalisation loss.
+     */
+    static constexpr bool has_denorm_loss = false;
+    /**
+        The rounding style for floating point types.
+     */
+    static constexpr float_round_style round_style = round_to_nearest;
+    /**
+        Whether the type is IEC 559/IEEE 754 compliant.
+     */
+    static constexpr bool is_iec559 = true;
+    /**
+        Whether the type represents one of a finite set of values.
+     */
+    static constexpr bool is_bounded = true;
+    /**
+        Whether the type handles overflow with modulo arithmetic.
+     */
+    static constexpr bool is_modulo = false;
+    /**
+        The number of radix digits that can be represented without change.
+     */
+    static constexpr int digits = FLT_MANT_DIG;
+    /**
+        The number of decimal digits that can be represented without change.
+     */
+    static constexpr int digits10 = FLT_DIG;
+    /**
+        The number of decimal digits necessary to differentiate all values of
+        this type.
+     */
+    static constexpr int max_digits10 = __FLT_DECIMAL_DIG__;
+    /**
+        The radix used by the representation of this type.
+     */
+    static constexpr int radix = FLT_RADIX;
+    /**
+        One more than the smallest negative power of the radix that is a valid
+        normalised value.
+     */
+    static constexpr int min_exponent = FLT_MIN_EXP;
+    /**
+        The smallest power of 10 that is a valid normalised value.
+     */
+    static constexpr int min_exponent10 = FLT_MIN_10_EXP;
+    /**
+        One more than the largest power of the radix that is a valid finite
+        value.
+     */
+    static constexpr int max_exponent = FLT_MAX_EXP;
+    /**
+        The largest power of 10 that is a valid finite value.
+     */
+    static constexpr int max_exponent10 = FLT_MAX_10_EXP;
+    /**
+        Whether any arithmetic operations can trap.
+     */
+    static constexpr bool traps = false;
+    /**
+        Whether tinyness is detected before rounding.
+     */
+    static constexpr bool tinyness_before = false;
+
+    /**
+        @return The smallest possible finite value.
+     */
+    static constexpr float min() noexcept { return FLT_MIN; }
+    /**
+        @return The lowest finite value (is < all other posible values).
+     */
+    static constexpr float lowest() noexcept { return -FLT_MAX; }
+    /**
+        @return The largest finite value.
+     */
+    static constexpr float max() noexcept { return FLT_MAX; }
+    /**
+        @return For floating point types, returns the difference between 1.0 and
+        the next representable value.
+     */
+    static constexpr float epsilon() noexcept { return FLT_EPSILON; }
+    /**
+        @return The largest possible rounding error.
+     */
+    static constexpr float round_error() noexcept { return 0.5F; }
+    /**
+        @return The positive infinity value.
+     */
+    static constexpr float infinity() noexcept { return HUGE_VALF; }
+    /**
+        @return The quiet Not a Number value.
+     */
+    static constexpr float quiet_NaN() noexcept { return NAN; }
+    /**
+        @return The signaling Not a Number value.
+     */
+    static constexpr float signaling_NaN() noexcept
+    {
+        return __builtin_nansf(""); 
+    }
+    /**
+        @return The smallest poitive subnormal value.
+     */
+    static constexpr float denorm_min() noexcept { return __FLT_DENORM_MIN__; }
+};
+
+/**
+    Contains information about the double type.
+ */
+template<>
+class numeric_limits<double>{
+public:
+    /**
+        Whether the specialisation for this type exists.
+     */
+    static constexpr bool is_specialized = true;
+    /**
+        Whether the type is signed.
+     */
+    static constexpr bool is_signed = true;
+    /**
+        Whether the type represents integers.
+     */
+    static constexpr bool is_integer = false;
+    /**
+        Whether the type is an exact representation.
+     */
+    static constexpr bool is_exact = false;
+    /**
+        Whether the type can represent infinity.
+     */
+    static constexpr bool has_infinity = __DBL_HAS_INFINITY__;
+    /**
+        Whether the type can represent quiet Not a Number.
+     */
+    static constexpr bool has_quiet_NaN = __DBL_HAS_QUIET_NAN__;
+    /**
+        Whether the type can represent signaling Not a Number.
+     */
+    static constexpr bool has_signaling_NaN = has_quiet_NaN;
+    /**
+        The denormalisation style for floating point types.
+     */
+    static constexpr float_denorm_style has_denorm = denorm_present;
+    /**
+        Whether loss of precision is detected as denormalisation loss.
+     */
+    static constexpr bool has_denorm_loss = false;
+    /**
+        The rounding style for floating point types.
+     */
+    static constexpr float_round_style round_style = round_to_nearest;
+    /**
+        Whether the type is IEC 559/IEEE 754 compliant.
+     */
+    static constexpr bool is_iec559 = true;
+    /**
+        Whether the type represents one of a finite set of values.
+     */
+    static constexpr bool is_bounded = true;
+    /**
+        Whether the type handles overflow with modulo arithmetic.
+     */
+    static constexpr bool is_modulo = false;
+    /**
+        The number of radix digits that can be represented without change.
+     */
+    static constexpr int digits = DBL_MANT_DIG;
+    /**
+        The number of decimal digits that can be represented without change.
+     */
+    static constexpr int digits10 = DBL_DIG;
+    /**
+        The number of decimal digits necessary to differentiate all values of
+        this type.
+     */
+    static constexpr int max_digits10 = __DBL_DECIMAL_DIG__;
+    /**
+        The radix used by the representation of this type.
+     */
+    static constexpr int radix = FLT_RADIX;
+    /**
+        One more than the smallest negative power of the radix that is a valid
+        normalised value.
+     */
+    static constexpr int min_exponent = DBL_MIN_EXP;
+    /**
+        The smallest power of 10 that is a valid normalised value.
+     */
+    static constexpr int min_exponent10 = DBL_MIN_10_EXP;
+    /**
+        One more than the largest power of the radix that is a valid finite
+        value.
+     */
+    static constexpr int max_exponent = DBL_MAX_EXP;
+    /**
+        The largest power of 10 that is a valid finite value.
+     */
+    static constexpr int max_exponent10 = DBL_MAX_10_EXP;
+    /**
+        Whether any arithmetic operations can trap.
+     */
+    static constexpr bool traps = false;
+    /**
+        Whether tinyness is detected before rounding.
+     */
+    static constexpr bool tinyness_before = false;
+
+    /**
+        @return The smallest possible finite value.
+     */
+    static constexpr double min() noexcept { return DBL_MIN; }
+    /**
+        @return The lowest finite value (is < all other posible values).
+     */
+    static constexpr double lowest() noexcept { return -DBL_MAX; }
+    /**
+        @return The largest finite value.
+     */
+    static constexpr double max() noexcept { return DBL_MAX; }
+    /**
+        @return For floating point types, returns the difference between 1.0 and
+        the next representable value.
+     */
+    static constexpr double epsilon() noexcept { return DBL_EPSILON; }
+    /**
+        @return The largest possible rounding error.
+     */
+    static constexpr double round_error() noexcept { return 0.5F; }
+    /**
+        @return The positive infinity value.
+     */
+    static constexpr double infinity() noexcept { return HUGE_VAL; }
+    /**
+        @return The quiet Not a Number value.
+     */
+    static constexpr double quiet_NaN() noexcept { return __builtin_nan(""); }
+    /**
+        @return The signaling Not a Number value.
+     */
+    static constexpr double signaling_NaN() noexcept
+    {
+        return __builtin_nans("");
+    }
+    /**
+        @return The smallest poitive subnormal value.
+     */
+    static constexpr double denorm_min() noexcept { return __DBL_DENORM_MIN__; }
+};
+
+/**
+    Contains information about the long double type.
+ */
+template<>
+class numeric_limits<long double>{
+public:
+    /**
+        Whether the specialisation for this type exists.
+     */
+    static constexpr bool is_specialized = true;
+    /**
+        Whether the type is signed.
+     */
+    static constexpr bool is_signed = true;
+    /**
+        Whether the type represents integers.
+     */
+    static constexpr bool is_integer = false;
+    /**
+        Whether the type is an exact representation.
+     */
+    static constexpr bool is_exact = false;
+    /**
+        Whether the type can represent infinity.
+     */
+    static constexpr bool has_infinity = __LDBL_HAS_INFINITY__;
+    /**
+        Whether the type can represent quiet Not a Number.
+     */
+    static constexpr bool has_quiet_NaN = __LDBL_HAS_QUIET_NAN__;
+    /**
+        Whether the type can represent signaling Not a Number.
+     */
+    static constexpr bool has_signaling_NaN = has_quiet_NaN;
+    /**
+        The denormalisation style for floating point types.
+     */
+    static constexpr float_denorm_style has_denorm = denorm_present;
+    /**
+        Whether loss of precision is detected as denormalisation loss.
+     */
+    static constexpr bool has_denorm_loss = false;
+    /**
+        The rounding style for floating point types.
+     */
+    static constexpr float_round_style round_style = round_to_nearest;
+    /**
+        Whether the type is IEC 559/IEEE 754 compliant.
+     */
+    static constexpr bool is_iec559 = true;
+    /**
+        Whether the type represents one of a finite set of values.
+     */
+    static constexpr bool is_bounded = true;
+    /**
+        Whether the type handles overflow with modulo arithmetic.
+     */
+    static constexpr bool is_modulo = false;
+    /**
+        The number of radix digits that can be represented without change.
+     */
+    static constexpr int digits = LDBL_MANT_DIG;
+    /**
+        The number of decimal digits that can be represented without change.
+     */
+    static constexpr int digits10 = LDBL_DIG;
+    /**
+        The number of decimal digits necessary to differentiate all values of
+        this type.
+     */
+    static constexpr int max_digits10 = __LDBL_DECIMAL_DIG__;
+    /**
+        The radix used by the representation of this type.
+     */
+    static constexpr int radix = FLT_RADIX;
+    /**
+        One more than the smallest negative power of the radix that is a valid
+        normalised value.
+     */
+    static constexpr int min_exponent = LDBL_MIN_EXP;
+    /**
+        The smallest power of 10 that is a valid normalised value.
+     */
+    static constexpr int min_exponent10 = LDBL_MIN_10_EXP;
+    /**
+        One more than the largest power of the radix that is a valid finite
+        value.
+     */
+    static constexpr int max_exponent = LDBL_MAX_EXP;
+    /**
+        The largest power of 10 that is a valid finite value.
+     */
+    static constexpr int max_exponent10 = LDBL_MAX_10_EXP;
+    /**
+        Whether any arithmetic operations can trap.
+     */
+    static constexpr bool traps = false;
+    /**
+        Whether tinyness is detected before rounding.
+     */
+    static constexpr bool tinyness_before = false;
+
+    /**
+        @return The smallest possible finite value.
+     */
+    static constexpr long double min() noexcept { return LDBL_MIN; }
+    /**
+        @return The lowest finite value (is < all other posible values).
+     */
+    static constexpr long double lowest() noexcept { return -LDBL_MAX; }
+    /**
+        @return The largest finite value.
+     */
+    static constexpr long double max() noexcept { return LDBL_MAX; }
+    /**
+        @return For floating point types, returns the difference between 1.0 and
+        the next representable value.
+     */
+    static constexpr long double epsilon() noexcept { return LDBL_EPSILON; }
+    /**
+        @return The largest possible rounding error.
+     */
+    static constexpr long double round_error() noexcept { return 0.5F; }
+    /**
+        @return The positive infinity value.
+     */
+    static constexpr long double infinity() noexcept { return HUGE_VALL; }
+    /**
+        @return The quiet Not a Number value.
+     */
+    static constexpr long double quiet_NaN() noexcept
+    { 
+        return __builtin_nanl("");
+    }
+    /**
+        @return The signaling Not a Number value.
+     */
+    static constexpr long double signaling_NaN() noexcept 
+    {
+        return __builtin_nansl("");
+    }
+    /**
+        @return The smallest poitive subnormal value.
+     */
+    static constexpr long double denorm_min() noexcept
+    {
+        return __LDBL_DENORM_MIN__;
+    }
+};
+
+} // NMSP namespace
+
+#endif /* LIMITS_H */

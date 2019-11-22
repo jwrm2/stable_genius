@@ -1,0 +1,1491 @@
+#ifndef FSTREAM_H
+#define FSTREAM_H
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+#include <algorithm>
+#include <ios>
+#include <istream>
+#include <ostream>
+#include <streambuf>
+#include <string>
+
+namespace NMSP {
+
+/**
+    This class implements stream stlye interactions with a file as the
+    associated character sequence.
+ */
+template <typename CharT, typename Traits = char_traits<CharT>>
+class basic_filebuf : public basic_streambuf<CharT, Traits> {
+public:
+    /** Type of the character. */
+    using char_type = CharT;
+    /** Type of the traits. traits_type::char_type must equal char_type. */
+    using traits_type = Traits;
+    /** Type of an int that can represent the char. Taken from traits_type. */
+    using int_type = typename traits_type::int_type;
+    /** Type that can represent a position in a stream. Taken from
+        traits_type. Must be fpos::<traits_type::state_type>. */
+    using pos_type = typename traits_type::pos_type;
+    /** Type of an int that can represent an offset in a stream. Taken from
+        traits_type. */
+    using off_type = typename traits_type::off_type;
+protected:
+    /** Type of the instantiated template parent, just for convenience. */
+    using streambuf_type = basic_streambuf<char_type, traits_type>;
+public:
+
+    /**
+        Default constructor. Initialises the base class, but does not associate
+        with a file.
+     */
+    basic_filebuf() :
+        streambuf_type {},
+        isopen {false},
+        reading {false},
+        writing {false},
+        open_file {nullptr},
+        buffered {true}
+    {}
+
+    /**
+        The copy constructor is deleted.
+
+        @param other basic_filebuf to (not) copy from.
+     */
+    basic_filebuf(const basic_filebuf& other) = delete;
+
+    /**
+        Move constructor. Pirates the buffers and associated file from the
+        other stream. The other stream is left in a closed state and its
+        buffers are set to null, although the file itself is not affected.
+
+        @param other basic_filebuf to pirate.
+     */
+    basic_filebuf(basic_filebuf&& other) :
+        streambuf_type {other},
+        isopen {other.isopen},
+        reading {other.reading},
+        writing {other.writing},
+        open_file {other.open_file},
+        buffered {true}
+    {
+        other.isopen = false;
+        other.open_file = nullptr;
+        other.setg(nullptr, nullptr, nullptr);
+        other.setp(nullptr, nullptr, nullptr);
+    }
+
+    /**
+        Copy assignment is deleted.
+
+        @param other basic_filebuf to (not) copy from.
+     */
+    basic_filebuf& operator=(const basic_filebuf& other) = delete;
+
+    /**
+        Move assignemnt. Closes the currently associated file. Then pirates the
+        buffers and associated file from the other stream. The other stream is 
+        left in a closed state and its buffers
+        are set to null, although the file itself is not affected.
+
+        @param other basic_filebuf to pirate.
+     */
+    basic_filebuf& operator=(basic_filebuf&& other)
+    {
+        close();
+
+        streambuf_type::operator=(other);
+        isopen = other.isopen;
+        reading = other.reading;
+        writing = other.writing;
+        open_file = other.open_file;
+        buffered = other.buffered;
+
+        other.isopen = false;
+        other.open_file = nullptr;
+        other.setg(nullptr, nullptr, nullptr);
+        other.setp(nullptr, nullptr, nullptr);
+
+        return *this;
+    }
+
+    /**
+        Swaps the contents of two basic_filebufs.
+
+        @param other basic_filebuf to swap with.
+     */
+    void swap(basic_filebuf& other)
+    {
+        streambuf_type::swap(other);
+        NMSP::swap(isopen, other.isopen);
+        NMSP::swap(reading, other.reading);
+        NMSP::swap(writing, other.writing);
+        NMSP::swap(open_file, other.open_file);
+        NMSP::swap(buffered, other.buffered);
+    }
+
+    /**
+        Destructor. Calls close to possibly flush, free the memory of the
+        buffers and set is_open to false.
+     */
+    ~basic_filebuf() { close(); }
+
+    /**
+        Tests whether there is an open file associated with the buffer, that is
+        whether the last call to open() succeeded and there hasn't been a call
+        to close() since then.
+
+        @return Whether there is an open file associated.
+     */
+    bool is_open() const { return isopen; }
+
+    /**
+        Opens the file with the specified name, with the specified mode, by
+        forwarding the call to fopen(). Does nothing if there is already an
+        associated file. Allocates memory for the read and/or write internal
+        buffers, depending on the open mode, but does not fill the read buffer.
+
+        @param s Null terminated C-string containing the file name.
+        @param str String containing the file name.
+        @param m The mode to open the file in, a combination of
+               ios_base::openmode members.
+        @return this on success, nullptr on failure.
+     */
+    basic_filebuf* open(const char* s, ios_base::openmode m)
+    {
+        // Check whether there is already an associated file.
+        if (isopen)
+            return nullptr;
+
+        // Reset flags.
+        reading = false;
+        writing = false;
+        append = false;
+        last_underflow = false;
+
+        // Get rid of ate bit.
+        bool ate = (m & ios_base::ate);
+        m &= ~ios_base::ate;
+
+        // Determine the cstdio mode string.
+        string c_mode;
+        switch(static_cast<size_t>(m))
+        {
+        case ios_base::in:
+            c_mode = "r";
+            reading = true;
+            break;
+        case ios_base::out: case (ios_base::out | ios_base::trunc):
+            c_mode = "w";
+            writing = true;
+            break;
+        case ios_base::app: case (ios_base::app | ios_base::out):
+            c_mode = "a";
+            writing = true;
+            append = true;
+            break;
+        case (ios_base::in | ios_base::out):
+            c_mode = "r+";
+            reading = true;
+            writing = true;
+            break;
+        case (ios_base::in | ios_base::out | ios_base::trunc):
+            c_mode = "w+";
+            reading = true;
+            writing = true;
+            break;
+        case (ios_base::app | ios_base::in):
+        case (ios_base::app | ios_base::in | ios_base::out):
+            c_mode = "a+";
+            reading = true;
+            writing = true;
+            append = true;
+            break;
+        case (ios_base::binary | ios_base::in):
+            c_mode = "rb";
+            reading = true;
+            break;
+        case (ios_base::binary | ios_base::out):
+        case (ios_base::binary | ios_base::out | ios_base::trunc):
+            c_mode = "wb";
+            writing = true;
+            break;
+        case (ios_base::app | ios_base::binary):
+        case (ios_base::app | ios_base::binary | ios_base::out):
+            c_mode = "ab";
+            writing = true;
+            append = true;
+            break;
+        case (ios_base::binary | ios_base::in | ios_base::out):
+            c_mode = "r+b";
+            reading = true;
+            writing = true;
+            break;
+        case (ios_base::binary | ios_base::in | ios_base::out |
+            ios_base::trunc):
+            c_mode = "w+b";
+            reading = true;
+            writing = true;
+            break;
+        case (ios_base::app | ios_base::binary | ios_base::in):
+        case (ios_base::app | ios_base::binary | ios_base::in | ios_base::out):
+            c_mode = "a+b";
+            reading = true;
+            writing = true;
+            append = true;
+            break;
+        default:
+            return nullptr;
+        }
+
+        // Forward the call to open the file.
+        open_file = NMSP::fopen(s, c_mode.c_str());
+        if (open_file == nullptr)
+            return nullptr;
+        isopen = true;
+
+        // If the ate bit is set, attempt to seek to the end of the file.
+        if (ate)
+        {
+            int ret_val = NMSP::fseek(open_file, 0, SEEK_END);
+            if (ret_val != 0)
+            {
+                close();
+                return nullptr;
+            }
+        }
+
+        // If buffers have been provided by setbuf, we may need to set pointers
+        // to nullptr.
+        if (!reading && streambuf_type::eback() != nullptr)
+            streambuf_type::setg(nullptr, nullptr, nullptr);
+        if (!writing && streambuf_type::pbase() != nullptr)
+            streambuf_type::setp(nullptr, nullptr, nullptr);
+
+        // Allocate buffer. The get and put areas share the same space.
+        if (reading && streambuf_type::eback() == nullptr && buffered)
+        {
+            char_type* temp;
+            if (streambuf_type::pbase() == nullptr)
+                temp = new char_type[BUFSIZ];
+            else
+                temp = streambuf_type::pbase();
+            // We haven't read anything yet, so the end of the read buffer is
+            // the same as the start.
+            streambuf_type::setg(temp, temp, temp);
+        }
+
+        if (writing && streambuf_type::pbase() == nullptr && buffered)
+        {
+            char_type* temp;
+            if (streambuf_type::eback() == nullptr)
+                temp = new char_type[BUFSIZ];
+            else
+                temp = streambuf_type::eback();
+            streambuf_type::setp(temp, temp, temp + BUFSIZ);
+        }
+
+        // If reading, and not appending fill the buffer.
+        // Postpone filling the buffer until the first read, to avoid waste if
+        // the first call is a seek.
+//        if (reading && !append && streambuf_type::eback() != nullptr)
+//            underflow();
+
+        return this;
+    }
+
+    basic_filebuf* open(const string& s, ios_base::openmode m)
+    {
+        return open(s.c_str(), m);
+    }
+
+    /**
+        Closes the associated file. Flushes the output buffer, if the file was
+        open for writing, then frees the memory for internal buffers, before
+        forwarding the call to fclose(). Does nothing if the file is already
+        closed.
+
+        @return This basic_filebuf on success, nullptr on failure.
+     */
+    basic_filebuf* close()
+    {
+        // Check whether there is an associated to close.
+        if (!isopen)
+            return nullptr;
+
+        // Flush the output.
+        int_type ret_val1 = 0;
+        if (writing)
+            ret_val1 = overflow();
+
+        // Close the file.
+        int ret_val2 = NMSP::fclose(open_file);
+        delete open_file;
+        isopen = false;
+
+        // Free buffers.
+        if (streambuf_type::eback() != nullptr && buffered)
+        {
+            delete[] streambuf_type::eback();
+            streambuf_type::setg(nullptr, nullptr, nullptr);
+        }
+        else if (streambuf_type::pbase() != nullptr && buffered)
+        {
+            delete[] streambuf_type::pbase();
+            streambuf_type::setp(nullptr, nullptr, nullptr);
+        }
+
+        if (!traits_type::eq_int_type(ret_val1, traits_type::eof()) && 
+            ret_val2 == 0)
+            return this;
+        return nullptr;
+    }
+
+    /**
+        Override sputc() from streambuf. This is only needed when the file is
+        open for reading and appending and the last action was an underflow that
+        put stuff in the get area that we need to discard.
+
+        @param ch Character to write.
+        @return The character written, or eof on failure.
+     */
+    virtual int_type sputc(char_type ch) override
+    {
+        if (append && reading && last_underflow)
+        {
+            streambuf_type::setg(streambuf_type::eback(),
+                streambuf_type::eback(), streambuf_type::eback());
+            streambuf_type::setp(streambuf_type::pbase(),
+                streambuf_type::pbase(), streambuf_type::epptr());
+        }
+        return streambuf_type::sputc(ch);
+    }
+
+protected:
+    /** Whether there is currently an associated file. */
+    bool isopen;
+    /** Whether the file is open for reading. */
+    bool reading;
+    /** Whether the file is open for writing. */
+    bool writing;
+    /** Whether we are appending. */
+    bool append;
+    /** Whether the last action was an underflow. Matters for append. */
+    bool last_underflow;
+    /** Pointer to the associated file. */
+    FILE* open_file;
+    /** Whether this object owens the buffers it's using. */
+    bool buffered;
+
+    /**
+        If the file is open for reading, gives the number of characters known
+        to be available. Subsequent reads will be able to get at least that
+        many characters. This implementation indicates the number of characters
+        remaining in the current get area. Gives -1 if the file is not open for
+        reading or if EoF has been reached. 0 indicates nothing could be
+        determined.
+
+        @return The number of characters definitely available for reading. 0 for
+                 no information, -1 for no more chartacters.
+     */
+    virtual streamsize showmanyc() override
+    {
+        // Do nothing unless the file is open for reading.
+        if (isopen && reading)
+        {
+            // If we have a get area, return the number of characters still in
+            // it.
+            if (streambuf_type::eback() != nullptr)
+                return streambuf_type::egptr() - streambuf_type::gptr();
+            // We may be unbuffered: in that case return 0 (unknown).
+            else
+                return 0;
+        }
+        // Return -1 if not open or not open for reading.
+        return -1;
+    }
+
+    /**
+        Reads data from the associated file into the get area.
+
+        @return The first character read on success, EoF on failure.
+     */
+    virtual int_type underflow() override
+    {
+        // Do nothing unless the file is open for reading.
+        if (isopen && reading)
+        {
+            // Don't bother doing anything if there is still data available.
+            if (streambuf_type::gptr() < streambuf_type::egptr())
+                return traits_type::to_int_type(*streambuf_type::gptr());
+
+            // If we have a put area, flush the data first.
+            if (streambuf_type::pbase() != nullptr &&
+                !(reading && append && last_underflow))
+                if (traits_type::eq_int_type(overflow(), traits_type::eof()))
+                    // Flushing failed. Bail.
+                    return traits_type::eof();
+
+            // Overflow may have successfully refilled the buffer, so we might
+            // be able to stop here.
+            if (streambuf_type::gptr() < streambuf_type::egptr())
+                return traits_type::to_int_type(*streambuf_type::gptr());
+
+            // Fill the buffer, if we have one.
+            if (streambuf_type::eback() != nullptr)
+            {
+                // Now read from the actual file.
+                streamsize read_size = NMSP::fread(streambuf_type::eback(),
+                    sizeof(char_type), BUFSIZ, open_file);
+                last_underflow = true;
+
+                // Adjust pointers.
+                streambuf_type::setg(streambuf_type::eback(),
+                    streambuf_type::eback(),
+                    streambuf_type::eback() + read_size);
+                if (streambuf_type::pbase() != nullptr)
+                    streambuf_type::setp(streambuf_type::pbase(),
+                        streambuf_type::pbase(),
+                        streambuf_type::pbase() + BUFSIZ);
+
+                // Check for failure.
+                if (read_size == 0)
+                    return traits_type::eof();
+
+                return traits_type::to_int_type(*streambuf_type::gptr());
+            }
+            // If we don't have a buffer, read a single character.
+            else
+            {
+                char_type c;
+                streamsize read_size = NMSP::fread(&c, sizeof(char_type), 1,
+                    open_file);
+                if (read_size == 0)
+                    return traits_type::eof();
+
+                return traits_type::to_int_type(c);
+            }
+        }
+
+        // Failure return if not open for reading.
+        return traits_type::eof();
+    }
+
+    /**
+        Similar to underflow, but advances the get pointer by one. The standard
+        seems to indicate that an override of the version from basic_streambuf
+        is required, but I don't see why that's necessary.
+
+        @return  The value of the read character on success, EoF on failure.
+     */
+    using streambuf_type::uflow;
+
+    /**
+        Puts a character back in to the get area to be read again. May be the
+        same or a different character. May fail if at the start of the file or
+        if the file is open for reading only and a different character is being
+        put back.
+
+        @param c Character to put back. Defaults to EoF, which means use the
+               character that was there already.
+        @return EoF on failure. c on success, unless c was EoF, in which some
+                character other than EoF.
+     */
+    virtual int_type pbackfail(int_type c = traits_type::eof()) override
+    {
+        // Do nothing unless the file is open for reading and we have a buffer.
+        if (isopen && reading && streambuf_type::eback() != nullptr)
+        {
+            // We shouldn't really have called this function if there's space
+            // in the get area, but we'll check for it anyway.
+            if (streambuf_type::eback() < streambuf_type::gptr())
+                gbump(-1);
+
+            // We need to reread the buffer one place back.
+            else
+            {
+                // We need to shift back by one.
+                streamoff shift = -1;
+
+                // If we have a put area, flush the data first.
+                if (streambuf_type::pbase() != nullptr)
+                {
+                    // Adjust the shift to account for the move from overflow.
+                    shift -= (streambuf_type::egptr() == streambuf_type::eback()
+                        ? streambuf_type::pptr() - streambuf_type::pbase() :
+                        streambuf_type::egptr() - streambuf_type::eback());
+
+                    if (traits_type::eq_int_type(overflow(),
+                        traits_type::eof()))
+                        // Flushing failed. Bail.
+                        return traits_type::eof();
+                }
+
+                // Now move the associated file position back to one before the
+                // previous start of the buffer and reread.
+                if (NMSP::fseek(open_file, shift, SEEK_CUR) != 0)
+                    // Seek failed. Bail.
+                    return traits_type::eof();
+                 if (traits_type::eq_int_type(underflow(), traits_type::eof()))
+                    // Failed to refill the buffer. Bail.
+                    return traits_type::eof();
+            }
+
+            // If we're not changing the character, we're done. If we are, we
+            // need to be able to write.
+            if (traits_type::eq_int_type(c, traits_type::eof()))
+                return traits_type::not_eof(c);
+            else if (traits_type::eq_int_type(c,
+                traits_type::to_int_type(*streambuf_type::gptr())))
+                return c;
+            else if (writing)
+            {
+                *streambuf_type::gptr() = traits_type::to_char_type(c);
+                return c;
+            }
+        }
+        return traits_type::eof();
+    }
+
+    /**
+        Ensures there is space for more writing by flushing the internal buffer
+        to the associated file. If a character other than EoF is provided,
+        writes that character too.
+
+        @param ch Character to write. EoF indicates don't write a character.
+        @return Some character other than EoF on success, EoF on failure.
+     */
+    virtual int_type overflow(int_type ch = traits_type::eof()) override
+    {
+        // Do nothing unless the file is open for writing.
+        if (writing && isopen)
+        {
+            // If we're open for reading and appending and the last action was
+            // an underflow that put stuff in the get area, we need to discard
+            // that stuff rather than writing it to the end of the file.
+            if (reading && append && last_underflow)
+            {
+                streambuf_type::setg(streambuf_type::eback(),
+                    streambuf_type::eback(), streambuf_type::eback());
+                streambuf_type::setp(streambuf_type::pbase(),
+                    streambuf_type::pbase(), streambuf_type::epptr());
+                last_underflow = false;
+            }
+
+            // Check whether we need to write the character.
+            bool to_write = !traits_type::eq_int_type(ch, traits_type::eof());
+
+            // If we have space in the put area, append the character to it.
+            if (streambuf_type::pptr() < streambuf_type::epptr() && to_write)
+            {
+                *streambuf_type::pptr() = traits_type::to_char_type(ch);
+                pbump(1);
+                to_write = false;
+            }
+
+            // Flush the buffer.
+            if (streambuf_type::pbase() != nullptr)
+            {
+                // If we're open for reading and in the middle of the file, we
+                // need to move the associated file position back to overwrite.
+                if (reading && !append &&
+                    streambuf_type::eback() != streambuf_type::egptr())
+                {
+                    if (NMSP::fseek(open_file, streambuf_type::eback() -
+                        streambuf_type::egptr(), SEEK_CUR) != 0)
+                        // Seek failed. Bail.
+                        return traits_type::eof();
+                }
+
+                // Write the buffer.
+                int_type ret_val = NMSP::fwrite(streambuf_type::pbase(),
+                    sizeof(char_type),
+                    streambuf_type::pptr() - streambuf_type::pbase(),
+                    open_file);
+                last_underflow = false;
+
+                if (ret_val !=
+                    streambuf_type::pptr() - streambuf_type::pbase())
+                    return traits_type::eof();
+
+                // Flush the write.
+                ret_val = NMSP::fflush(open_file);
+
+                if (ret_val != 0)
+                    return traits_type::eof();
+
+                // Reset pointers.
+                streambuf_type::setp(streambuf_type::pbase(),
+                    streambuf_type::pbase(), streambuf_type::pbase() + BUFSIZ);
+
+                // Refill the buffer if we're reading, but not appending, too.
+                if (reading && !append && streambuf_type::eback() != nullptr)
+                {
+                    // This is allowed to fail as we may be at the end of the
+                    // file.
+                    streamsize read_size = NMSP::fread(streambuf_type::eback(),
+                        sizeof(char_type), BUFSIZ, open_file);
+                    last_underflow = true;
+
+                    streambuf_type::setg(streambuf_type::eback(),
+                        streambuf_type::eback(),
+                        streambuf_type::eback() + read_size);
+                }
+
+                // We may still have a character to write. Just put it in the
+                // new buffer.
+                if (to_write)
+                {
+                    *streambuf_type::pptr() = traits_type::to_char_type(ch);
+                    pbump(1);
+                }
+            }
+            else if (to_write)
+            {
+                // We're operating in unbuffered mode and we have a character to
+                // write. Send it.
+                size_t ret_val = NMSP::fwrite(&ch, sizeof(char_type), 1,
+                    open_file);
+                if (ret_val != 1)
+                    return traits_type::eof();
+            }
+
+            // Success if we've got here.
+            return traits_type::not_eof(ch);
+        }
+        return traits_type::eof();
+    }
+
+    /**
+        Sets this to an unbuffered stream, or sets the internal buffer to the
+        space provided. Only allowed when not associated with a file, has no
+        effect otherwise.
+
+        @param s Start of the user provided buffer, or nullptr to indicate
+               unbuffered.
+        @param n Number of elements available in the buffer, or 0 to indicate
+               unbuffered.
+        @return This basic_filebuf, as a basic_streambuf pointer.
+     */
+    virtual streambuf_type* setbuf(char_type* s, streamsize n) override
+    {
+        // Do nothing if the file is already open.
+        if (isopen)
+            return this;
+
+        // Set to unbuffered mode.
+        if (s == nullptr && n == 0)
+        {
+            // Deallocate buffer if it exists.
+            if (streambuf_type::eback() != nullptr && buffered)
+            {
+                delete[] streambuf_type::eback();
+                streambuf_type::setg(nullptr, nullptr, nullptr);
+            }
+            else if (streambuf_type::pbase() != nullptr && buffered)
+            {
+                delete[] streambuf_type::pbase();
+                streambuf_type::setp(nullptr, nullptr, nullptr);
+            }
+        }
+        else if (s != nullptr && n > 0)
+        {
+            // Replace current buffer.
+            if (streambuf_type::eback() != nullptr && buffered)
+                delete[] streambuf_type::eback();
+            
+            else if (streambuf_type::pbase() != nullptr && buffered)
+                delete[] streambuf_type::pbase();
+
+            if (reading)
+                streambuf_type::setg(s, s, s + n);
+
+            if (writing)
+                streambuf_type::setp(s, s, s + n);
+        }
+
+        // Set buffered to false to indicate the object does not own a buffer.
+        buffered = false;
+        return this;
+    }
+
+    /**
+        Repositions the file pointer to the position off from dir.
+
+        @param off Offset from dir to position to.
+        @param dir Base position, beg, cur or end.
+        @param which Whether to reposition the get or put area. Since these are
+               shared for basic_filebuf, this is ignored.
+        @return The new absolute position in the file on success, or -1 on
+                failure.
+     */
+    virtual pos_type seekoff(off_type off, ios_base::seekdir dir,
+        ios_base::openmode) override
+    {
+        // Don't do anything if the file is not open.
+        if (!isopen)
+            return pos_type {-1};
+
+        // If we have a put area, flush the data first. This also means we don't
+        // have to worry about saving a high water mark, as the buffer is always
+        // flushed on a move.
+        if (streambuf_type::pbase() != nullptr &&
+            !(reading && append && last_underflow))
+            if (traits_type::eq_int_type(overflow(), traits_type::eof()))
+                // Flushing failed. Bail.
+                return pos_type {-1};
+
+        // Call fseek to do the shift.
+        int ret_val = -1;
+        switch (dir)
+        {
+        case ios_base::beg:
+            ret_val = NMSP::fseek(open_file, off, SEEK_SET);
+            break;
+        case ios_base::cur:
+            // If the file is open for reading, we need to move the offset back
+            // by the unread buffer size, to account for having already read
+            // from the file.
+            if (reading && streambuf_type::eback() != nullptr)
+                off -= (streambuf_type::egptr() - streambuf_type::gptr());
+            ret_val = NMSP::fseek(open_file, off, SEEK_CUR);
+            break;
+        case ios_base::end:
+            ret_val = NMSP::fseek(open_file, off, SEEK_END);
+            break;
+        }
+        if (ret_val != 0)
+            return pos_type {-1};
+
+        // Set the buffers to empty.
+        if (streambuf_type::eback() != nullptr)
+            streambuf_type::setg(streambuf_type::eback(),
+                streambuf_type::eback(), streambuf_type::eback());
+        if (streambuf_type::pbase() != nullptr)
+            streambuf_type::setp(streambuf_type::pbase(),
+                streambuf_type::pbase(), streambuf_type::pbase() + BUFSIZ);
+
+        // Get the current position, for returning.
+        pos_type fpos_ret {-1};
+        // fpos_ret is a pos_type (fpos<traits_type::state_type>), whereas
+        // fgetpos needs a fpos_t* (C-style) type. Within klib, these are the
+        // same (see the forward declarations in cstdio.h), but for a
+        // HOSTED_TEST, fpos_t is defined by the system library. We'll just
+        // assume we can convert, which isn't very portable, but should work
+        // with glibc.
+        ret_val = NMSP::fgetpos(open_file,
+            reinterpret_cast<fpos_t*>(&fpos_ret));
+        if (ret_val != 0)
+            return pos_type {-1};
+        return fpos_ret;
+    }
+
+    /**
+        Repositions the file pointer to the absolute position specified. Calls
+        seekoff with dir set as the beginning.
+
+        @param sp Position to set.
+        @param which Whether to reposition the get or put area. Since these are
+               shared for basic_filebuf, this is ignored.
+        @return The new absolute position in the file on success, or -1 on
+                failure.
+     */
+    virtual pos_type seekpos(pos_type sp,
+        ios_base::openmode which = ios_base::in | ios_base::out) override
+    {
+        return seekoff(off_type{sp}, ios_base::beg, which);
+    }
+
+    /**
+        Resynchronises the buffer with the underlying file. If the put area is
+        active, calls overflow to write the data. If the get area is active,
+        discard it, move the file position back and reread it.
+
+        @return 0 on success, -1 on failure.
+     */
+    virtual int sync() override
+    {
+        // Save the curent offset.
+        off_type off {-1};
+        if (reading)
+            off = streambuf_type::gptr() - streambuf_type::eback();
+
+        // If we have a put area, flush the data first.
+        if (streambuf_type::pbase() != nullptr &&
+            !(reading && append && last_underflow))
+            if (traits_type::eq_int_type(overflow(), traits_type::eof()))
+                // Flushing failed. Bail.
+                return -1;
+        int ret_val = NMSP::fflush(open_file);
+        if (ret_val != 0)
+            // Underlying flush failed. Bail.
+            return -1;
+
+        // Reread the get area. The overflow probably did this already, but
+        // we've flushed the associated file since then.
+        if (reading)
+        {
+            // Move the position back.
+            ret_val = NMSP::fseek(open_file,
+                streambuf_type::eback() - streambuf_type::egptr(), SEEK_CUR);
+            if (ret_val != 0)
+                // Seek failed. Bail.
+                return -1;
+
+            // Reread buffer.
+            streamsize read_size = NMSP::fread(streambuf_type::eback(),
+                sizeof(char_type), BUFSIZ, open_file);
+
+            // Adjust pointers.
+            streambuf_type::setg(streambuf_type::eback(),
+                streambuf_type::eback() + min(off, read_size),
+                streambuf_type::eback() + read_size);
+            if (streambuf_type::pbase() != nullptr)
+                streambuf_type::setp(streambuf_type::pbase(),
+                    streambuf_type::gptr(),
+                    streambuf_type::pbase() + BUFSIZ);
+        }
+
+        // Success if we've reached here.
+        return 0;
+    }
+
+    /**
+        Changes the associated locale.
+        TODO skipping locale stuff for now.
+
+        @param loc New locale to set.
+     */
+    // virtual void imbue(const locale& loc) override;
+
+
+    /**
+        Calls the parent gbump() to advance the get pointer. If we're also open
+        for writing, keeps the put pointer in step.
+
+        @param count Number of characters to advance the next pointer by.
+     */
+    virtual void gbump(int count) override
+    {
+        streambuf_type::gbump(count);
+        if (writing && streambuf_type::pbase() != nullptr)
+            streambuf_type::setp(streambuf_type::pbase(),
+                streambuf_type::gptr(), streambuf_type::epptr());
+    }
+
+    /**
+        Calls the parent pbump() to advance the put pointer. If we're also open
+        for reading, keeps the get pointer in step.
+
+        @param count Number of characters to advance the next pointer by.
+     */
+    virtual void pbump(int count) override
+    {
+        streambuf_type::pbump(count);
+        if (reading && streambuf_type::eback() != streambuf_type::egptr())
+            streambuf_type::setg(streambuf_type::eback(),
+                streambuf_type::pptr(), streambuf_type::egptr());
+    }
+
+    /**
+        Override xsputn() from streambuf. This is only needed when the file is
+        open for reading and appending and the last action was an underflow that
+        put stuff in the get area that we need to discard.
+
+        @param s Buffer to get the characters from.
+        @param count Number of characters to write.
+        @return The number of characters write. Will equal count on success.
+                Will be less than count if eof was reached.
+     */
+    virtual streamsize xsputn(const char_type* s, streamsize count)
+    {
+        if (append && reading && last_underflow)
+        {
+            streambuf_type::setg(streambuf_type::eback(),
+                streambuf_type::eback(), streambuf_type::eback());
+            streambuf_type::setp(streambuf_type::pbase(),
+                streambuf_type::pbase(), streambuf_type::epptr());
+        }
+        return streambuf_type::xsputn(s, count);
+    }
+};
+
+/**
+    Specialisation of basic_stringbuf for the simple char type.
+ */
+using filebuf = basic_filebuf<char>;
+
+/**
+    Specialisation of swap() for basic_filebuf. Swaps the contents and states
+    of the two buffers. Calls lhs.swap(rhs).
+
+    @param lhs, rhs Two basic_filebufs to swap.
+ */
+template <typename CharT, typename Traits>
+void swap(basic_filebuf<CharT, Traits>& lhs, basic_filebuf<CharT, Traits>& rhs)
+{
+    lhs.swap(rhs);
+}
+
+/**
+    This class provides a file specific output stream that interfaces with a
+    basic_filebuf.
+ */
+template <class CharT, class Traits = char_traits<CharT>>
+class basic_ofstream : public basic_ostream<CharT, Traits> {
+public:
+    /** Type of the character. */
+    using char_type = CharT;
+    /** Type of the traits. traits_type::char_type must equal char_type. */
+    using traits_type = Traits;
+    /** Type of an int that can represent the char. Taken from traits_type. */
+    using int_type = typename traits_type::int_type;
+    /** Type that can represent a position in a stream. Taken from
+        traits_type. */
+    using pos_type = typename traits_type::pos_type;
+    /** Type of an int that can represent an offset in a stream. Taken from
+        traits_type. */
+    using off_type = typename traits_type::off_type;
+
+protected:
+    /** The type of the parent basic_ostream, for convenience. */
+    using ostream_type = basic_ostream<char_type, traits_type>;
+    /** Type of the underlying string buffer, for convenience. */
+    using filebuf_type =
+        basic_filebuf<char_type, traits_type>;
+
+public:
+    /**
+        Default constructor. Creates a basic_filebuf not associated with any
+        file and constucts the base.
+     */
+    basic_ofstream() : ostream_type {nullptr}, fb {}
+    {
+        ostream_type::init(&fb);
+    }
+
+    /**
+        Constructor. Opens the file with the specified name with the specified
+        mode, with the addition of ios_base::out.
+
+        @param filename Name of the file to open.
+        @param mode Mode in which to open the file.
+     */
+    explicit basic_ofstream(const char* filename,
+        ios_base::openmode mode = ios_base::out) : ostream_type {nullptr}, fb {}
+    {
+        ostream_type::init(&fb);
+        if (fb.open(filename, mode | ios_base::out) == nullptr)
+            ostream_type::setstate(ios_base::failbit);
+    }
+
+    explicit basic_ofstream(const string& filename,
+        ios_base::openmode mode = ios_base::out) :
+        basic_ofstream {filename.c_str(), mode}
+    {}
+
+    /**
+        Copy constructor is deleted.
+
+        @param other Other ofstream to (not) copy.
+     */
+    basic_ofstream(const basic_ofstream& other) = delete;
+
+    /**
+        Move constructor. Pirates the state from the other ofstream. The state
+        move is handled by the parent constructor. The member filebuf is also
+        moved and the inherited buffer pointer is redirected. The other buffer
+        pointer is set to nullptr.
+
+        @param other Other ofstream to pirate from.
+     */
+    basic_ofstream(basic_ofstream&& other) :
+        ostream_type {move(other)},
+        fb {move(other.fb)}
+    {
+        ostream_type::set_rdbuf(&fb);
+        other.set_rdbuf(nullptr);
+    }
+
+    /**
+        Move assignment. Pirates the state from the other ofstream. The state
+        move is handled by the parent type. The member filebuf is also
+        moved and the inherited buffer pointer is redirected. The other buffer
+        pointer is set to nullptr.
+
+        @param other Other ofstream to pirate from.
+        @return This ofstream.
+     */
+    basic_ofstream& operator=(basic_ofstream&& other)
+    {
+        ostream_type::operator=(move(other));
+        fb = move(other.fb);
+        ostream_type::set_rdbuf(&fb);
+        other.set_rdbuf(nullptr);
+
+        return *this;
+    }
+
+    /**
+        Swaps the state and buffer of this ofstream with another. The parent
+        ostream swap() method is called to swap the state and the swap()
+        method of the underlying buffer is called to swap the buffers.
+
+        @param other Other ofstream to swap with.
+     */
+    void swap(basic_ofstream& other)
+    {
+        ostream_type::swap(other);
+        fb.swap(other.fb);
+    }
+
+    /**
+        Returns the pointer to the underlying file buffer.
+
+        @return Pointer to the underlying file buffer.
+     */
+    filebuf_type* rdbuf() const
+    {
+        return const_cast<filebuf_type*>(&fb);
+    }
+
+    /**
+        Checks whether the stream has an open associated file. Calls the member
+        filebuf open() method.
+
+        @return Whether there is an open file associated with the stream.
+     */
+    bool is_open() const { return fb.is_open(); }
+
+    /**
+        Calls the member filebuf open() method to open and associate a file.
+        Sets the state depending on the success of the call. The file is open
+        in the provided mode, with the addition of ios_base::out.
+
+        @param filename Name of the file to open.
+        @param mode Mode toopen the file in. Defaults to ios_base::out.
+     */
+    void open(const char* filename, ios_base::openmode mode = ios_base::out)
+    {
+        if (fb.open(filename, mode | ios_base::out) == nullptr)
+            ostream_type::setstate(ios_base::failbit);
+        else
+            ostream_type::clear();
+    }
+
+    void open(const string& filename, ios_base::openmode mode = ios_base::out)
+    {
+        open(filename.c_str(), mode);
+    }
+
+    /**
+        Calls the member filebuf close() method to flush and close the
+        associated file. Sets the state to fail if the call fails.
+     */
+    void close()
+    {
+        if (fb.close() == nullptr)
+            ostream_type::setstate(ios_base::failbit);
+    }
+
+protected:
+    // The basic_filebuf. The inherited buffer member pointer will be set to
+    // point at this.
+    filebuf_type fb;
+};
+
+/**
+    Specialisation of basic_ofstream for the simple char type.
+ */
+using ofstream = basic_ofstream<char>;
+
+/**
+    Specialisation of swap() for basic_ofstream. Swaps the contents and states
+    of the two streams. Calls lhs.swap(rhs).
+
+    @param lhs, rhs Two basic_ofstreams to swap.
+ */
+template <typename CharT, typename Traits>
+void swap(basic_ofstream<CharT, Traits>& lhs,
+    basic_ofstream<CharT, Traits>& rhs)
+{
+    lhs.swap(rhs);
+}
+
+/**
+    This class provides a file specific input stream that interfaces with a
+    basic_filebuf.
+ */
+template <class CharT, class Traits = char_traits<CharT>>
+class basic_ifstream : public basic_istream<CharT, Traits> {
+public:
+    /** Type of the character. */
+    using char_type = CharT;
+    /** Type of the traits. traits_type::char_type must equal char_type. */
+    using traits_type = Traits;
+    /** Type of an int that can represent the char. Taken from traits_type. */
+    using int_type = typename traits_type::int_type;
+    /** Type that can represent a position in a stream. Taken from
+        traits_type. */
+    using pos_type = typename traits_type::pos_type;
+    /** Type of an int that can represent an offset in a stream. Taken from
+        traits_type. */
+    using off_type = typename traits_type::off_type;
+
+protected:
+    /** The type of the parent basic_istream, for convenience. */
+    using istream_type = basic_istream<char_type, traits_type>;
+    /** Type of the underlying string buffer, for convenience. */
+    using filebuf_type =
+        basic_filebuf<char_type, traits_type>;
+
+public:
+    /**
+        Default constructor. Creates a basic_filebuf not associated with any
+        file and constucts the base.
+     */
+    basic_ifstream() : istream_type {nullptr}, fb {}
+    {
+        istream_type::init(&fb);
+    }
+
+    /**
+        Constructor. Opens the file with the specified name with the specified
+        mode, with the addition of ios_base::in.
+
+        @param filename Name of the file to open.
+        @param mode Mode in which to open the file.
+     */
+    explicit basic_ifstream(const char* filename,
+        ios_base::openmode mode = ios_base::in) : istream_type {nullptr}, fb {}
+    {
+        istream_type::init(&fb);
+        if (fb.open(filename, mode | ios_base::in) == nullptr)
+            istream_type::setstate(ios_base::failbit);
+    }
+
+    explicit basic_ifstream(const string& filename,
+        ios_base::openmode mode = ios_base::in) :
+        basic_ifstream {filename.c_str(), mode}
+    {}
+
+    /**
+        Copy constructor is deleted.
+
+        @param other Other ifstream to (not) copy.
+     */
+    basic_ifstream(const basic_ifstream& other) = delete;
+
+    /**
+        Move constructor. Pirates the state from the other ifstream. The state
+        move is handled by the parent constructor. The member filebuf is also
+        moved and the inherited buffer pointer is redirected. The other buffer
+        pointer is set to nullptr.
+
+        @param other Other ifstream to pirate from.
+     */
+    basic_ifstream(basic_ifstream&& other) :
+        istream_type {move(other)},
+        fb {move(other.fb)}
+    {
+        istream_type::set_rdbuf(&fb);
+        other.set_rdbuf(nullptr);
+    }
+
+    /**
+        Move assignment. Pirates the state from the other ifstream. The state
+        move is handled by the parent type. The member filebuf is also
+        moved and the inherited buffer pointer is redirected. The other buffer
+        pointer is set to nullptr.
+
+        @param other Other ifstream to pirate from.
+        @return This ifstream.
+     */
+    basic_ifstream& operator=(basic_ifstream&& other)
+    {
+        istream_type::operator=(move(other));
+        fb = move(other.fb);
+        istream_type::set_rdbuf(&fb);
+        other.set_rdbuf(nullptr);
+
+        return *this;
+    }
+
+    /**
+        Swaps the state and buffer of this ifstream with another. The parent
+        istream swap() method is called to swap the state and the swap()
+        method of the underlying buffer is called to swap the buffers.
+
+        @param other Other ifstream to swap with.
+     */
+    void swap(basic_ifstream& other)
+    {
+        istream_type::swap(other);
+        fb.swap(other.fb);
+    }
+
+    /**
+        Returns the pointer to the underlying file buffer.
+
+        @return Pointer to the underlying file buffer.
+     */
+    filebuf_type* rdbuf() const
+    {
+        return const_cast<filebuf_type*>(&fb);
+    }
+
+    /**
+        Checks whether the stream has an open associated file. Calls the member
+        filebuf open() method.
+
+        @return Whether there is an open file associated with the stream.
+     */
+    bool is_open() const { return fb.is_open(); }
+
+    /**
+        Calls the member filebuf open() method to open and associate a file.
+        Sets the state depending on the success of the call. The file is open
+        in the provided mode, with the addition of ios_base::in.
+
+        @param filename Name of the file to open.
+        @param mode Mode to open the file in. Defaults to ios_base::in.
+     */
+    void open(const char* filename, ios_base::openmode mode = ios_base::in)
+    {
+        if (fb.open(filename, mode | ios_base::in) == nullptr)
+            istream_type::setstate(ios_base::failbit);
+        else
+            istream_type::clear();
+    }
+
+    void open(const string& filename, ios_base::openmode mode = ios_base::in)
+    {
+        open(filename.c_str(), mode);
+    }
+
+    /**
+        Calls the member filebuf close() method to close the associated file.
+        Sets the state to fail if the call fails.
+     */
+    void close()
+    {
+        if (fb.close() == nullptr)
+            istream_type::setstate(ios_base::failbit);
+    }
+
+protected:
+    // The basic_filebuf. The inherited buffer member pointer will be set to
+    // point at this.
+    filebuf_type fb;
+};
+
+/**
+    Specialisation of basic_ifstream for the simple char type.
+ */
+using ifstream = basic_ifstream<char>;
+
+/**
+    Specialisation of swap() for basic_ifstream. Swaps the contents and states
+    of the two streams. Calls lhs.swap(rhs).
+
+    @param lhs, rhs Two basic_ifstreams to swap.
+ */
+template <typename CharT, typename Traits>
+void swap(basic_ifstream<CharT, Traits>& lhs,
+    basic_ifstream<CharT, Traits>& rhs)
+{
+    lhs.swap(rhs);
+}
+
+/**
+    This stream inherits from basic_iostream. It is has the normal read and
+    write operations.
+ */
+template<typename CharT, typename Traits = char_traits<CharT>>
+class basic_fstream : public basic_iostream<CharT, Traits>
+{
+public:
+    /** Type of the character. */
+    using char_type = CharT;
+    /** Type of the traits. traits_type::char_type must equal char_type. */
+    using traits_type = Traits;
+    /** Type of an int that can represent the char. Taken from traits_type. */
+    using int_type = typename traits_type::int_type;
+    /** Type that can represent a position in a stream. Taken from
+        traits_type. */
+    using pos_type = typename traits_type::pos_type;
+    /** Type of an int that can represent an offset in a stream. Taken from
+        traits_type. */
+    using off_type = typename traits_type::off_type;
+protected:
+    /** The type of the parent iostream, for convenience. */
+    using iostream_type = basic_iostream<CharT, Traits>;
+    /** The type of the associated streambuffer, for convenience. */
+    using filebuf_type = basic_filebuf<CharT, Traits>;
+public:
+    /**
+        Constructor. Default constructs the file buffer. Does not open any
+        files.
+     */
+    basic_fstream() : iostream_type {nullptr}, fb {}
+    {
+        iostream_type::init(&fb);
+    }
+
+    /**
+        Constructor. Opens the file with the given name in the given mode.
+
+        @param filename Name fo the file to open.
+        @param mode Mode in which to open the file. Defualts to in and out.
+     */
+    explicit basic_fstream(const char* filename,
+        ios_base::openmode mode = ios_base::in | ios_base::out) :
+        iostream_type {nullptr}, fb {}
+    {
+        iostream_type::init(&fb);
+        if (fb.open(filename, mode) == nullptr)
+            iostream_type::setstate(ios_base::failbit);
+    }
+
+    explicit basic_fstream(const string& filename,
+        ios_base::openmode mode = ios_base::in | ios_base::out) :
+        basic_fstream {filename.c_str(), mode}
+    {}
+
+    /**
+        Copy constructor is deleted.
+
+        @param other Other fstream to (not) copy.
+     */
+    basic_fstream(const basic_fstream& other) = delete;
+
+    /**
+        Move constructor. Pirates the state from the other fstream. The state
+        move is handled by the parent constructor. The member filebuf is also
+        moved and the inherited buffer pointer is redirected. The other buffer
+        pointer is set to nullptr.
+
+        @param other Other fstream to pirate from.
+     */
+    basic_fstream(basic_fstream&& other) :
+        iostream_type {move(other)},
+        fb {move(other.fb)}
+    {
+        iostream_type::set_rdbuf(&fb);
+        other.set_rdbuf(nullptr);
+    }
+
+    /**
+        Move assignment. Pirates the state from the other fstream. The state
+        move is handled by the parent type. The member filebuf is also
+        moved and the inherited buffer pointer is redirected. The other buffer
+        pointer is set to nullptr.
+
+        @param other Other fstream to pirate from.
+        @return This fstream.
+     */
+    basic_fstream& operator=(basic_fstream&& other)
+    {
+        iostream_type::operator=(move(other));
+        fb = move(other.fb);
+        iostream_type::set_rdbuf(&fb);
+        other.set_rdbuf(nullptr);
+
+        return *this;
+    }
+
+    /**
+        Swaps the state and buffer of this fstream with another. The parent
+        iostream swap() method is called to swap the state and the swap()
+        method of the underlying buffer is called to swap the buffers.
+
+        @param other Other fstream to swap with.
+     */
+    void swap(basic_fstream& other)
+    {
+        iostream_type::swap(other);
+        fb.swap(other.fb);
+    }
+
+    /**
+        Returns the pointer to the underlying file buffer.
+
+        @return Pointer to the underlying file buffer.
+     */
+    filebuf_type* rdbuf() const
+    {
+        return const_cast<filebuf_type*>(&fb);
+    }
+
+    /**
+        Checks whether the stream has an open associated file. Calls the member
+        filebuf open() method.
+
+        @return Whether there is an open file associated with the stream.
+     */
+    bool is_open() const { return fb.is_open(); }
+
+    /**
+        Calls the member filebuf open() method to open and associate a file.
+        Sets the state depending on the success of the call. The file is open
+        in the provided mode.
+
+        @param filename Name of the file to open.
+        @param mode Mode to open the file in. Defaults to in and out.
+     */
+    void open(const char* filename,
+        ios_base::openmode mode = ios_base::in | ios_base::out)
+    {
+        if (fb.open(filename, mode) == nullptr)
+            iostream_type::setstate(ios_base::failbit);
+        else
+            iostream_type::clear();
+    }
+
+    void open(const string& filename,
+        ios_base::openmode mode = ios_base::in | ios_base::out)
+    {
+        open(filename.c_str(), mode);
+    }
+
+    /**
+        Calls the member filebuf close() method to close the associated file.
+        Sets the state to fail if the call fails.
+     */
+    void close()
+    {
+        if (fb.close() == nullptr)
+            iostream_type::setstate(ios_base::failbit);
+    }
+
+protected:
+    // The basic_filebuf. The inherited buffer member pointer will be set to
+    // point at this.
+    filebuf_type fb;
+};
+
+/**
+    Specialisation of basic_fstream for the simple char type.
+ */
+using fstream = basic_fstream<char>;
+
+/**
+    Specialisation of swap() for basic_fstream. Swaps the contents and states of
+    the two streams. Calls lhs.swap(rhs).
+
+    @param lhs, rhs Two basic_fstreams to swap.
+ */
+template <typename CharT, typename Traits>
+void swap(basic_fstream<CharT, Traits>& lhs, basic_fstream<CharT, Traits>& rhs)
+{
+    lhs.swap(rhs);
+}
+
+} // end NMSP namespace
+
+#endif /* FSTREAM_H */

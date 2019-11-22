@@ -1,0 +1,105 @@
+#ifndef FUNCTIONAL_H
+#define FUNCTIONAL_H
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+#include "../include/utility"
+
+namespace NMSP {
+
+/**
+    Carries out a less than comparison. Uses the < operator unless a
+    specialisation exists.
+
+    @param T type to compare
+ */
+template <typename T = void>
+struct less {
+    /**
+        Tests whether the first argument is less than the second.
+
+        @param lhs, rhs Values to compare.
+        @return Whether lhs < rhs.
+     */
+    bool operator() (const T& lhs, const T& rhs) const { return lhs < rhs; }
+
+    /**
+        Type of the result.
+     */
+    using result_type = bool;
+
+    /**
+        Type of the left hand side.
+     */
+    using first_argument_type = T;
+
+    /**
+        Type of the right hand side.
+     */
+    using second_argument_type = T;
+};
+
+// Specialisation of less with void (allows determination of types from the
+// provided arguments).
+template <>
+struct less<void> {
+    template <typename T, typename U>
+    auto operator() (T&& lhs, U&& rhs)
+        noexcept(noexcept(forward<T>(lhs) < forward<U>(rhs)))
+        -> decltype(forward<T>(lhs) < forward<U>(rhs))
+    {
+        return forward<T>(lhs) < forward<U>(rhs);
+    }
+};
+
+/**
+    Carries out a greater than comparison. Uses the > operator unless a
+    specialisation exists.
+
+    @param T type to compare
+ */
+template <typename T = void>
+struct greater {
+    /**
+        Tests whether the first argument is greater than the second.
+
+        @param lhs, rhs Values to compare.
+        @return Whether lhs > rhs.
+     */
+    bool operator() (const T& lhs, const T& rhs) const { return lhs > rhs; }
+
+    /**
+        Type of the result.
+     */
+    using result_type = bool;
+
+    /**
+        Type of the left hand side.
+     */
+    using first_argument_type = T;
+
+    /**
+        Type of the right hand side.
+     */
+    using second_argument_type = T;
+};
+
+// Specialisation of greater with void (allows determination of types from the
+// provided arguments).
+template <>
+struct greater<void> {
+    template <typename T, typename U>
+    auto operator() (T&& lhs, U&& rhs)
+        noexcept(noexcept(forward<T>(lhs) < forward<U>(rhs)))
+        -> decltype(forward<T>(lhs) > forward<U>(rhs))
+    {
+        return forward<T>(lhs) > forward<U>(rhs);
+    }
+};
+
+} // NMSP namespace
+
+#endif /* FUNCTIONAL_H */

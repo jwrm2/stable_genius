@@ -1,0 +1,966 @@
+#ifndef KLIB_VECTOR_H
+#define KLIB_VECTOR_H
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+#include <stddef.h>
+
+#include "../include/algorithm"
+#include "../include/initializer_list"
+#include "../include/iterator"
+#include "../include/memory"
+#include "../include/utility"
+
+namespace NMSP {
+
+/**
+    Provides dynamic array storage. Suitable for general purposes. Slow to
+    insert or remove elements but quick random access.
+
+    @param T element type
+    @param Allocator allocator for managing creating, constructing, destroying
+           and deallocating Ts.
+ */
+template <typename T, typename Allocator = allocator<T>>
+class vector {
+public:
+    /**
+        Element type.
+     */
+    using value_type = T;
+    /**
+        Allocator type. Rebound to make sure it is an allocator for the
+        value_type.
+     */
+    using allocator_type =
+        typename allocator_traits<Allocator>::template rebind_alloc<value_type>;
+    /**
+        Unsigned integer type.
+     */
+    using size_type = size_t;
+    /**
+        Difference type for pointers.
+     */
+    using difference_type = ptrdiff_t;
+    /**
+        Type of reference to an element.
+     */
+    using reference = value_type&; 
+    /**
+        Type of const reference to an element.
+     */
+    using const_reference = const value_type&;
+    /**
+        Type of a pointer to an element.
+     */
+    using pointer = typename allocator_traits<Allocator>::pointer;
+    /**
+        Type of a const pointer to an element.
+     */
+    using const_pointer = typename allocator_traits<Allocator>::const_pointer;
+    /**
+        Type of an iterator for this container.
+     */
+    using iterator = helper::normal_iterator<pointer, vector>;
+    /**
+        Type of a const iterator for this container.
+     */
+    using const_iterator = helper::normal_iterator<const_pointer, vector>;
+    /**
+        Reverse of the normal iterator.
+     */
+    using reverse_iterator = NMSP::reverse_iterator<iterator>;
+    /**
+        Reverse of the normal constant iterator.
+     */
+    using const_reverse_iterator = NMSP::reverse_iterator<const_iterator>;
+
+protected:
+    // Allocator.
+    allocator_type alloc;
+    // Current size.
+    size_type sz;
+    // Current space.
+    size_type space;
+    // Default starting space.
+    static constexpr size_type default_space = 8;
+    // Default factor to increase space by.
+    static constexpr size_type default_factor = 2;
+    // Elements
+    pointer elem;
+    // Allocator traits
+    using traits = allocator_traits<allocator_type>;
+
+public:
+    /**
+        Default constructor. Creates empty container and uses the default
+        allocator constructor.
+     */
+    vector() : alloc{},
+        sz{0},
+        space{default_space},
+        elem{traits::allocate(alloc, space)}
+    {}
+
+    /**
+        Constructs an empty container, using the allocator provided.
+
+        @param al Allocator to use.
+     */
+    explicit vector(const allocator_type& al) :
+        alloc{al},
+        sz{0},
+        space{default_space},
+        elem{traits::allocate(alloc, space)} {}
+
+    /**
+        Constructs a container of the given size, using the element value
+        provided and optionally using the allocator provided.
+
+        @param count Number or elements.
+        @param value Value to initialise elements to.
+        @param al Allocator to use.
+     */
+    vector(size_type count, const value_type& value,
+        allocator_type al = allocator_type{}) :
+        alloc{al},
+        sz{count}
+    {
+        space = (default_space < sz ? sz : default_space);
+        elem = traits::allocate(alloc, count);
+        for (size_type i = 0; i < sz; ++i)
+            traits::construct(alloc, &elem[i], value);
+    }
+
+    /**
+        Constructs a container of the given size using default initialisation
+        of the elements and optionally the provided allocator.
+
+        @param count Number of elements.
+        @param al Allocator to use.
+     */
+    vector(size_type count, const allocator_type& al = allocator_type{}) :
+        vector{count, value_type{}, al} {}
+
+    /**
+        Constructs a container as a copy of the range specified by the two
+        iterators, optionally using the provided allocator.
+
+        @param first Start of range to copy.
+        @param last One beyond the last element to copy.
+        @param al Allocator to use.
+     */
+    template <typename Iter, typename = helper::RequireInputIter<Iter>>
+    vector(Iter first, Iter last, const allocator_type& al = allocator_type{}) :
+        alloc{al},
+        sz{0},
+        space{default_space},
+        elem{traits::allocate(alloc, space)}
+    {
+        for(; first != last; ++first)
+            push_back(*first);
+    }
+
+    /**
+        Copy constructs a vector by copying the elements and the allocator of
+        another vector.
+
+        @param other Vector to copy.
+     */
+    vector(const vector& other) :
+        alloc{traits::select_on_container_copy_construction(other.get_allocator())},
+        sz{0},
+        space{other.capacity()},
+        elem{traits::allocate(alloc, space)}
+    {
+        for (const value_type& v : other)
+            push_back(v);
+    }
+
+    /**
+        Copy constructs a vector by copying the elements and using the provided
+        allocator.
+
+        @param other Vector whose elements will be copied.
+        @param al Allocator to use.
+     */
+    vector(const vector& other, const allocator_type& al) :
+        alloc{al},
+        sz{0},
+        space{other.capacity()},
+        elem{traits::allocate(alloc, space)}
+    {
+        for (const value_type& v : other)
+            push_back(v);
+    }
+
+    /**
+        Constructs a vector by move construction from another vector. The
+        allocator is also moved from the other vector.
+
+        @param other Vector to move from.
+     */
+    vector(vector&& other) :
+        alloc{move(other.get_allocator())},
+        sz{other.size()},
+        space{other.capacity()},
+        elem{other.elem}
+    {
+        other.alloc = allocator_type{};
+        other.sz = 0;
+        other.space = 0;
+        other.elem = pointer{};
+    }
+
+    /**
+        Constructs a vector by move construction from another vector, using the
+        provided allocator.
+
+        @param other Vector to move from.
+        @param al Allocator for the new vector.
+     */
+    vector(vector&& other, const allocator_type& al) :
+        alloc{al},
+        space{other.space}
+    {
+        if (alloc == other.get_allocator())
+        {
+            sz = other.sz;
+            elem = other.elem;
+            other.alloc = allocator_type{};
+            other.sz = 0;
+            other.space = 0;
+            other.elem = pointer{};
+        }
+        else
+        {
+            elem = traits::allocate(alloc, space);
+            sz = 0;
+            for (value_type& v : other)
+                 push_back(move(v));
+        }
+    }
+
+    /**
+        Constructs a vector with the contents of the initializer list,
+        optionally using the provided allocator.
+
+        @param il List with the contents for the elements.
+        @param al Allocator to use.
+     */
+    vector(std::initializer_list<value_type> il,
+        const allocator_type& al = allocator_type{}) :
+        vector{il.begin(), il.end(), al}
+    {}
+
+    /**
+        Destructs the elements (although not what the elements point to if they
+        are pointers) and deallocates the storage.
+     */
+    ~vector()
+    {
+        clear();
+        traits::deallocate(alloc, elem, space);
+    }
+
+    /**
+        Copy assignment. Take a copy of the elements of the other vector. The
+        behaviour of the allocator copy depends on its propagation traits.
+
+        @param other Vector to copy.
+        @return This vector.
+     */
+    vector& operator=(const vector& other)
+    {
+        clear();
+        traits::deallocate(alloc, elem, space);
+
+        if (traits::propagate_on_container_copy_assignment::value)
+            alloc = other.get_allocator();
+
+        sz = 0;
+        space = other.capacity();
+        elem = traits::allocate(alloc, space);
+
+        for (const value_type& v : other)
+            push_back(v);
+
+        return *this;
+    }
+
+    /**
+        Move assignment. The behaviour of the allocator move depends on its
+        propagation traits. If it does not move and the source and target
+        allocators are not equal, an elementwise move occurs. Otherwise a
+        memory takeover can occur.
+
+        @param other Vector to take over.
+        @return This vector.
+     */
+    vector& operator=(vector&& other)
+    {
+        clear();
+        traits::deallocate(alloc, elem, space);
+
+        // Copy the allocator, if we're supposed to.
+        bool alloc_move = traits::propagate_on_container_move_assignment::value;
+        if (alloc_move)
+            alloc = move(other.alloc);
+
+        space = other.capacity();
+
+        // If we didn't copy the allocator and they're not the same, we need to
+        // do an elementwise move.
+        if (!alloc_move && alloc != other.get_allocator())
+        {
+            sz = 0;
+            elem = traits::allocate(alloc, space);
+            for (value_type& v : other)
+                push_back(move(v));
+        }
+        // If the allocators are compatible, adjust the pointers.
+        else
+        {
+            sz = other.size();
+            elem = other.elem;
+        }
+
+        // Put the other into an empty state, or we may find our new elem
+        // getting freed when the destructor is called on other.
+        other.sz = 0;
+        other.space = 0;
+        other.elem = pointer{};
+
+        return *this;
+    }
+
+    /**
+        Copies the contents of an initialiser list into this vector.
+
+        @param il Initialiser list to copy.
+        @return This vector.
+     */
+    vector& operator=(std::initializer_list<value_type> il)
+    {
+        assign(il.begin(), il.end());
+        return *this;
+    }
+
+    /**
+        Replaces the contents of the vector with the given number of copies of
+        the given value.
+
+        @param count Number of copies.
+        @param value Value to use.
+     */
+    void assign(size_type count, const value_type& value)
+    {
+        clear();
+        traits::deallocate(alloc, elem, space);
+
+        sz = count;
+        space = (default_space < sz ? sz : default_space);
+        elem = traits::allocate(alloc, space);
+
+        for (size_type i = 0; i < sz; ++i)
+            traits::construct(alloc, &elem[i], value);
+    }
+
+    /**
+        Replaces the contents of this vector with those in the range given by
+        the iterators, which must be at least input iterators.
+
+        @param first Start of range to copy.
+        @param last One beyond the last element to copy.
+     */
+    template <typename Iter, typename = helper::RequireInputIter<Iter>>
+    void assign(Iter first, Iter last)
+    {
+        clear();
+        traits::deallocate(alloc, elem, space);
+
+        space = default_space;
+        elem = traits::allocate(alloc, space);
+
+        for(; first != last; ++first)
+            push_back(*first);
+    }
+
+    /**
+        Replaces the contents of this vector with those given in the initialiser
+        list.
+
+        @param il Initialiser list to copy.
+        @return This vector.
+     */
+    void assign(std::initializer_list<value_type> il)
+    {
+        assign(il.begin(), il.end());
+    }
+
+    /**
+        Gets the allocator for this vector.
+
+        @return A copy of the allocator.
+     */
+    allocator_type get_allocator() const { return alloc; }
+
+    /**
+        Element wise access without bounds checking.
+
+        @param n Index to access.
+        @return Reference to element at position n.
+     */
+    reference operator[](size_type n) { return elem[n]; }
+    const_reference operator[](size_type n) const { return elem[n]; }
+
+    /**
+        Access the first element. Undefined if the container is empty.
+
+        @return Reference to the first element.
+     */
+    reference front() { return elem[0]; }
+    const_reference front() const { return elem[0]; }
+
+    /**
+        Access the last element. Undefined if the container is empty.
+
+        @return Reference to the last element.
+     */
+    reference back() { return elem[sz - 1]; }
+    const_reference back() const { return elem[sz - 1]; }
+
+    /**
+        Access to the underlying array. Gives nullptr if the container is empty.
+
+        @return Pointer to the first element of the underlying array.
+     */
+    pointer data() noexcept { return (sz == 0 ? nullptr : elem); }
+    const_pointer data() const noexcept { return (sz == 0 ? nullptr : elem); }
+
+    /**
+        Gives an iterator to the first element of the data, or an iterator
+        pointing at nothing if the container is empty.
+
+        @return Iterator to the first element of the data.
+     */
+    iterator begin() noexcept
+    {
+        return (sz == 0 ? iterator{nullptr} : iterator{elem});
+    }
+    const_iterator begin() const noexcept
+    {
+        return (sz == 0 ? const_iterator{nullptr} : const_iterator{elem});
+    }
+    const_iterator cbegin() const noexcept
+    {
+        return (sz == 0 ? const_iterator{nullptr} : const_iterator{elem});
+    }
+
+    /**
+        Gives an iterator to one past the last element of the data, or an
+        iterator pointing at the same location as end() if the container is
+        empty.
+
+        @return Iterator to one past the last element of the data.
+     */
+    iterator end() noexcept
+    {
+        return (sz == 0 ? iterator{nullptr} : iterator{&elem[sz]});
+    }
+    const_iterator end() const noexcept
+    {
+        return (sz == 0 ? const_iterator{nullptr} : const_iterator{&elem[sz]});
+    }
+    const_iterator cend() const noexcept
+    {
+        return (sz == 0 ? const_iterator{nullptr} : const_iterator{&elem[sz]});
+    }
+
+    /**
+        Gives a reverse iterator, pointing at the last element, but the first in
+        the reverse sequence.
+
+        @return Reverse iterator to the last element.
+     */
+    reverse_iterator rbegin() noexcept
+    {
+        return reverse_iterator{end()};
+    }
+    const_reverse_iterator rbegin() const noexcept
+    {
+        return const_reverse_iterator{end()};
+    }
+    const_reverse_iterator crbegin() const noexcept
+    {
+        return const_reverse_iterator{end()};
+    }
+
+    /**
+        Gives a reverse iterator, pointing at the first element, but one past
+        the last in the reverse sequence.
+
+        @return Reverse iterator to the last element.
+     */
+    reverse_iterator rend() noexcept
+    {
+        return reverse_iterator{begin()};
+    }
+    const_reverse_iterator rend() const noexcept
+    {
+        return const_reverse_iterator{begin()};
+    }
+    const_reverse_iterator crend() const noexcept
+    {
+        return const_reverse_iterator{begin()};
+    }
+
+    /**
+        Tests if the container is empty, that is if it stores no elements,
+        regardless of whether it has any memory allocated.
+
+        @return Whether the container is empty.
+     */
+    bool empty() const noexcept
+    {
+        return begin() == end();
+    }
+
+    /**
+        Gives the number of elements currently stored (not necessarily the
+        same as the size of the current memory allocation).
+
+        @return Number of elements in the container.
+     */
+    size_type size() const noexcept
+    {
+        return sz;
+    }
+
+    /**
+        A theoretical maximum for the number of elements. Provided by the
+        allocator. May not bear any resemblance to reality.
+
+        @return Maximum possible number of elements.
+     */
+    size_type max_size() const noexcept
+    {
+        return traits::max_size(alloc);
+    }
+
+    /**
+        Increases capacity by allocating new space and moves data to the new
+        space. Does nothing if the requested capacity is not larger than the
+        existing capacity.
+
+        @param new_cap New capacity of the container.
+     */
+    void reserve(size_type new_cap)
+    {
+        if (new_cap <= space)
+            return;
+
+        iterator first = begin();
+        iterator last = end();
+        pointer old_elem = elem;
+        elem = traits::allocate(alloc, new_cap);
+        size_type old_space = space;
+        space = new_cap;
+
+        sz = 0;
+        for (; first != last; ++first)
+            push_back(move(*first));
+
+        traits::deallocate(alloc, old_elem, old_space);
+    }
+
+    /**
+        Gives the size of the current allocation (which must be greater than or
+        equal to the number of elements stored).
+
+        @return Size of allocation.
+     */
+    size_type capacity() const noexcept { return space; }
+
+    /**
+        Reallocates the storage to exactly the right amount for the current
+        number of elements stored. Since this usually requires a reallocation of
+        memory and the movement of all elements, it's usually not a good idea.
+     */
+    void shrink_to_fit()
+    {
+        if (sz == space)
+            return;
+
+        iterator first = begin();
+        iterator last = end();
+        pointer old_elem = elem;
+        elem = traits::allocate(alloc, sz);
+        size_type old_space = space;
+        space = sz;
+        sz = 0;
+
+        for (; first != last; ++first)
+            push_back(move(*first));
+
+        traits::deallocate(alloc, old_elem, old_space);
+    }
+
+    /**
+        Destroys all the elements and sets the size to zero, but leaves the
+        capacity unchanged.
+     */
+    void clear()
+    {
+        for (value_type& v : *this)
+            traits::destroy(alloc, &v);
+        sz = 0;
+    }
+
+    /**
+        Inserts the given element before the position of the provided iterator.
+
+        @param pos Position to insert before.
+        @param value Value to insert.
+        @return Iterator pointing to the new element.
+     */
+    iterator insert(const_iterator pos, const value_type& value)
+    {
+        return insert(pos, move(value_type{value}));
+    }
+
+    iterator insert(const_iterator pos, value_type&& value)
+    {
+        return emplace(pos, move(value));
+    }
+
+    /**
+        Inserts multiple copies of the value before the position of the provided
+        iterator.
+
+        @param pos Position to insert before.
+        @count count Number of copies to insert.
+        @param value Value to insert.
+        @return Iterator pointing to the first new element.
+     */
+    iterator insert(const_iterator pos, size_type count,
+        const value_type& value)
+    {
+        if (count == 0)
+            return (begin() + distance(cbegin(), pos));
+
+        if (sz + count > capacity())
+        {
+            // The reserve may invalidate pos. We need to save the offset and
+            // then restore.
+            difference_type offset = distance(cbegin(), pos);
+            reserve(sz + count);
+            pos = begin() + offset;
+        }
+
+        for (; count > 0; --count)
+            pos = insert(pos, value);
+
+        return (begin() + distance(cbegin(), pos));
+    }
+
+    /**
+        Inserts the elements in the range first to last before the position
+        specified by the provided iterator.
+
+        @param pos Position to insert before.
+        @param first Start of range to insert.
+        @param last End of range to insert.
+        @return Iterator pointing to the first element inserted.
+     */
+    template <typename InputIt, typename = helper::RequireInputIter<InputIt>>
+    iterator insert(const_iterator pos, InputIt first, InputIt last)
+    {
+        if (first == last)
+            return (begin() + distance(cbegin(), pos));
+
+        difference_type count = distance(first, last);
+        difference_type return_offset = distance(cbegin(), pos);
+
+        if (sz + count > capacity())
+        {
+            // The reserve may invalidate pos. We need to save the offset and
+            // then restore.
+            difference_type offset = distance(cbegin(), pos);
+            reserve(sz + count);
+            pos = begin() + offset;
+        }
+
+        for(; first != last; ++first)
+            // Need to add 1 to pos, so we don't insert the elements in
+            // reverse order.
+            pos = insert(pos, *first) + 1;
+
+        return (begin() + return_offset); 
+    }
+
+    /**
+        Inserts the elements in the initialiser_list before the position
+        specified by the provided iterator.
+
+        @param pos Position to insert before.
+        @param il initialiser_list containing the elements to insert.
+        @return Iterator pointing to the first element inserted.
+     */
+    iterator insert(const_iterator pos, std::initializer_list<value_type> il)
+    {
+        return insert(pos, il.begin(), il.end());
+    }
+
+    /**
+        Inserts a new element before the position specified by the provided
+        iterator. The new element is constructed using the arguments provided.
+
+        @param pos Position to insert before.
+        @param args... Arguments to pass to the constructor.
+        @return Iterator pointing to the new element.
+     */
+    template <typename... Args>
+    iterator emplace(const_iterator pos, Args&&... args)
+    {
+        // pos may get invalidated if we need to reallocate to get the size.
+        // Work out the offset now.
+        difference_type offset = distance(cbegin(), pos);
+
+        if (sz == capacity())
+        {
+            // The reserve may invalidate pos. We need to save the offset and
+            // then restore.
+            difference_type offset = distance(cbegin(), pos);
+            reserve(capacity() * default_factor);
+            pos = begin() + offset;
+        }
+
+        iterator last = end();
+        iterator place = begin() + offset;
+
+        // Empty array is a special case, as the iterators will be set to
+        // nullptr.
+        if (last.base() == nullptr)
+            last = iterator{elem};
+        else
+            for (last = end(); last != place; --last)
+                *last = move(*(last - 1));
+
+        traits::construct(alloc, last.base(), forward<Args>(args)...);
+        ++sz;
+
+        return last;
+    }
+
+    /**
+        Erases the element at the location indicated by the iterator, or removes
+        elements in the range specified by the iterator pair.
+
+        @param pos Position of element to remove.
+        @param first, last A range of elements to remove.
+        @return Iterator to the position following the last removed element.
+     */
+    iterator erase(const_iterator pos)
+    {
+        return erase(pos, pos + 1);
+    }
+    iterator erase(const_iterator first, const_iterator last)
+    {
+        if (sz == 0 || first == last)
+            return iterator{nullptr};
+
+        difference_type initial = distance(cbegin(), first);
+        difference_type offset = distance(first, last);
+        for (iterator start = begin() + initial;
+            start != end(); ++start)
+            *start = *(start + offset);
+        
+        sz -= offset;
+        if (static_cast<size_type>(initial) >= sz)
+            return end();
+        else
+            return (begin() + distance(cbegin(), first));
+    }
+
+    /**
+        Inserts a new element at the end of the vector.
+
+        @param value Value to append.
+     */
+    void push_back(const value_type& value)
+    {
+        insert(end(), value);
+    }
+    void push_back(value_type&& value)
+    {
+        insert(end(), move(value));
+    }
+
+    /**
+        Inserts a new element at the end of the vector. The new element is
+        constructed using the arguments provided.
+
+        @param args... Arguments to pass to the constructor.
+     */
+    template <typename... Args>
+    void emplace_back(Args&&... args)
+    {
+        if (sz == capacity())
+            reserve(capacity() * default_factor);
+
+        traits::construct(alloc, &elem[sz], forward<Args>(args)...);
+        ++sz;
+    }
+
+    /**
+        Removes the last element of the container.
+     */
+    void pop_back()
+    {
+        --sz;
+        traits::destroy(alloc, &elem[sz]);
+    }
+
+    /**
+        Resizes the vector to contain the given number of elements. If this is
+        a reduction in size, overflowing elements are deleted. If this is an
+        increase, additional elements are created as copies of the provided
+        value, or default constructed.
+
+        @param count New size of the container.
+        @param value Value to initialise to.
+     */
+    void resize(size_type count)
+    {
+        resize(count, value_type{});
+    }
+    void resize(size_type count, const value_type& value)
+    {
+        if (count < sz)
+            for (size_type i = count; i < sz; ++i)
+                traits::destroy(alloc, &elem[i]);
+        else if (count > sz)
+        {
+            if (count > capacity())
+                reserve(count);
+
+            for (size_type i = sz; i < count; ++i)
+                traits::construct(alloc, &elem[i], value);
+        }
+
+        sz = count;
+    }
+
+    /**
+        Swaps the contents of this vector with the other. No element-wise moves,
+        copies or swaps are carried out. The allocator behaviour depends on
+        its value of propagate_on_container_swap.
+
+        @param other The vector to swap with.
+     */
+    void swap(vector& other)
+    {
+        if (traits::propagate_on_container_swap::value)
+            NMSP::swap(alloc, other.alloc);
+
+        NMSP::swap(elem, other.elem);
+        NMSP::swap(sz, other.sz);
+        NMSP::swap(space, other.space);
+    }
+};
+
+/**
+    Tests whether two vectors have the same size and all elements in equivalent
+    positions equal.
+
+    @param lhs, rhs vectors to compare.
+    @return Whether lhs and rhs are equal.
+ */
+template <typename T, typename Alloc>
+bool operator==(const vector<T, Alloc>& lhs, const vector<T, Alloc>& rhs)
+{
+    return (lhs.size() == rhs.size() &&
+        equal(lhs.begin(), lhs.end(), rhs.begin()));
+}
+
+/**
+    Tests whether two vectors have different size or some elements in equivalent
+    positions different.
+
+    @param lhs, rhs vectors to compare.
+    @return Whether lhs and rhs are different.
+ */
+template <typename T, typename Alloc>
+bool operator!=(const vector<T, Alloc>& lhs, const vector<T, Alloc>& rhs)
+{
+    return !(lhs == rhs);
+}
+
+/**
+    Tests whether one vector is lexocographically less than another.
+
+    @param lhs, rhs vectors to compare.
+    @return Whether lhs is lexocographically less than rhs.
+ */
+template <typename T, typename Alloc>
+bool operator<(const vector<T, Alloc>& lhs, const vector<T, Alloc>& rhs)
+{
+    return lexicographical_compare(lhs.begin(), lhs.end(),
+        rhs.begin(), rhs.end());
+}
+
+/**
+    Tests whether one vector is lexocographically greater than another.
+
+    @param lhs, rhs vectors to compare.
+    @return Whether lhs is lexocographically greater than rhs.
+ */
+template <typename T, typename Alloc>
+bool operator>(const vector<T, Alloc>& lhs, const vector<T, Alloc>& rhs)
+{
+    return (rhs < lhs);
+}
+
+/**
+    Tests whether one vector is equal to or lexocographically less than another.
+
+    @param lhs, rhs vectors to compare.
+    @return Whether lhs is equal to or lexocographically less than rhs.
+ */
+template <typename T, typename Alloc>
+bool operator<=(const vector<T, Alloc>& lhs, const vector<T, Alloc>& rhs)
+{
+    return !(rhs < lhs);
+}
+
+/**
+    Tests whether one vector is equal to or lexocographically greater than
+    another.
+
+    @param lhs, rhs vectors to compare.
+    @return Whether lhs is equal to or lexocographically greater than rhs.
+ */
+template <typename T, typename Alloc>
+bool operator>=(const vector<T, Alloc>& lhs, const vector<T, Alloc>& rhs)
+{
+    return !(lhs < rhs);
+}
+
+/**
+    Specialisation of swap() for vector. Swaps the contents of the two vectors.
+    Calls lhs.swap(rhs).
+
+    @param lhs, rhs Two vectors to swap.
+ */
+template <typename T, typename Alloc>
+void swap(vector<T, Alloc>& lhs, vector<T, Alloc>& rhs)
+{
+    lhs.swap(rhs);
+}
+
+} // NMSP namespace
+#endif /* VECTOR_H */

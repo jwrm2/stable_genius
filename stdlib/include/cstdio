@@ -1,0 +1,406 @@
+#ifndef CSTDIO_H
+#define CSTDIO_H
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+#include <stdarg.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#ifdef HOSTED_TEST
+#include <cstdio>
+#endif /* HOSTED_TEST */
+
+#include "../include/ios"
+
+namespace NMSP {
+
+// Forward declarations.
+template <typename> class allocator;
+template <typename, typename, typename> class basic_string;
+template <typename> class char_traits;
+using string = basic_string<char, char_traits<char>, allocator<char>>;
+template <typename> class fpos;
+class mbstate_t;
+#ifndef HOSTED_TEST
+class File;
+using FILE = File;
+using fpos_t = fpos<mbstate_t>;
+#endif /* HOSTED_TEST */
+
+/**
+    End of file value
+ */
+#ifndef EOF
+#define EOF -1
+#endif /* EOF */
+
+/**
+    Default value of the stream buffer size.
+ */
+#ifndef BUFSIZ
+#define BUFSIZ 512
+#endif /* BUFSIZ */
+
+/**
+    Prints the given format string and replacements in the variable argument
+    list to standard out. This is just a wrapper round vprintf.
+
+    @param format Format string.
+    @param ... Replacements for the format string.
+    @return Number of characters written, or negative for an error.
+ */
+#ifndef HOSTED_TEST
+int printf(const char* format, ...);
+#endif /* HOSTED_TEST */
+
+/**
+    Prints the given format string and replacements in the variable argument
+    list into the given C string, which had better be long enough to hold the
+    result. This is just a wrapper round vsprintf.
+
+    @param buffer Destination for the formatted output.
+    @param format Format string.
+    @param ... Replacements for the format string.
+    @return Number of characters written (not including null terminator),
+            or negative for an error.
+ */
+int sprintf(char* buffer, const char* format, ...);
+
+/**
+    Prints the given format string and replacements in the variable argument
+    list into the given C string, but stopping after buf_size - 1 characters
+    have been written. The C string will be null terminated. This is just a
+    wrapper round vsnprintf.
+
+    @param buffer Destination for the formatted output.
+    @param buf_size Largest number of characters written into the buffer.
+    @param format Format string.
+    @param vlist Replacements for the format string.
+    @return Number of characters written (not including null terminator) or the
+            number that would have been written had buf_size been large enough.
+            Negative return for an erro.
+ */
+int snprintf(char* buffer, size_t buf_size, const char* format, ...);
+
+/**
+    Prints the given format string and replacements in the variable argument
+    list to standard out. This needs to be implemented in the kernel.
+
+    @param format Format string.
+    @param ... Replacements for the format string.
+    @return Number of characters written, or negative for an error.
+ */
+#ifndef HOSTED_TEST
+int vprintf(const char* format, va_list vlist);
+#endif /* HOSTED_TEST */
+
+/**
+    Prints the given format string and replacements in the variable argument
+    list into the given C string, which had better be long enough to hold the
+    result.
+
+    @param buffer Destination for the formatted output.
+    @param format Format string.
+    @param vlist Replacements for the format string.
+    @return Number of characters written (not including null terminator),
+            or negative for an error.
+ */
+int vsprintf(char* buffer, const char* format, va_list vlist);
+
+/**
+    Prints the given format string and replacements in the variable argument
+    list into the given C string, but stopping after buf_size - 1 characters
+    have been written. The C string will be null terminated.
+
+    @param buffer Destination for the formatted output.
+    @param buf_size Largest number of characters written into the buffer.
+    @param format Format string.
+    @param vlist Replacements for the format string.
+    @return Number of characters written (not including null terminator) or the
+            number that would have been written had buf_size been large enough.
+            Negative return for an erro.
+ */
+int vsnprintf(char* buffer, size_t buf_size, const char* format, va_list vlist);
+
+/**
+    Opens a file. Must be implemented in the kernel.
+
+    @param filename Name of the file.
+    @param mode Mode to open the file with.
+    @return File object if successful, otherwise nullptr.
+ */
+FILE* fopen(const char* filename, const char* mode);
+
+/**
+    Closes a file.
+
+    @param stream Pointer to the file to close.
+    @return 0 if successful, otherwise EoF.
+ */
+int fclose(FILE* stream);
+
+/**
+    Writes to a file.
+
+    @param buffer Location of the first object to be written.
+    @param size Size of each object.
+    @param count Number of objects to be written.
+    @param stream File to write to.
+    @return Number of objects actually written.
+ */
+size_t fwrite(const void* buffer, size_t size, size_t count, FILE* stream);
+
+/**
+    Reads from a file.
+
+    @param buffer Location of the first object to be read into.
+    @param size Size of each object.
+    @param count Number of objects to be read.
+    @param stream File to write to.
+    @return Number of objects actually read.
+ */
+size_t fread(void* buffer, size_t size, size_t count, FILE* stream);
+
+/**
+    Writes any unwritten data from the output buffer to the underlying device.
+    TODO: If provided with a nullptr, this is supposed to flush all open files.
+
+    @param stream File to flush.
+    @return 0 on success, otherwise EoF.
+ */
+int fflush(FILE* stream);
+
+/**
+    Gets the current file position indicator.
+
+    @param stream File to get the position for.
+    @param pos Pointer to a position indicator that will be set.
+    @return 0 on success, nonzero otherwise.
+ */
+int fgetpos(FILE* stream, fpos_t* pos);
+
+/**
+    Changes the current file position indicator to that specified by the offset
+    from the origin.
+
+    @param stream File to change the position for.
+    @param offset Number of characters to shift relative to the origin.
+    @param origin Base position for the shift. May be the beginning, current or
+           end position.
+    @return 0 on success, nonzero otherwise.
+ */
+int fseek(FILE* stream, long offset, int origin);
+
+/**
+    Abstract class for files. Specifies the general interface. Implementations
+    exist in the kernel.
+ */
+class File {
+public:
+    /**
+        Constructor. Sets parameters for unbuffered. Reads the mode string to
+        determine reading, writing and appending status.
+
+        @param mode C style open mode string.
+     */
+    File(const char* mode);
+
+    /**
+        Copy constructor is deleted.
+
+        @param other File to (not) copy.
+     */
+    File(const File& other) = delete;
+
+    /**
+        Copy assignment is deleted.
+
+        @param other File to (not) copy.
+        @return This file.
+     */
+    File& operator=(const File& other) = delete;
+
+    /**
+        Move constructor. Pirate the other state and buffer.
+
+        @param other File to pirate the state from.
+     */
+    File(File&& other) :
+        buffered {other.buffered},
+        buffer {other.buffer},
+        reading {other.reading},
+        writing {other.writing},
+        append {other.append},
+        binary {other.binary},
+        eof {other.eof},
+        position {NMSP::move(other.position)}
+    {
+        other.buffer = nullptr;
+    }
+
+    /**
+        Move assignment. Pirate the other state and buffer.
+
+        @param other File to pirate the state from.
+        @return This file.
+     */
+    File& operator=(File&& other)
+    {
+        close();
+
+        buffered = other.buffered;
+        buffer = other.buffer;
+        reading = other.reading;
+        writing = other.writing;
+        append = other.append;
+        binary = other.binary;
+        eof = other.eof;
+        position = NMSP::move(other.position);
+
+        other.buffer = nullptr;
+
+        return *this;
+    }
+
+    /**
+        Virtual destructor. Base version calls close.
+     */
+    virtual ~File() { close(); }
+
+    /**
+        Closes a file. Implements fclose. Base version flushes and frees the
+        buffer.
+
+        @return 0 if successful, otherwise EoF.
+     */
+    virtual int close()
+    {
+        // Flush the buffer.
+        if (writing)
+            flush();
+
+        // Free the buffer.
+        delete[] buffer;
+        buffer = nullptr;
+
+        // Set flags so future operations fail.
+        reading = false;
+        writing = false;
+
+        return 0;
+    }
+
+    /**
+        Writes to the file.
+
+        @param buf Location of the first object to be written.
+        @param size Size of each object.
+        @param count Number of objects to be written.
+        @return Number of objects actually written.
+     */
+    virtual size_t write(const void* buf, size_t size, size_t count) = 0;
+
+    /**
+        Reads from the file.
+
+        @param buf Location of the first object to be read into.
+        @param size Size of each object.
+        @param count Number of objects to be read.
+        @return Number of objects actually read.
+     */
+    virtual size_t read(void* buf, size_t size, size_t count) = 0;
+
+    /**
+        Writes any unwritten data from the output buffer to the underlying
+        device. Implements fflush.
+
+        @param stream File to flush.
+        @return 0 on success, otherwise EoF.
+     */
+    virtual int flush() = 0;
+
+    /**
+        Gets the current file position indicator. Implements fgetpos.
+
+        @param pos Pointer to a position indicator that will be set.
+        @return 0 on success, nonzero otherwise.
+     */
+    virtual int getpos(fpos_t* pos) = 0;
+
+    /**
+        Changes the current file position indicator to that specified by the
+        offset from the origin. Implements fseek.
+
+        @param offset Number of characters to shift relative to the origin.
+        @param origin Base position for the shift. May be the beginning, current
+               or end position.
+        @return 0 on success, nonzero otherwise.
+     */
+    virtual int seek(long offset, int origin) = 0;
+
+protected:
+    // Whether the file is buffered.
+    bool buffered;
+    // The buffer for the file.
+    char* buffer;
+    // Whether the file is open for reading.
+    bool reading;
+    // Whether the file is open for writing.
+    bool writing;
+    // Whether the file was opened with append.
+    bool append;
+    // Whether the file was opened in binary mode.
+    bool binary;
+    // Whether the file has reached the end.
+    bool eof;
+    // File position indicator.
+    fpos_t position;
+};
+
+/**
+    Arguments to fseek, specifying the beginning of, current position in or end
+    of the file.
+ */
+#ifndef HOSTED_TEST
+#define SEEK_SET 0
+#define SEEK_CUR 1
+#define SEEK_END 2
+#endif /* HOSTED_TEST */
+
+namespace helper {
+/**
+    Prints the given format string and replacements in the variable argument
+    list into a string. This is not part of the standard library, but is used in
+    the implementations of all the other print functions.
+
+    @param str String with the formatted output. Current contents are
+           overwritten.
+    @param format Format string.
+    @param ... Replacements for the format string.
+ */
+    void strprintf(string& str, const char* format, ...);
+    void vstrprintf(string& str, const char* format, va_list);
+
+/**
+    Converts an integer, unsigned integer or floating point to a string
+    representation. These are not officially part of the standard library, but
+    are useful enough that they are present in widespread implementations.
+
+    @param value Value to convert.
+    @param radix Radix to use in the string representation.
+    @param style For floating points, e for exponential representation, f for
+           fixed representation, g to determine representation based on value.
+    @return A string representation of value.
+ */
+    string itostr(long long value, unsigned int radix);
+    string uitostr(unsigned long long value, unsigned int radix);
+    string dtostr(long double value, char style);
+} // helper namesapce
+
+} // NMSP namespace
+
+#endif /* CSTDIO_H */

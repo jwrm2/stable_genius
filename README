@@ -1,0 +1,23 @@
+Welcome to Stable Genius OS.
+
+This package is a kernel, along with some user space programs. The functionality
+is somewhat limited and it is certainly not intended to be a fully-fledged
+operating system. The author uses it as an experimental and educational project
+and, while having no objection to other people using it for a similar purpose,
+does not have the time or inclination to help them to do so. Any bug reports,
+comments or feature requests are therefore likely to go unheard.
+
+Currently, the kernel is only available for i686. An i686 toolchain is required
+for builing. OSDev has a good set of instructions for how to build one
+(https://wiki.osdev.org/GCC_Cross-Compiler). Other dependencies include a GRUB
+distribution (https://www.gnu.org/software/grub/) to add the boot loader to the
+boot image, QEMU (https://www.qemu.org/) to run the system, and FUSE
+(https://github.com/libfuse/libfuse) to create disk images.
+
+See `INSTALL' for some generic instructions on using the `configure' script. It
+will usually be necessary to specify the host, eg.
+`./configure --host=i686-elf'. The author recommends an out-of-source build.
+Since the software is not intended to be 'installed' anywhere, there is no point
+in running `make install'. Instead, `make' will build all the binaries and
+libraries, then `make run' will create the disk images and launch the system in
+an emulator.

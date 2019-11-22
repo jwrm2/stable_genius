@@ -1,0 +1,678 @@
+#ifndef ITERATOR_H
+#define ITERATOR_H
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+#include "../include/initializer_list"
+#include "../include/type_traits"
+
+namespace NMSP {
+
+/**
+    Used as a category for output iterators.
+ */
+struct output_iterator_tag {};
+/**
+    Used as a category for input iterators.
+ */
+struct input_iterator_tag {};
+/**
+    Used as a category for forward iterators.
+ */
+struct forward_iterator_tag : public input_iterator_tag {};
+/**
+    Used as a category for bidirectional iterators.
+ */
+struct bidirectional_iterator_tag : public forward_iterator_tag {};
+/**
+    Used as a category for random access iterators.
+ */
+struct random_access_iterator_tag : public bidirectional_iterator_tag {};
+
+/**
+    Base class for iterators. Not actually an iterator itself, but provides
+    some types that mean that iterator_traits will be happy.
+
+    @param Category type of the iterator, should be one of the five
+           iterator_tag types.
+    @param T element type.
+    @param Distance type for a difference between iterators.
+    @param Pointer type of a pointer to an element.
+    @param Reference type of a reference to an element.
+ */
+template <typename Category, typename T, typename Distance = ptrdiff_t,
+    typename Pointer = T*, class Reference = T&>
+struct iterator {
+public:
+    using iterator_category = Category;
+    using value_type = T;
+    using difference_type = Distance;
+    using pointer = Pointer;
+    using reference = Reference;
+};
+
+/**
+    Provides a standard way of accessing the properties of an iterator. A valid
+    iterator must have a valid iterator_traits, which can be specialised. A
+    default is provided, as well as specialisations for pointers and const
+    pointers. An attempted instantiation with a class that does not provide
+    the necessary iterator types will result in an empty iterator_traits class.
+
+    @param Iterator type to provide traits for.
+ */
+namespace helper {
+    // Empty class for non-compliant type.
+    template <typename Iterator, typename = void>
+    struct iterator_traits_helper {};
+
+    // Define all the types for a compliant type.
+    template <typename Iterator>
+    struct iterator_traits_helper<Iterator,
+        void_t<typename Iterator::iterator_category,
+            typename Iterator::value_type, typename Iterator::difference_type,
+            typename Iterator::pointer, typename Iterator::reference
+        >
+    > {
+        using iterator_category = typename Iterator::iterator_category;
+        using value_type = typename Iterator::value_type;
+        using difference_type = typename Iterator::difference_type;
+        using pointer = typename Iterator::pointer;
+        using reference = typename Iterator::reference;
+    };
+} // helper namespace
+
+// Default definition
+template <typename Iterator>
+struct iterator_traits : public helper::iterator_traits_helper<Iterator> {};
+
+// Specialisation for pointers.
+template <typename T>
+struct iterator_traits<T*> {
+    using iterator_category = random_access_iterator_tag;
+    using value_type = T;
+    using difference_type = ptrdiff_t;
+    using pointer = T*;
+    using reference = T&;
+};
+
+// Specialisation for pointers to consts.
+template <typename T>
+struct iterator_traits<T* const> {
+    using iterator_category = random_access_iterator_tag;
+    using value_type = T;
+    using difference_type = ptrdiff_t;
+    using pointer = T* const;
+    using reference = const T&;
+};
+
+// Specialisation for const pointers.
+template <typename T>
+struct iterator_traits<const T*> {
+    using iterator_category = random_access_iterator_tag;
+    using value_type = T;
+    using difference_type = ptrdiff_t;
+    using pointer = const T*;
+    using reference = const T&;
+};
+
+// Specialisation for const pointers to consts.
+template <typename T>
+struct iterator_traits<const T* const> {
+    using iterator_category = random_access_iterator_tag;
+    using value_type = T;
+    using difference_type = ptrdiff_t;
+    using pointer = const T* const;
+    using reference = const T&;
+};
+
+/**
+    Given an iterator, construct an iterator that works in the reverse
+    direction. Only valid for iterators that are at least bidirectional. A
+    reverse iterator points to the element preceeding that of the normal
+    iterator. This is so that a normal iterator at the end (one past the last
+    element) becomes a reverse iterator at the beginning (the last element).
+    When a reverse iterator is at the end (one before the first element) the
+    normal iterator points at the first element.
+
+    @param Iterator iterator type to reverse.
+ */
+template <typename Iterator>
+class reverse_iterator :
+    public iterator<typename iterator_traits<Iterator>::iterator_category,
+        typename iterator_traits<Iterator>::value_type,
+        typename iterator_traits<Iterator>::difference_type,
+        typename iterator_traits<Iterator>::pointer,
+        typename iterator_traits<Iterator>::reference>
+{
+protected:
+    // Current position of the base iterator.
+    Iterator current;
+
+public:
+    // Types inherited from iterator. Since they are dependent types, they need
+    // to be specified again.
+    using iterator_type = Iterator;
+    using iterator_category =
+        typename iterator_traits<iterator_type>::iterator_category;
+    using value_type = typename iterator_traits<iterator_type>::value_type;
+    using difference_type =
+        typename iterator_traits<iterator_type>::difference_type;
+    using pointer = typename iterator_traits<iterator_type>::pointer;
+    using reference = typename iterator_traits<iterator_type>::reference;
+
+    /**
+        Default constructor makes an iterator that points at nothing.
+     */
+    reverse_iterator() : current{} {}
+
+    /**
+        Constructs a reverse iterator based on the provided iterator.
+
+        @param x Iterator to reverse.
+     */
+    explicit reverse_iterator(iterator_type x) : current{x} {}
+
+    /**
+        General copy constructor. Assumes that the base type of the provided
+        iterator can be converted into iterator_type.
+
+        @param it Iterator to copy.
+     */
+    template <typename Iterator2>
+    reverse_iterator(const reverse_iterator<Iterator2>& rev_it)
+        : current{rev_it.base()}
+    {}
+
+    /**
+        Returns the base iterator.
+
+        @return The base iterator.
+     */
+    iterator_type base() const { return current; }
+
+    /**
+        Returns a reference to the current object.
+
+        @return Reference to the current object.
+     */
+    reference operator*() const
+    {
+        iterator_type temp = current;
+        return *(--temp);
+    }
+
+    /**
+        Returns a pointer to the current object.
+
+        @return Pointer to the current object.
+     */
+    pointer operator->() const
+    {
+        return &(operator*());
+    }
+
+    /**
+        Advances the reverse iterator by one (ie decrements the base iterator).
+
+        @return The iterator advanced by one place.
+     */
+    reverse_iterator& operator++()
+    {
+        --current;
+        return *this;
+    }
+
+    /**
+        Advances the reverse iterator (ie decrements the base iterator).
+
+        @return The original value of the iterator.
+     */
+    reverse_iterator operator++(int)
+    {
+        reverse_iterator temp = *this;
+        --current;
+        return temp;
+    }
+
+    /**
+        Retreats the reverse iterator by one (ie increments the base iterator).
+
+        @return The iterator retreated by one place.
+     */
+    reverse_iterator& operator--()
+    {
+        ++current;
+        return *this;
+    }
+
+    /**
+        Retreats the reverse iterator by one (ie increments the base iterator).
+
+        @return The original value of the iterator.
+     */
+    reverse_iterator operator--(int)
+    {
+        reverse_iterator temp = *this;
+        ++current;
+        return temp;
+    }
+
+    /**
+        Gives the iterator advanced by the given number of places. The
+        underlying iterator must be a random access iterator.
+
+        @param n Places to advance by.
+        @return The iterator advanced n places.
+     */
+    reverse_iterator operator+(difference_type n) const
+    {
+        return reverse_iterator{current - n};
+    }
+
+    /**
+        Advances the iterator by the given number of places. The underlying
+        iterator must be a random access iterator.
+
+        @param n Places to advance by.
+        @return The iterator advanced n places.
+     */
+    reverse_iterator& operator+=(difference_type n)
+    {
+        current -= n;
+        return *this;
+    }
+
+    /**
+        Gives the iterator retreated by the given number of places. The
+        underlying iterator must be a random access iterator.
+
+        @param n Places to retreat by.
+        @return The iterator retreated n places.
+     */
+    reverse_iterator operator-(difference_type n) const
+    {
+        return reverse_iterator{current + n};
+    }
+
+    /**
+        Retreats the iterator by the given number of places. The underlying
+        iterator must be a randoim access iterator.
+
+        @param n Places to retreat by.
+        @return The iterator retreated n places.
+     */
+    reverse_iterator& operator-=(difference_type n)
+    {
+        current += n;
+        return *this;
+    }
+
+    /**
+        Gives the value referred to by the iterator advanced by the given
+        number of places. The underlying iterator must be a random access
+        iterator.
+
+        @param n Places to advance by.
+        @return The value the iterator advanced by n places refers to.
+     */
+    reference operator[](difference_type n) const
+    {
+        return *(*this + n);
+    }
+};
+
+/**
+    Tests whether two reverse_iterators are equal.
+
+    @param lhs, rhs reverse_iterators to compare.
+    @return Whether the iterators are equal.
+ */
+template <typename IteratorL, typename IteratorR>
+bool operator==(const reverse_iterator<IteratorL>& lhs,
+    const reverse_iterator<IteratorR>& rhs)
+{
+    return lhs.base() == rhs.base();
+}
+
+/**
+    Tests whether two reverse_iterators are not equal.
+
+    @param lhs, rhs reverse_iterators to compare.
+    @return Whether the iterators are not equal.
+ */
+template <typename IteratorL, typename IteratorR>
+bool operator!=(const reverse_iterator<IteratorL>& lhs,
+    const reverse_iterator<IteratorR>& rhs)
+{
+    return !(lhs == rhs);
+}
+
+/**
+    Tests whether one reverse iterator is less than another.
+
+    @param lhs, rhs reverse_iterators to compare.
+    @return Whether lhs is less than rhs.
+ */
+template <typename IteratorL, typename IteratorR>
+bool operator<(const reverse_iterator<IteratorL>& lhs,
+    const reverse_iterator<IteratorR>& rhs)
+{
+    return lhs.base() > rhs.base();
+}
+
+/**
+    Tests whether one reverse iterator is less than or equal to another.
+
+    @param lhs, rhs reverse_iterators to compare.
+    @return Whether lhs is less than or equal to rhs.
+ */
+template <typename IteratorL, typename IteratorR>
+bool operator<=(const reverse_iterator<IteratorL>& lhs,
+    const reverse_iterator<IteratorR>& rhs)
+{
+    return !(rhs < lhs);
+}
+
+/**
+    Tests whether one reverse iterator is greater than another.
+
+    @param lhs, rhs reverse_iterators to compare.
+    @return Whether lhs is greater than rhs.
+ */
+template <typename IteratorL, typename IteratorR>
+bool operator>(const reverse_iterator<IteratorL>& lhs,
+    const reverse_iterator<IteratorR>& rhs)
+{
+    return rhs < lhs;
+}
+
+/**
+    Tests whether one reverse iterator is greater than or equal to another.
+
+    @param lhs, rhs reverse_iterators to compare.
+    @return Whether lhs is greater than or equal to rhs.
+ */
+template <typename IteratorL, typename IteratorR>
+bool operator>=(const reverse_iterator<IteratorL>& lhs,
+    const reverse_iterator<IteratorR>& rhs)
+{
+    return !(lhs < rhs);
+}
+
+/**
+    Adds an offset to the reverse iterator. Like the member function operator+,
+    but with the arguments the opposite way round.
+
+    @param n Places to advance by.
+    @param rev_it Iterator to act on.
+    @return The iterator advanced n places.
+ */
+template <typename Iter>
+reverse_iterator<Iter> operator+(
+    typename reverse_iterator<Iter>::difference_type n,
+    const reverse_iterator<Iter>& rev_it)
+{
+    return rev_it + n;
+}
+
+/**
+    Returns the difference between two reverse iterators, only if the base
+    iterators define a subtraction operation.
+
+    @param x, y Iterators to find the difference between.
+    @return The difference between x and y.
+ */
+template <typename IteratorL, typename IteratorR>
+auto operator-(const reverse_iterator<IteratorL>& x,
+    const reverse_iterator<IteratorR>& y) -> decltype(y.base() - x.base())
+{
+    return (y.base() - x.base());
+}
+
+/**
+    Returns a reverse iterator for the last element of an initializer_list.
+
+    @param il List to get the iterator for.
+    @return Reverse iterator pointing at the last element of the list.
+ */
+template <typename T>
+reverse_iterator<typename std::initializer_list<T>::iterator>
+    rbegin(std::initializer_list<T> il)
+{
+    return
+        reverse_iterator<typename std::initializer_list<T>::iterator>(il.end());
+}
+
+/**
+    Returns a reverse iterator for one before the first element of an
+    initializer_list.
+
+    @param il List to get the iterator for.
+    @return Reverse iterator pointing at one before the first element of the
+            list.
+ */
+template <typename T>
+reverse_iterator<typename std::initializer_list<T>::iterator>
+    rend(std::initializer_list<T> il)
+{
+    return reverse_iterator<
+        typename std::initializer_list<T>::iterator>(il.begin());
+}
+
+
+/**
+    This iterator is not part of the standard library, but is useful for
+    wrapping simple pointers as classes. The container is provided so that
+    pointers to the same types in different containers are recognised as
+    different.
+
+    @param Iterator type of iterator to wrap.
+    @param Container type of container over which this iterator iterates.
+ */
+namespace helper {
+    template <typename Iterator, typename Container>
+    class normal_iterator {
+    protected:
+        // The base iterator.
+        Iterator current;
+
+    public:
+        // Types for iterator_traits compliance.
+        using iterator_type = Iterator;
+        using iterator_category =
+            typename NMSP::iterator_traits<iterator_type>::iterator_category;
+        using value_type =
+            typename NMSP::iterator_traits<iterator_type>::value_type;
+        using difference_type =
+            typename NMSP::iterator_traits<iterator_type>::difference_type;
+        using pointer = typename NMSP::iterator_traits<iterator_type>::pointer;
+        using reference =
+            typename NMSP::iterator_traits<iterator_type>::reference;
+
+        /**
+            Default constructor. Make a default iterator of the given type.
+         */
+        normal_iterator() : current{} {}
+
+        /**
+            Allow iterator to const iterator conversion. Only allowed when the
+            provided iterator matches the type of the pointer in this Container.
+
+            @param other Iterator to copy the position of.
+         */
+        template <typename Iter>
+        normal_iterator(const normal_iterator<Iter, typename enable_if<
+            is_same<Iter, typename Container::pointer>::value,
+            Container>::type>& other) :
+            current{other.base()}
+        {}
+
+        /**
+            Construct from a provided base iterator.
+
+            @param it Iterator to use as a base.
+         */
+        explicit normal_iterator(const iterator_type& it) : current{it} {}
+
+        /**
+            Conversion operator to create a const version from a non-const
+            iterator.
+
+            @return The same iterator, but const.
+         */
+        operator normal_iterator<const iterator_type, Container>() const
+        {
+            return normal_iterator<const iterator_type, Container>{current};
+        }
+
+        // Operators for forward iterators.
+        reference operator*() const { return *current; }
+        pointer operator->() const { return current; }
+        normal_iterator& operator++()
+        { 
+            ++current;
+            return *this;
+        }
+        normal_iterator operator++(int)
+        {
+            return normal_iterator(current++);
+        }
+
+        // Operators for bidirectional iterators.
+        normal_iterator& operator--()
+        { 
+            --current;
+            return *this;
+        }
+        normal_iterator operator--(int)
+        {
+            return normal_iterator(current--);
+        }
+
+        // Operators for random access iterators.
+        reference operator[](difference_type n) const { return current[n]; }
+        normal_iterator& operator+=(difference_type n)
+        {
+            current += n;
+            return *this;
+        }
+        normal_iterator operator+(difference_type n) const
+        {
+            return normal_iterator(current + n);
+        }
+        normal_iterator& operator-=(difference_type n)
+        {
+            current -= n;
+            return *this;
+        }
+        normal_iterator operator-(difference_type n) const
+        {
+            return normal_iterator(current - n);
+        }
+
+        // Get the base iterator.
+        const iterator_type& base() const { return current; }
+    };
+
+    // Relational operators for normal_iterators. We explicitly include the
+    // Container so that iterators for different containers can't be compared
+    // even if the underlying iterator is the same.
+    template <typename IteratorL, typename IteratorR, typename Container>
+    bool operator==(const normal_iterator<IteratorL, Container>& lhs,
+        const normal_iterator<IteratorR, Container>& rhs)
+    {
+        return lhs.base() == rhs.base();
+    }
+    template <typename IteratorL, typename IteratorR, typename Container>
+    bool operator!=(const normal_iterator<IteratorL, Container>& lhs,
+        const normal_iterator<IteratorR, Container>& rhs)
+    {
+        return !(lhs == rhs);
+    }
+    template <typename IteratorL, typename IteratorR, typename Container>
+    bool operator<(const normal_iterator<IteratorL, Container>& lhs,
+        const normal_iterator<IteratorR, Container>& rhs)
+    {
+        return lhs.base() < rhs.base();
+    }
+    template <typename IteratorL, typename IteratorR, typename Container>
+    bool operator>=(const normal_iterator<IteratorL, Container>& lhs,
+        const normal_iterator<IteratorR, Container>& rhs)
+    {
+        return !(lhs < rhs);
+    }
+    template <typename IteratorL, typename IteratorR, typename Container>
+    bool operator>(const normal_iterator<IteratorL, Container>& lhs,
+        const normal_iterator<IteratorR, Container>& rhs)
+    {
+        return rhs < lhs;
+    }
+    template <typename IteratorL, typename IteratorR, typename Container>
+    bool operator<=(const normal_iterator<IteratorL, Container>& lhs,
+        const normal_iterator<IteratorR, Container>& rhs)
+    {
+        return !(rhs < lhs);
+    }
+    // Like the member operator+ but with the operands reversed.
+    template <typename Iterator, typename Container>
+    normal_iterator<Iterator, Container> operator+(
+        typename normal_iterator<Iterator, Container>::difference_type n,
+        normal_iterator<Iterator, Container> it)
+    {
+        return it + n;
+    }
+    // Gives the number of places difference between two normal_iterators.
+    template <typename IteratorL, typename IteratorR, typename Container>
+    auto operator-(const normal_iterator<IteratorL, Container>& lhs,
+        const normal_iterator<IteratorR, Container>& rhs)
+        -> decltype (lhs.base() - rhs.base())
+    {
+        return lhs.base() - rhs.base();
+    }
+} // helper namespace
+
+// SFINAE tests for iterator types.
+namespace helper {
+// Test whether an iterator type is at least an output iterator. The type
+// exists if it does, and is undefined if it does not.
+    template <typename TestIter>
+    using RequireOutputIter = typename NMSP::enable_if<
+        NMSP::is_convertible<typename NMSP::iterator_traits<TestIter>::iterator_category,
+            NMSP::output_iterator_tag>::value>::type;
+
+// Test whether an iterator type is at least an input iterator. The type
+// exists if it does, and is undefined if it does not.
+    template <typename TestIter>
+    using RequireInputIter = typename NMSP::enable_if<
+        NMSP::is_convertible<typename NMSP::iterator_traits<TestIter>::iterator_category,
+            NMSP::input_iterator_tag>::value>::type;
+
+// Test whether an iterator type is at least a forward iterator. The type
+// exists if it does, and is undefined if it does not.
+    template <typename TestIter>
+    using RequireForwardIter = typename NMSP::enable_if<
+        NMSP::is_convertible<typename NMSP::iterator_traits<TestIter>::iterator_category,
+            NMSP::forward_iterator_tag>::value>::type;
+
+// Test whether an iterator type is at least a bidirectional iterator. The type
+// exists if it does, and is undefined if it does not.
+    template <typename TestIter>
+    using RequireBidirectionalIter = typename NMSP::enable_if<
+        NMSP::is_convertible<typename NMSP::iterator_traits<TestIter>::iterator_category,
+            NMSP::bidirectional_iterator_tag>::value>::type;
+
+// Test whether an iterator type is at least a random access iterator. The type
+// exists if it does, and is undefined if it does not.
+    template <typename TestIter>
+    using RequireRandomAccessIter = typename NMSP::enable_if<
+        NMSP::is_convertible<typename NMSP::iterator_traits<TestIter>::iterator_category,
+            NMSP::random_access_iterator_tag>::value>::type;
+
+} // helper namespace
+
+} // NMSP namespace
+
+#endif

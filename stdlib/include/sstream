@@ -1,0 +1,865 @@
+#ifndef SSTREAM_H
+#define SSTREAM_H
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+#include "../include/ios"
+#include "../include/istream"
+#include "../include/ostream"
+#include "../include/streambuf"
+#include "../include/string"
+#include "../include/utility"
+
+namespace NMSP {
+
+/**
+    This class implements stream style interactions with a string as the
+    associated character sequence.
+ */
+template <typename CharT, typename Traits = char_traits<CharT>,
+    typename Alloc = allocator<CharT>>
+class basic_stringbuf : public basic_streambuf<CharT, Traits> {
+public:
+    /** Type of the character. */
+    using char_type = CharT;
+    /** Type of the traits. traits_type::char_type must equal char_type. */
+    using traits_type = Traits;
+    /** Type of the allocator. */
+    using allocator_type = Alloc;
+    /** Type of an int that can represent the char. Taken from traits_type. */
+    using int_type = typename traits_type::int_type;
+    /** Type that can represent a position in a stream. Taken from
+        traits_type. */
+    using pos_type = typename traits_type::pos_type;
+    /** Type of an int that can represent an offset in a stream. Taken from
+        traits_type. */
+    using off_type = typename traits_type::off_type;
+protected:
+    /** Type of a string with the same character, traits and allocator types as
+        this buffer. */
+    using string_type = basic_string<char_type, traits_type, allocator_type>;
+    /** Type of the instantiated template parent, just for convenience. */
+    using streambuf_type = basic_streambuf<char_type, traits_type>;
+public:
+
+    /**
+        Default constructor. Calls the default constructor of the parent
+        basic_streambuf, which sets the pointers to nullptr, initialises the
+        mode to read and write and creates an empty string for the data.
+     */
+    basic_stringbuf() : basic_stringbuf {ios_base::in | ios_base::out } {}
+
+    /**
+        Constructor. Calls the default constructor of the parent
+        basic_streambuf, which sets the pointers to nullptr, initialises the
+        mode to which and creates an empty string for the data.
+
+        @param which Mode to open the stream in.
+     */
+    explicit basic_stringbuf(ios_base::openmode which) :
+        streambuf_type {}, mode {which}, data {}
+    {}
+
+    /**
+        Constructor. Calls the default constructor of the parent
+        basic_streambuf, which sets the pointers to nullptr, initialises the
+        mode to which and the data string with as a copy of the provided string.
+        Finally initialises the pointers according to the mode by the same rules
+        as calling str().
+
+        @param new_str String to use as the data for the stream.
+        @param which Mode to open the stream in, defaults to read and write.
+     */
+    explicit basic_stringbuf(const string_type& new_str,
+        ios_base::openmode which = ios_base::in | ios_base::out) :
+        streambuf_type {},
+        mode {which},
+        data {new_str.data(), new_str.size()}
+    {
+        init_pointers();
+    }
+
+    /**
+        The copy constructor is deleted.
+
+        @param other basic_stringbuf to (not) copy.
+     */
+    basic_stringbuf(const basic_stringbuf& other) = delete;
+
+    /**
+        Move constructor. Pirates the state of the other basic_stringbuf and
+        resets the pointers of the other buffer.
+
+        @param other basic_stringbuf to pirate from.
+     */
+    basic_stringbuf(basic_stringbuf&& other) :
+        streambuf_type {other},
+        mode {other.mode},
+        data {move(other.data)}
+    {
+        other.setg(nullptr, nullptr, nullptr);
+        other.setp(nullptr, nullptr, nullptr);
+    }
+
+    /**
+        Copy assignment is deleted.
+
+        @param other basic_stringbuf to (not) copy.
+        @return This basic_stringbuf.
+     */
+    basic_stringbuf& operator=(const basic_stringbuf& other) = delete;
+
+    /**
+        Move assignment. Pirates the state of the other basic_stringbuf and
+        resets the pointers of the other buffer.
+
+        @param other basic_stringbuf to pirate from.
+     */
+    basic_stringbuf& operator=(basic_stringbuf&& other)
+    {
+        streambuf_type::operator=(other);
+        mode = other.mode;
+        data = move(other.data);
+
+        other.setg(nullptr, nullptr, nullptr);
+        other.setp(nullptr, nullptr, nullptr);
+
+        return *this;
+    }
+
+    /**
+        Swaps the contents of two basic_stringbufs.
+
+        @param other basic_stringbuf to swap with.
+     */
+    void swap(basic_stringbuf& other)
+    {
+        streambuf_type::swap(other);
+        NMSP::swap(mode, other.mode);
+        NMSP::swap(data, other.data);
+    }
+
+    /**
+        Gets or sets the base string of the stream. The first version gets a
+        copy of the string. If the stream is open for reading, returns the
+        complete string in the get area. If the string is open for writing or
+        for reading and writing, gets the string from the start of the put area
+        to the next pointer in the put area.
+
+        The second version replaces the base string of the stream. It sets the
+        pointers according to the mode. For reading, the get area is set as the
+        contents of the complete string and the next pointer is the start of the
+        string. For output streams, the start of the put area is the start of
+        the string. The end is at least the end of the string, but may be
+        further to allow writing without an immediate reallocation. For
+        appending streams, the next pointer is set to the end of the string. For
+        non-appending streams, it is set to the start.
+
+        @param s String to use as the character stream.
+        @return The first version returns a copy of the underlying string.
+     */
+    string_type str() const
+    {
+        string_type ret_val;
+        if (streambuf_type::pptr())
+        {
+            // Write is enabled. The valid string is from the start of the put
+            // area to the high water mark.
+            ret_val = string_type {streambuf_type::pbase(), high_water()};
+        }
+        else
+            // Reading only. Return the whole string.
+            ret_val = data;
+
+        return ret_val;
+    }
+
+    void str(const string_type& s)
+    {
+        data.assign(s.data(), s.size());
+        init_pointers();
+    }
+
+protected:
+    /** The current mode of the stream. */
+    ios_base::openmode mode;
+    /** String that stores the contents of the buffer. The get and put area
+        pointers point at the data of this string. */
+    string_type data;
+
+    /**
+        Reads the next character from the get area. If the get next pointer is
+        less than the get end pointer, simply gives the character at the next
+        pointer. If the get next pointer is not less than the get end pointer,
+        may extend the get area if the string has been extended by output. If
+        the stream is not open for input, or there are no more available
+        characters, returns eof.
+
+        @return Next character in the get area on success, eof on failure.
+     */
+    virtual int_type underflow() override
+    {
+        int_type ret_val = traits_type::eof();
+
+        if ((mode & ios_base::in) != 0)
+        {
+            if (streambuf_type::gptr() >= streambuf_type::egptr() &&
+                streambuf_type::pptr() > streambuf_type::egptr())
+                streambuf_type::setg(streambuf_type::eback(),
+                    streambuf_type::gptr(), streambuf_type::pptr());
+
+            if (streambuf_type::gptr() < streambuf_type::gptr())
+                ret_val = traits_type::to_int_type(*streambuf_type::gptr());
+        }
+
+        return ret_val;
+    }
+
+    /**
+        Puts back a character into the put area. If called with no argument or
+        eof, puts back the one already there. If called with an argument, puts
+        back that argument as a character, but only if the stream is open for
+        output. Fails if the putback area is not available.
+
+        @param ch Character to put back, defaults to eof, which means the last
+               character read.
+        @return The character put back, which will not be eof even if eof was
+                the argument, on success. eof on failure.
+     */
+    virtual int_type pbackfail(int_type ch = traits_type::eof()) override
+    {
+        int_type ret_val = traits_type::eof();
+
+        // First check if there is a putback position available.
+        if (streambuf_type::eback() < streambuf_type::gptr())
+        {
+            if (traits_type::eq(ch, traits_type::eof() ||
+                traits_type::eq(traits_type::to_char_type(ch),
+                streambuf_type::gptr()[-1])))
+            {
+                // We want to put back the last character read.
+                streambuf_type::gbump(-1);
+                ret_val = traits_type::to_int_type(*streambuf_type::gptr());
+            }
+            else if ((mode & ios_base::out) != 0)
+            {
+                // We want to put back a different character. Check we can edit
+                // the string.
+                streambuf_type::gbump(-1);
+                traits_type::assign(*streambuf_type::gptr(),
+                    traits_type::to_char_type(ch));
+                ret_val = ch;
+            }
+        }
+        return ret_val;
+    }
+
+    /**
+        Appends the character to the output sequence. If the character is eof,
+        do nothing. Otherwise, if there is write space available, write the
+        character. If there is not write space available, resize the
+        underlying string to increase the space. Resets all the put area
+        pointers to account for this, and also the get area ones of also open
+        for reading. Then writes the character in the new space.
+
+        @param ch Charater to write, defaults to eof.
+        @return ch on success, eof on failure. Some value other than eof if ch
+                is eof.
+     */
+    virtual int_type overflow(int_type ch = traits_type::eof()) override
+    {
+        // Fail if not open for writing.
+        if ((mode & ios_base::out) == 0)
+            return traits_type::eof();
+
+        // Do nothing and return not eof if eof was supplied.
+        if (traits_type::eq_int_type(ch, traits_type::eof()))
+            return traits_type::not_eof(ch);
+
+        // Fail if there is no write space available and the string is at max
+        // capacity (this would be a very large string).
+        if (streambuf_type::pptr() >= streambuf_type::epptr() &&
+            data.capacity() == data.max_size())
+            return traits_type::eof();
+
+        // Test if we need more write space.
+        if (streambuf_type::pptr() >= streambuf_type::epptr())
+        {
+            // In this case, we need to allocate more string space. The size
+            // increase is somewhat arbitray, and is only required to be 1.
+            // We'll double the capacity, although use 8 as an arbitrary
+            // minimum.
+            size_t new_size = (data.capacity() > 4 ? 2 * data.capacity() : 8);
+            new_size = min(new_size, data.max_size());
+            // Use resize rather than reserve so we don't end up writing the
+            // string beyond size() but before capacity().
+            data.resize(new_size);
+            // Reset the pointers, as they may have been changed by
+            // reallocation.
+            streambuf_type::setp(&data[0], &data[0] +
+                (streambuf_type::pptr() - streambuf_type::pbase()),
+                &data[0] + data.size());
+            if ((mode & ios_base::in) != 0)
+                streambuf_type::setg(streambuf_type::pbase(),
+                streambuf_type::pbase() +
+                (streambuf_type::gptr() - streambuf_type::eback()),
+                max(streambuf_type::pptr(), streambuf_type::pbase() +
+                (streambuf_type::egptr() - streambuf_type::eback())) + 1);
+            else
+                streambuf_type::setg(nullptr, nullptr, streambuf_type::pptr());
+        }
+
+        // Now we should be ready for the write.
+        if (streambuf_type::pptr() < streambuf_type::epptr())
+        {
+            // In this case we can just add the character into available write
+            // space.
+            traits_type::assign(*streambuf_type::pptr(),
+                traits_type::to_char_type(ch));
+            streambuf_type::pbump(1);
+            return ch;
+        }
+
+        // This should be unreachable.
+        return traits_type::eof();
+    }
+
+    /**
+        Allows resetting the buffer to a new sequence. Constructs a string from
+        the provided character buffer, then resets all the pointers according to
+        the mode, following the same rules as str().
+
+        @param s Pointer to the first element of a CharT array.
+        @param n Number of elements in s.
+        @return This basic_streambuf.
+     */
+    virtual basic_stringbuf* setbuf(char_type* s, streamsize n) override
+    {
+        data.assign(s, n);
+        init_pointers();
+        return this;
+    }
+
+    /**
+        Repositions the get and/or put next pointers to the specified offset
+        from the specified position. May fail if the requested position is out
+        of range or the open mode of the stream does not match the requested
+        mode.
+
+        @param off Offset to set.
+        @param dir Position to offset from (beg, cur or end).
+        @param which Whether to change the get pointer, put pointer or both.
+               Defaults to both.
+        @return The new position on success, or -1 on failure.
+     */
+    virtual pos_type seekoff(off_type off, ios_base::seekdir dir,
+        ios_base::openmode which = ios_base::in | ios_base::out) override
+    {
+        // Initialise to a fail value.
+        pos_type ret_val = -1;
+
+        // Basic checks on direction.
+        bool do_g = (((ios_base::in & which) != 0) &&
+            ((ios_base::in & mode) != 0));
+        bool do_p = (((ios_base::out & which) != 0) &&
+            ((ios_base::out & mode) != 0));
+
+        // Check we can actually do something.
+        if (!(do_g || do_p))
+            return ret_val;
+
+        // We can't do both adjustments if the dir is cur.
+        if (do_g && do_p && dir == ios_base::cur)
+            return ret_val;
+
+        // We can only do unitialised values if off is zero.
+        if (do_g && streambuf_type::gptr() == nullptr && off != 0)
+            return ret_val;
+        if (do_p && streambuf_type::pbase() == nullptr && off != 0)
+            return ret_val;
+
+        // Check that the adjustments are in range.
+        off_type base_g;
+        off_type base_p;
+        switch (dir)
+        {
+        case ios_base::beg:
+            base_g = 0;
+            base_p = 0;
+            break;
+        case ios_base::cur:
+            base_g = streambuf_type::gptr() - streambuf_type::eback();
+            base_p = streambuf_type::pptr() - streambuf_type::pbase();
+            break;
+        case ios_base::end:
+            base_g = high_water() - streambuf_type::eback();
+            base_p = high_water() - streambuf_type::pbase();
+            break;
+        default:
+            return ret_val;
+        }
+
+        if (do_g && (base_g + off < 0 ||
+            (base_g + off) > (high_water() - streambuf_type::eback())))
+            return ret_val;
+        if (do_p && (base_p + off < 0 ||
+            (base_p + off) > (high_water() - streambuf_type::pbase())))
+            return ret_val;
+
+        // Checks complete. Now we can do the actual adjustments safely.
+        if (do_g)
+        {
+            streambuf_type::setg(streambuf_type::eback(),
+                streambuf_type::eback() + base_g + off,
+                streambuf_type::egptr());
+            ret_val = streambuf_type::gptr() - streambuf_type::eback();
+        }
+        if (do_p)
+        {
+            // We might need to adjust the high water mark.
+            if (streambuf_type::pptr() > streambuf_type::egptr())
+                streambuf_type::setg(streambuf_type::eback(),
+                    streambuf_type::gptr(), streambuf_type::pptr());
+            streambuf_type::setp(streambuf_type::pbase(),
+                streambuf_type::pbase() + base_p + off,
+                streambuf_type::epptr());
+            ret_val = streambuf_type::pptr() - streambuf_type::pbase();
+        }
+
+        return ret_val;
+    }
+
+    /**
+        Repositions the get and/or put next pointers to the specified position.
+        May fail if the requested position is out of range or the open mode of
+        the stream does not match the requested mode. Executes
+        seekoff(off_type{pos}, beg, which).
+
+        @param pos Position to set.
+        @param which Whether to change the get pointer, put pointer or both.
+               Defaults to both.
+        @return The new position on success, or -1 on failure.
+     */
+    virtual pos_type seekpos(pos_type pos,
+        ios_base::openmode which = ios_base::in | ios_base::out) override
+    {
+        return seekoff(off_type{pos}, ios_base::beg, which);
+    }
+
+    /**
+        Helper function that gets the high water mark. This is the pointer to
+        the last initialised character in the string.
+
+        @return Pointer to the last initialised character in the string.
+     */
+    char_type* high_water() const
+    {
+        if (((mode & ios_base::out) != 0) &&
+            (streambuf_type::pptr() > streambuf_type::egptr()))
+            return streambuf_type::pptr();
+        else
+            return streambuf_type::egptr();
+    }
+
+    /**
+        Helper function to initialise the pointers to the correct values,
+        dependent on the mode.
+     */
+    void init_pointers()
+    {
+        // Cache the initial size, for setting egptr().
+        streamsize sz = data.size();
+
+        if ((mode & ios_base::out) != 0)
+        {
+            if ((mode & ios_base::trunc) != 0)
+            {
+                // Delete the current string contents. Doesn't deallocate
+                // memory.
+                data.clear();
+                sz = 0;
+            }
+            // We can use the pointers to keep track of the valid size of the
+            // string, so the real size of the string can be bigger.
+            data.resize(data.capacity());
+            streambuf_type::setp(&data[0], &data[0],
+                &data[0] + data.size());
+            if ((mode & (ios_base::app | ios_base::ate)) != 0)
+                streambuf_type::pbump(data.size()); 
+        }
+        if ((mode & ios_base::in) != 0)
+            streambuf_type::setg(&data[0], &data[0], &data[0] + sz);
+        else
+            // We need egptr() as the high water mark.
+            streambuf_type::setg(nullptr, nullptr, &data[0] + sz);
+    }
+};
+
+/**
+    Specialisation of basic_stringbuf for the simple char type.
+ */
+using stringbuf = basic_stringbuf<char>;
+
+/**
+    Specialisation of swap() for basic_stringbuf. Swaps the contents and states
+    of the two buffers. Calls lhs.swap(rhs).
+
+    @param lhs, rhs Two basic_stringbufs to swap.
+ */
+template <typename CharT, typename Traits, typename Alloc>
+void swap(basic_stringbuf<CharT, Traits, Alloc>& lhs,
+    basic_stringbuf<CharT, Traits, Alloc>& rhs)
+{
+    lhs.swap(rhs);
+}
+
+/**
+    This class provides a string specific ostream that interfaces with a
+    stringbuf.
+ */
+template <typename CharT, typename Traits = char_traits<CharT>,
+    typename Alloc = allocator<CharT>>
+class basic_ostringstream : public basic_ostream<CharT, Traits> {
+public:
+    /** Type of the character. */
+    using char_type = CharT;
+    /** Type of the traits. traits_type::char_type must equal char_type. */
+    using traits_type = Traits;
+    /** Type of an int that can represent the char. Taken from traits_type. */
+    using int_type = typename traits_type::int_type;
+    /** Type that can represent a position in a stream. Taken from
+        traits_type. */
+    using pos_type = typename traits_type::pos_type;
+    /** Type of an int that can represent an offset in a stream. Taken from
+        traits_type. */
+    using off_type = typename traits_type::off_type;
+    /** Type of the allocator. */
+    using allocator_type = Alloc;
+
+protected:
+    /** The type of the parent basic_ostream, for convenience. */
+    using ostream_type = basic_ostream<char_type, traits_type>;
+    /** Type of the underlying string buffer, for convenience. */
+    using stringbuf_type =
+        basic_stringbuf<char_type, traits_type, allocator_type>;
+    /** Type of the string that the string buffer interacts with. */
+    using string_type = basic_string<char_type, traits_type, allocator_type>;
+
+public:
+    /**
+        Default constructor. Constructs a new empty underlying string buffer
+        with the default open mode, for writing.
+     */
+    basic_ostringstream() : basic_ostringstream(ios_base::out) {}
+
+    /**
+        Initialises a new empty underlying string buffer. The provided mode is
+        used, with addition of out (since this is an output stream).
+
+        @param mode Mode to use, defaults to out.
+     */
+    explicit basic_ostringstream(ios_base::openmode mode) :
+        ostream_type{nullptr}
+    {
+        stringbuf_type* sp = new stringbuf_type {mode | ios_base::out};
+        ostream_type::init(sp);
+    }
+
+    /**
+        Uses an exisiting string to initialise the underlying string buffer. The
+        provided mode is used, with the addition of out (since this is an output
+        stream).
+
+        @param str A copy of this string is used for the underlying string
+               buffer.
+        @param mode Mode to use, defaults to out.
+     */
+    explicit basic_ostringstream(const string_type& str,
+        ios_base::openmode mode = ios_base::out) :
+        ostream_type{nullptr}
+    {
+        stringbuf_type* sp = new stringbuf_type {str, mode | ios_base::out};
+        ostream_type::init(sp);
+    }
+
+    /**
+        Move constructor. Pirates the state and string buffer from another
+        ostringstream. The state move is handled by the parent move constructor.
+        The buffer pointer is simply copied and the other buffer is set to
+        nullptr.
+
+        @param other Other ostringstream to pirate the state and buffer from.
+     */
+    basic_ostringstream(basic_ostringstream&& other) :
+        ostream_type {move(other)}
+    {
+        ostream_type::set_rdbuf(other.sbuf);
+        other.set_rdbuf(nullptr);
+    }
+
+    /**
+        Move assignement. Deletes the underlying buffer, then pirates the state
+        and string buffer from another ostringstream. The state move is handled
+        by the parent move assignment. The buffer pointer is simply copied and
+        the other buffer is set to nullptr.
+
+        @param other Other ostringstream to pirate the state and buffer from.
+        @return This ostringstream.
+     */
+    basic_ostringstream& operator=(basic_ostringstream&& other)
+    {
+        delete ostream_type::sbuf;
+        ostream_type::operator=(move(other));
+        ostream_type::set_rdbuf(other.sbuf);
+        other.set_rdbuf(nullptr);
+        return *this;
+    }
+
+    /**
+        Destructor. Deletes the underlying buffer, which has a default
+        destructor that deletes its string.
+     */
+    ~basic_ostringstream()
+    {
+        delete ostream_type::sbuf;
+    }
+
+    /**
+        Swaps the state and buffer of this ostringstream with another. The
+        parent ostream swap() method is called to swap the state and the swap()
+        method of the underlying buffer is called to swap the buffers.
+
+        @param other Other ostringstream to swap with.
+     */
+    void swap(basic_ostringstream& other)
+    {
+        ostream_type::swap(other);
+        rdbuf()->swap(*other.rdbuf());
+    }
+
+    /**
+        Returns the pointer to the underlying string buffer.
+
+        @return Pointer to the underlying string buffer.
+     */
+    stringbuf_type* rdbuf() const
+    {
+        return static_cast<stringbuf_type*>(ostream_type::sbuf);
+    }
+
+    /**
+        Gets or sets the string managed by the underlying string buffer. The
+        first version gets a copy of the string. The second replaces the string
+        with a copy of the provided one.
+
+        @param s String to set.
+        @return The first version returns a copy of the managed string.
+     */
+    string_type str() const
+    {
+        return rdbuf()->str();
+    }
+
+    void str(const string_type& s)
+    {
+        rdbuf()->str(s);
+    }
+};
+
+/**
+    Specialisation of basic_ostringstring for the simple char type.
+ */
+using ostringstream = basic_ostringstream<char>;
+
+/**
+    Specialisation of swap() for basic_ostringstream. Swaps the contents and
+    states of the two buffers. Calls lhs.swap(rhs).
+
+    @param lhs, rhs Two basic_ostringstreams to swap.
+ */
+template <typename CharT, typename Traits, typename Alloc>
+void swap(basic_ostringstream<CharT, Traits, Alloc>& lhs,
+    basic_ostringstream<CharT, Traits, Alloc>& rhs)
+{
+    lhs.swap(rhs);
+}
+
+/**
+    This class provides a string specific istream that interfaces with a
+    stringbuf.
+ */
+template <typename CharT, typename Traits = char_traits<CharT>,
+    typename Alloc = allocator<CharT>>
+class basic_istringstream : public basic_istream<CharT, Traits> {
+public:
+    /** Type of the character. */
+    using char_type = CharT;
+    /** Type of the traits. traits_type::char_type must equal char_type. */
+    using traits_type = Traits;
+    /** Type of an int that can represent the char. Taken from traits_type. */
+    using int_type = typename traits_type::int_type;
+    /** Type that can represent a position in a stream. Taken from
+        traits_type. */
+    using pos_type = typename traits_type::pos_type;
+    /** Type of an int that can represent an offset in a stream. Taken from
+        traits_type. */
+    using off_type = typename traits_type::off_type;
+    /** Type of the allocator. */
+    using allocator_type = Alloc;
+
+protected:
+    /** The type of the parent basic_istream, for convenience. */
+    using istream_type = basic_istream<char_type, traits_type>;
+    /** Type of the underlying string buffer, for convenience. */
+    using stringbuf_type =
+        basic_stringbuf<char_type, traits_type, allocator_type>;
+    /** Type of the string that the string buffer interacts with. */
+    using string_type = basic_string<char_type, traits_type, allocator_type>;
+
+public:
+    /**
+        Default constructor. Creates a stream with an empty string and the
+        default open mode of in.
+     */
+    basic_istringstream() : basic_istringstream {ios_base::in} {}
+
+    /**
+        Constructor. Creates a stream with an empty string and the specified
+        mode, with the addition of the mode in.
+
+        @param mode Open mode to use. in is added, since this is an input
+               stream.
+     */
+    explicit basic_istringstream(ios_base::openmode mode) :
+        istream_type {nullptr}
+    {
+        stringbuf_type* sp = new stringbuf_type {mode | ios_base::in};
+        istream_type::init(sp);
+    }
+
+    /**
+        Constructor. Creates a stream with the contents of the provided stream
+        and the specified open mode, with the addition of the mode in.
+
+        @param str The stream contents will be initialised with the contents of
+               this string.
+        @param mode Open mode to use. in is added, since this is an input
+               stream. Defaults to in.
+     */
+    explicit basic_istringstream(
+        const basic_string<char_type, traits_type, allocator_type>& str,
+        ios_base::openmode mode = ios_base::in) :
+        istream_type {nullptr}
+    {
+        stringbuf_type* sp = new stringbuf_type {str, mode | ios_base::in};
+        istream_type::init(sp);
+    }
+
+    /**
+        Move constructor. Pirates the state and string buffer from another
+        istringstream. The state move is handled by the parent move constructor.
+        The buffer pointer is simply copied and the other buffer is set to
+        nullptr.
+
+        @param other Other istringstream to pirate the state and buffer from.
+     */
+    basic_istringstream(basic_istringstream&& other) :
+        istream_type {move(other)}
+    {
+        istream_type::set_rdbuf(other.sbuf);
+        other.set_rdbuf(nullptr);
+    }
+
+    /**
+        Move assignement. Deletes the underlying buffer, then pirates the state
+        and string buffer from another istringstream. The state move is handled
+        by the parent move assignment. The buffer pointer is simply copied and
+        the other buffer is set to nullptr.
+
+        @param other Other istringstream to pirate the state and buffer from.
+        @return This istringstream.
+     */
+    basic_istringstream& operator=(basic_istringstream&& other)
+    {
+        delete istream_type::sbuf;
+        istream_type::operator=(move(other));
+        istream_type::set_rdbuf(other.sbuf);
+        other.set_rdbuf(nullptr);
+        return *this;
+    }
+
+    /**
+        Destructor. Deletes the underlying buffer, which has a default
+        destructor that deletes its string.
+     */
+    ~basic_istringstream()
+    {
+        delete istream_type::sbuf;
+    }
+
+    /**
+        Swaps the state and buffer of this istringstream with another. The
+        parent istream swap() method is called to swap the state and the swap()
+        method of the underlying buffer is called to swap the buffers.
+
+        @param other Other istringstream to swap with.
+     */
+    void swap(basic_istringstream& other)
+    {
+        istream_type::swap(other);
+        rdbuf()->swap(*other.rdbuf());
+    }
+
+    /**
+        Returns the pointer to the underlying string buffer.
+
+        @return Pointer to the underlying string buffer.
+     */
+    stringbuf_type* rdbuf() const
+    {
+        return static_cast<stringbuf_type*>(istream_type::sbuf);
+    }
+
+    /**
+        Gets or sets the string managed by the underlying string buffer. The
+        first version gets a copy of the string. The second replaces the string
+        with a copy of the provided one.
+
+        @param s String to set.
+        @return The first version returns a copy of the managed string.
+     */
+    string_type str() const
+    {
+        return rdbuf()->str();
+    }
+
+    void str(const string_type& s)
+    {
+        rdbuf()->str(s);
+    }
+};
+
+/**
+    Specialisation of basic_istringstring for the simple char type.
+ */
+using istringstream = basic_istringstream<char>;
+
+/**
+    Specialisation of swap() for basic_istringstream. Swaps the contents and
+    states of the two buffers. Calls lhs.swap(rhs).
+
+    @param lhs, rhs Two basic_istringstreams to swap.
+ */
+template <typename CharT, typename Traits, typename Alloc>
+void swap(basic_istringstream<CharT, Traits, Alloc>& lhs,
+    basic_istringstream<CharT, Traits, Alloc>& rhs)
+{
+    lhs.swap(rhs);
+}
+
+} // end NMSP namespace
+
+#endif /* SSTREAM_H */

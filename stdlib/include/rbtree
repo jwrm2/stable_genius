@@ -1,0 +1,2423 @@
+#ifndef RBTREE_H
+#define RBTREE_H
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+#include "../include/algorithm"
+#include "../include/functional"
+#include "../include/iterator"
+#include "../include/memory"
+#include "../include/type_traits"
+#include "../include/utility"
+
+namespace NMSP {
+namespace helper {
+/**
+    Red-black tree implementation. See
+    http://eternallyconfuzzled.com/tuts/datastructures/jsw_tut_rbtree.aspx
+ */
+
+/**
+    Colour enumeration. Contains tree_black and tree_red.
+ */
+enum rbtree_colour { tree_black, tree_red };
+
+/**
+    Direction definitions. Used for array indices in rb_node.
+ */
+using rbtree_dir = bool;
+static constexpr rbtree_dir tree_left = false;
+static constexpr rbtree_dir tree_right = true;
+
+/**
+    A normal node in the tree.
+
+    @param T value type.
+    @param Compare Functor for comparing data values.
+    @param Allocator for creating new nodes.
+ */
+template <typename T, typename Compare, typename Allocator = allocator<T>>
+class rb_node {
+public:
+    // Type of data stored by the node.
+    using value_type = T;
+    // Type for comparing values.
+    using value_compare = Compare;
+    // Rebind the allocator if necessary.
+    using allocator_type =
+    typename allocator_traits<Allocator>::template rebind_alloc<value_type>;
+private:
+    // Allocator traits type.
+    using traits = allocator_traits<allocator_type>;
+    // Rebind the allocator for node allocation.
+    using node_allocator_type =
+    typename allocator_traits<Allocator>::template rebind_alloc<rb_node>;
+    // Allocator traits type for ndoe allocation.
+    using node_traits = allocator_traits<node_allocator_type>;
+public:
+    /**
+        Constructor. Copies the data, colour and comparison.
+
+        @param d Data to store.
+        @param p Parent node.
+        @param c Colour of the node.
+        @param com Comparison functor for comparing data values.
+        @param al Allocator for the data.
+     */
+    rb_node(const value_type& d,
+        rb_node* p = nullptr,
+        rbtree_colour c = tree_red,
+        value_compare com = value_compare{},
+        const allocator_type& al = {}) :
+        alloc{al},
+        node_alloc{alloc},
+        data{traits::allocate(alloc, 1)},
+        col{c},
+        parent {p},
+        links {nullptr, nullptr},
+        comp{com}
+    {
+        traits::construct(alloc, data, d);
+    }
+
+    /**
+        Constructor. Moves the data, colour and comparison.
+
+        @param d Data to store.
+        @param p Parent node.
+        @param c Colour of the node.
+        @param com Comparison functor for comparing data values.
+        @param al Allocator for the data.
+     */
+    rb_node(value_type&& d,
+        rb_node* p = nullptr,
+        rbtree_colour c = tree_red,
+        value_compare com = value_compare{},
+        const allocator_type& al = {}) :
+        alloc{al},
+        node_alloc{alloc},
+        data{traits::allocate(alloc, 1)},
+        col{c},
+        parent {p},
+        links {nullptr, nullptr},
+        comp{com}
+    {
+        traits::construct(alloc, data, NMSP::move(d));
+    }
+
+    /**
+        Emplacement constructor. Values for the parent node, colour, comparator
+        and allocator must be passed. Any remaining parameters are forwarded to
+        the data constructor.
+
+        @param p Parent node.
+        @param c Colour of the node.
+        @param com Comparison fcuntor for comparing data values.
+        @param al Allocator for the data.
+        @param args Arguments to forward to the data constructor.
+     */
+    template <typename... Args>
+    rb_node (rb_node* p, rbtree_colour c, value_compare com, allocator_type al,
+        Args&&... args) :
+        alloc{al},
+        node_alloc{alloc},
+        data{traits::allocate(alloc, 1)},
+        col{c},
+        parent{p},
+        links{nullptr, nullptr},
+        comp{com}
+    {
+        traits::construct(alloc, data, forward<Args>(args)...);
+    }
+
+    /**
+        Copy constructor. Make a copy of the data. Allocator is provided or
+        obtained using the traits select on copy constructor function. New
+        nodes for the children links are also copied. The parent is left as
+        nullptr and should be set manually after construction.
+
+        @param other Other node to copy from.
+        @param al Allocator to use.
+     */
+    rb_node(const rb_node& other) :
+        alloc {traits::select_on_container_copy_construction(other.get_allocator())},
+        node_alloc {alloc},
+        data {traits::allocate(alloc, 1)},
+        col {other.col},
+        parent {nullptr},
+        links {nullptr, nullptr},
+        comp {other.comp}
+    {
+        copy_impl(other);
+    }
+
+    rb_node(const rb_node& other, const allocator_type& al) :
+        alloc {al},
+        node_alloc {alloc},
+        data {traits::allocate(alloc, 1)},
+        col {other.col},
+        parent {nullptr},
+        links {nullptr, nullptr},
+        comp {other.comp}
+    {
+        copy_impl(other);
+    } 
+
+    /**
+        Move constructor. Moves the data and pirates the links. Allocator
+        is also moved or is provided. If provided, but not equal to the other
+        allocator, memory allocation for data occurs.
+
+        @param other Other node to pirate from.
+        @param al Allocator to use.
+     */
+    rb_node(rb_node&& other) :
+        alloc{NMSP::move(other.alloc)},
+        node_alloc{NMSP::move(other.node_alloc)},
+        data{other.data},
+        col{other.col},
+        parent{other.parent},
+        links {other.links[tree_left], other.links[tree_right]},
+        comp{other.comp}
+    {
+        other.data = nullptr;
+
+        other.links[tree_left] = nullptr;
+        other.links[tree_right] = nullptr;
+    }
+
+    rb_node(rb_node&& other, const allocator_type& al) :
+        alloc{al},
+        node_alloc{alloc},
+        data{nullptr},
+        col{other.col},
+        parent{other.parent},
+        links {nullptr, nullptr},
+        comp{other.comp}
+    {
+        if (alloc == other.alloc)
+        {
+            data = other.data;
+        }
+        else
+        {
+            data = traits::allocate(alloc, 1);
+            traits::construct(alloc, data, NMSP::move(*other.data));
+        }
+
+        for (size_t i = 0; i < 2; ++i)
+        {
+            if (node_alloc == other.node_alloc || other.links[i] == nullptr)
+            {
+                links[i] = other.links[i];
+                other.links[i] = nullptr;
+            }
+            else
+            {
+                links[i] = node_traits::allocate(node_alloc, 1);
+                node_traits::construct(node_alloc, links[i],
+                    NMSP::move(*other.links[i]), node_alloc);
+                links[i]->set_parent(this);
+            }
+        }
+    }
+
+    /**
+        Destructor. Deletes data and children, but not parent.
+     */
+    ~rb_node()
+    {
+        clear();
+    }
+
+    /**
+        Copy assignment. Make a copy of the existing data. Children are also
+	    copied, but not the parent, which is left as nullptr and should be
+        manually set after copying. The behaviour of the allocator depends on
+        its propagation traits.
+
+        @param other Other node to make a copy of.
+        @return This node.
+     */
+    rb_node& operator=(const rb_node& other)
+    {
+        clear();
+
+        parent = nullptr;
+        col = other.col;
+        comp = other.comp;
+
+        if (traits::propagate_on_container_copy_assignment::value)
+            alloc = other.alloc;
+
+        if (node_traits::propagate_on_container_copy_assignment::value)
+            node_alloc = other.node_alloc;
+
+        copy_impl();
+
+        return *this;
+    }
+
+    /**
+        Move assignment. The allocator behaviour depends on its traits. If it
+        does not propagate and is not the same as the other allocator, memory
+        allocation takes place. Otherwise, the other data is pirated. Similar
+        considerations apply to the children, which will also be moved. The
+        parent link will be set to the other parent regardless, since the child
+        does not manage the parent.
+
+        @param other Other node to pirate from.
+        @return This node.
+     */
+    rb_node& operator=(rb_node&& other)
+    {
+        clear();
+
+        parent = other.parent;
+        other.parent = nullptr;
+        col = other.col;
+        comp = NMSP::move(other.comp);
+
+        bool alloc_move = traits::propagate_on_container_move_assignment::value;
+        if (alloc_move)
+            alloc = NMSP::move(other.alloc);
+
+        if (!alloc_move && alloc != other.alloc)
+        {
+            data = traits::allocate(alloc, 1);
+            traits::construct(alloc, data, NMSP::move(*other.data));
+        }
+        else
+        {
+            data = other.data;
+            other.data = nullptr;
+        }
+
+        bool node_alloc_move = 
+            node_traits::propagate_on_container_move_assignment::value;
+        if (node_alloc_move)
+            node_alloc = NMSP::move(*other.node_alloc);
+
+        for (size_t i = 0; i < 2; ++i)
+        {
+            if (!node_alloc && node_alloc != other.node_alloc &&
+                other.links[i] != nullptr)
+            {
+                links[i] = node_traits::allocate(node_alloc, 1);
+                node_traits::construct(node_alloc, links[i], 
+                    NMSP::move(*other.links[i]), node_alloc);
+                links[i]->set_parent(this);
+            }
+            else
+            {
+                links[i] = other.links[i];
+                other.links[i] = nullptr;
+            }
+        }
+
+        return *this;
+    }
+
+    /**
+        Checks that the subtree of this node is a valid rb tree. Should only be
+        used for debugging.
+
+        @param print Whether to print out the tree structure.
+        @return 0 if invalid, otherwise the black height.
+     */
+    size_t check(bool print = false) const;
+
+    /**
+        Gets the colour of the node.
+
+        @return The colour of the node, tree_black or tree_red.
+     */
+    rbtree_colour get_colour() const { return col; }
+
+    /**
+        Sets the colour of the node.
+
+        @param The colour to set to, tree_black or tree_red.
+     */
+    void set_colour(rbtree_colour c) { col = c; }
+
+    /**
+        Get the data in the node.
+
+        @return Reference to the data in this node.
+     */
+    value_type& get_data() { return *data; }
+    const value_type& get_data() const { return *data; }
+
+    /**
+        Set the data in the node.
+
+        @param d New value for the data.
+     */
+    void set_data(const value_type& d)
+    {
+        *data = d;
+    }
+    void set_data(value_type&& d)
+    {
+        *data = NMSP::move(d);
+    }
+
+    /**
+        Gets the link in the indicated direction.
+
+        @param dir Direction to fetch.
+        @return Link in the direction indicated.
+     */
+    rb_node* get_link(rbtree_dir dir) { return links[dir]; }
+    const rb_node* get_link(rbtree_dir dir) const { return links[dir]; }
+
+    /**
+        Sets the link in the indicated direction.
+
+        @param dir Direction to set.
+        @param link New link to set to.
+     */
+    void set_link(rbtree_dir dir, rb_node* link) { links[dir] = link; }
+
+    /**
+        Gets the parent node. Needed for iteration.
+
+        @return Link to the parent.
+     */
+    rb_node* get_parent() { return parent; }
+    const rb_node* get_parent() const { return parent; }
+
+    /**
+        Sets the parent node.
+
+        @param link New link to set to.
+     */
+    void set_parent(rb_node* link) { parent = link; }
+
+    /**
+        Inserts this node into the tree. Recursivley searches for the correct
+        place. Does not fix colour violations.
+
+        @param root Root node of the tree to add to.
+        @return The root node after insertion.
+     */
+    rb_node* insert(rb_node* root);
+
+    /**
+        Fixes violations that might have occured due to an insert in the subtree
+        of the provided node.
+
+        @param dir The direction of the insert.
+        @return The root node of the subtree after fixing.
+     */
+    rb_node* fix_insert(rbtree_dir dir);
+
+    /**
+        Deletes this node from the tree. Recursively deletes heirs if this node
+        has two children. Does not fix colour violations.
+
+        @param balanced A return flag used to indicate whether there are
+               colour violations to fix.
+        @param dir A return flag used to indicate the direction of the erase.
+        @return Node to introduce in place of the deleted node.
+     */
+    rb_node* erase(bool& balanced, rbtree_dir& dir);
+
+    /**
+        Fixes violations that might have occured due to an erase in the subtree
+        of the provided node.
+
+        @param balanced A return flag used to indicate whether there are still
+               colour violations to fix.
+        @param dir The direction of the erase.
+        @return The root node of the subtree after fixing.
+     */
+    rb_node* fix_erase(bool& balanced, rbtree_dir dir);
+
+private:
+    // Allocator to use for data.
+    allocator_type alloc;
+    // Allocator to use for children nodes.
+    node_allocator_type node_alloc;
+    // Data stored at this node.
+    value_type* data;
+    // Colour of this node.
+    rbtree_colour col;
+    // Parent link. Necessary for iteration. nullptr for the root.
+    rb_node* parent;
+    // Left and right child links.
+    rb_node* links[2];
+    // Comparison object for comparing data.
+    value_compare comp;
+
+    // Implementation of memoryt cleanup for data only.
+    void clear_data()
+    {
+        if (data != nullptr)
+        {
+            traits::destroy(alloc, data);
+            traits::deallocate(alloc, data, 1);
+            data = nullptr;
+        }
+    }
+
+    // Implementation of memory cleanup.
+    void clear()
+    {
+        clear_data();
+
+        for (size_t i = 0; i < 2; ++i)
+        {
+            if (links[i] != nullptr)
+            {
+                node_traits::destroy(node_alloc, links[i]);
+                node_traits::deallocate(node_alloc, links[i], 1);
+            }
+        }
+    }
+
+    // Implementation of link copying.
+    void copy_impl(const rb_node& other)
+    {
+        traits::construct(alloc, data, *other.data);
+
+        for (size_t i = 0; i < 2; ++i)
+        {
+            if (other.get_link(i) != nullptr)
+            {
+                links[i] = node_traits::allocate(node_alloc, 1);
+                node_traits::construct(node_alloc, links[i],
+                    *other.get_link(i), node_alloc);
+                links[i]->set_parent(this);
+            }
+        }
+    }
+};
+
+/**
+    Helper function to check if a node is red. Useful because we want leaves to
+    be nullptr and black.
+
+    @param T Data type of the node.
+    @param Compare Functor for comparing data value.
+    @param node Node to test.
+    @return Red if the node is found to be red, black otherwise.
+ */
+template<typename T, typename Compare, typename Allocator>
+bool rb_is_red(const rb_node<T, Compare, Allocator>* node)
+{
+    if (node == nullptr)
+        return false;
+    else
+        return (node->get_colour() == tree_red);
+}
+
+// Implementation of rb_node::check.
+template <typename T, typename Compare, typename Allocator>
+size_t rb_node<T, Compare, Allocator>::check(bool print) const
+{
+    using node_type = rb_node<T, Compare, Allocator>;
+
+    const node_type* ln = get_link(tree_left);
+    const node_type* rn = get_link(tree_right);
+
+    // Print:
+/*    if (print)
+    {
+        static const char* colours[] = {"black", "red"};
+        std::cout << "Root node at " << this << " value = " << get_data() << " colour " << colours[get_colour()] << '\n';
+        if (ln)
+            std::cout << "Left link at " << ln << " value = " << ln->get_data() << " colour " << colours[ln->get_colour()] << '\n';
+        else
+            std::cout << "No left link\n";
+        if (rn)
+            std::cout << "Right link at " << rn << " value = " << rn->get_data() << " colour " << colours[rn->get_colour()] << '\n';
+        else
+            std::cout << "No right link\n";
+    }*/
+
+    // Test for red violation.
+    if (col == tree_red && (rb_is_red(ln) || rb_is_red<T>(rn)))
+    {
+//        std::cout << "Violation for node at " << this << '\n'; 
+//        std::cout << "Red violation\n";
+        return 0;
+    }
+
+    // Recursively check the subtree.
+    size_t lh = (ln == nullptr ? 1 : ln->check(print));
+    size_t rh = (rn == nullptr ? 1 : rn->check(print));
+
+    // Binary search tree ordering.
+    if (ln != nullptr && comp(get_data(), ln->get_data()))
+    {
+//        std::cout << "Violation for node at " << this << '\n'; 
+//        std::cout << "Left ordering violation\n";
+        return 0;
+    }
+    if (rn != nullptr && comp(rn->get_data(), get_data()))
+    {
+//        std::cout << "Violation for node at " << this << '\n'; 
+//        std::cout << "Right ordering violation\n";
+        return 0;
+    }
+
+    // Black height mismatch.
+    if (lh != 0 && rh != 0 && lh != rh)
+    {
+//        std::cout << "Violation for node at " << this << '\n'; 
+//        std::cout << "Black violation\n";
+        return 0;
+    }
+
+    // Count black links.
+    if (lh != 0 && rh != 0)
+        return (col == tree_red ? lh : lh + 1);
+
+    return 0;
+}
+
+/**
+    Carries out a standard 'rotation' operation, including adjusting colours.
+
+    @param T Data type of the node.
+    @param Compare Functor for comparing data value.
+    @param root Root node for the rotation.
+    @param dir Direction of the rotation.
+    @return New root node.
+ */
+template <typename T, typename Compare, typename Allocator>
+rb_node<T, Compare, Allocator>*
+rb_single_rotation(rb_node<T, Compare, Allocator>* root,
+    rbtree_dir dir)
+{
+    if (root == nullptr)
+        return nullptr;
+
+    rb_node<T, Compare, Allocator>* new_root = root->get_link(!dir);
+
+    root->set_link(!dir, new_root->get_link(dir));
+    new_root->set_link(dir, root);
+
+    if (root->get_parent() != nullptr)
+    {
+        rbtree_dir parent_dir =
+            (root->get_parent()->get_link(tree_right) == root);
+        root->get_parent()->set_link(parent_dir, new_root);
+    }
+
+    if (root->get_link(!dir) != nullptr)
+        root->get_link(!dir)->set_parent(root);
+    new_root->set_parent(root->get_parent());
+    root->set_parent(new_root);
+
+    root->set_colour(tree_red);
+    new_root->set_colour(tree_black);
+
+    return new_root;
+}
+
+/**
+    Carries out a 'double rotation' operation, including adjusting colours.
+
+    @param T Data type of the node.
+    @param Compare Functor for comparing data value.
+    @param root Root node for the rotation.
+    @param dir Direction of the rotation.
+    @return New root node.
+ */
+template <typename T, typename Compare, typename Allocator>
+rb_node<T, Compare, Allocator>*
+rb_double_rotation(rb_node<T, Compare, Allocator>* root,
+    rbtree_dir dir)
+{
+    root->set_link(!dir, rb_single_rotation(root->get_link(!dir), !dir));
+
+    return rb_single_rotation(root, dir);
+}
+
+// Implementation of rb_node::insert.
+template <typename T, typename Compare, typename Allocator>
+rb_node<T, Compare, Allocator>*
+rb_node<T, Compare, Allocator>::insert(rb_node<T, Compare, Allocator>* root)
+{
+    if (root == nullptr)
+        root = this;
+    else
+    {
+        rbtree_dir dir = comp(*root->data, *data);
+        rb_node<T, Compare, Allocator>* temp = insert(root->get_link(dir));
+        root->set_link(dir, temp);
+        temp->set_parent(root);
+
+        root = root->fix_insert(dir);
+    }
+
+    return root;
+}
+
+// Implementation of rb_node::fix_insert.
+template <typename T, typename Compare, typename Allocator>
+rb_node<T, Compare, Allocator>*
+rb_node<T, Compare, Allocator>::fix_insert(rbtree_dir dir)
+{
+    rb_node<T, Compare, Allocator>* ret_val = this;
+
+    // Check for violations.
+    if (rb_is_red(get_link(dir)))
+    {
+        if (rb_is_red(get_link(!dir)))
+        {
+            // Case 1: both children are red. Swap colours. Note that both
+            // nodes must exist, or is_red reports false.
+            set_colour(tree_red);
+            get_link(tree_left)->set_colour(tree_black);
+            get_link(tree_right)->set_colour(tree_black);
+        }
+        else
+        {
+            // One red child, one black child.
+            if (rb_is_red(get_link(dir)->get_link(dir)))
+            {
+                // Case 2.
+                ret_val = rb_single_rotation(this, !dir);
+            }
+            else if (rb_is_red(get_link(dir)->get_link(!dir)))
+            {
+                // Case 3.
+                ret_val = rb_double_rotation(this, !dir);
+            }
+        }
+    }
+
+    return ret_val;
+}
+
+// Implementation of rb_node::erase.
+template <typename T, typename Compare, typename Allocator>
+rb_node<T, Compare, Allocator>*
+rb_node<T, Compare, Allocator>::erase(bool& balanced, rbtree_dir& dir)
+{
+    using node_type = rb_node<T, Compare, Allocator>;
+
+    if (links[tree_left] == nullptr || links[tree_right] == nullptr)
+    {
+        // Simple case where the node to delete has a free child.
+        // Wipe links for this.
+        dir = (links[tree_left] == nullptr);
+        node_type* save = links[dir];
+        links[dir] = nullptr;
+
+        // Case 0
+        if (rb_is_red(this))
+            balanced = true;
+        else if (rb_is_red(save))
+        {
+            save->set_colour(tree_black);
+            balanced = true;
+        }
+
+        // Adjust parent links.
+        if (parent != nullptr)
+        {
+            dir = (parent->get_link(tree_right) == this);
+            parent->set_link(dir, save);
+        }
+        if (save != nullptr)
+            save->set_parent(parent);
+
+        // Save the parent.
+        node_type* t_parent = parent;
+
+        // Free memory.
+        node_traits::destroy(node_alloc, this);
+        node_traits::deallocate(node_alloc, this, 1);
+
+        if (t_parent == nullptr)
+        {
+            // Special case where we're deleting the head node and it has one
+            // child, or the tree is now empty. Direction is irrelvant.
+            dir = tree_left;
+            balanced = true;
+            return save;
+        }
+        else
+        {
+            // Set the direction by checking the direction from parent to save.
+            dir = (t_parent->links[tree_right] == save);
+            return t_parent;
+        }
+    }
+    else
+    {
+        // The node does not have free children. We would like to swap data to
+        // the predecessor node, but we can't because that would invalidate
+        // iterators. Instead we swap all their links, then erase this node
+        // again.
+        node_type* heir = links[tree_left];
+
+        while (heir->links[tree_right] != nullptr)
+            heir = heir->links[tree_right];
+
+        // Swap colours.
+        rbtree_colour t_col = col;
+        col = heir->col;
+        heir->col = t_col;
+
+        node_type* temp;
+        // Swap the parents.
+        if (parent != nullptr)
+        {
+            rbtree_dir t_dir = (parent->links[tree_right] == this);
+            parent->links[t_dir] = heir;
+        }
+        if (heir->parent != nullptr)
+        {
+            rbtree_dir t_dir = (heir->parent->links[tree_right] == heir);
+            heir->parent->links[t_dir] = this;
+        }
+        temp = parent;
+        parent = heir->parent;
+        heir->parent = temp;
+
+        // Swap the links.
+        for (size_t i = 0; i < 2; ++i)
+        {
+            if (links[i] != nullptr)
+                links[i]->parent = heir;
+            if (heir->links[i] != nullptr)
+                heir->links[i]->parent = this;
+            temp = links[i];
+            links[i] = heir->links[i];
+            heir->links[i] = temp;
+        }
+
+        return erase(balanced, dir);
+    }
+}
+
+// Implementation of rb_node::fix_erase.
+template <typename T, typename Compare, typename Allocator>
+rb_node<T, Compare, Allocator>*
+rb_node<T, Compare, Allocator>::fix_erase(bool& balanced, rbtree_dir dir)
+{
+    using node_type = rb_node<T, Compare, Allocator>;
+
+    // Save the root and the sibling.
+    node_type* root = this;
+    node_type* sibling = links[!dir];
+
+    // Case reduction. Remove red sibling.
+    if (rb_is_red(sibling))
+    {
+        root = rb_single_rotation(root, dir);
+        sibling = links[!dir];
+    }
+
+    if (sibling != nullptr)
+    {
+        if (!rb_is_red(sibling->links[tree_left]) &&
+            !rb_is_red(sibling->links[tree_right]))
+        {
+            if (rb_is_red(this))
+                balanced = true;
+
+            col = tree_black;
+            sibling->col = tree_red;
+        }
+        else
+        {
+            rbtree_colour save_col = col;
+            bool root_change = (root == this);
+            node_type* root_2 = this;
+            
+            if (rb_is_red(sibling->links[!dir]))
+            {
+                root_2 = rb_single_rotation(root_2, dir);
+            }
+            else
+            {
+                root_2 = rb_double_rotation(root_2, dir);
+            }
+
+            root_2->col = save_col;
+            root_2->links[0]->col = tree_black;
+            root_2->links[1]->col = tree_black;
+
+            if (root_change)
+            {
+                root = root_2;
+            }
+            else
+            {
+                root->links[dir] = root_2;
+                root_2->parent = root;
+            }
+
+            balanced = true;
+        }
+    }
+
+    return root;
+}
+
+/**
+    The overall tree. Contains a link to the head node.
+
+    @param T Type for values.
+    @param Compare Type for comparisons. Should be able to handle all four
+           combinations of values and keys.
+    @param Key Type for keys, used for finding. Same as T for a set, different
+           for a map. 
+    @param Allocator Type for allocating nodes.
+ */
+template <typename T, typename Compare = less<T>, typename Key = T, 
+    typename Allocator = allocator<T>>
+class rb_tree {
+public:
+    /**
+        Iterator type for the tree.
+
+        @param B Whether the iterator is mutable. Therefore true for iterator,
+               false for const_iterator.
+     */
+    template <bool B, typename v_type, typename p_type, typename r_type>
+    class rb_iterator;
+
+    /** Type of a value. */
+    using value_type = T;
+    /** Type of a key. */
+    using key_type = Key;
+    /** Unsigned integer type for sizes. */
+    using size_type = size_t;
+    /** Signed integer type for pointer differences. */
+    using difference_type = ptrdiff_t;
+    /** Type of a reference to a key-value pair. */
+    using reference = value_type&;
+    /** Type of a const reference to a key-value pair. */
+    using const_reference = const value_type&;
+    /** Type of a pointer to a value. */
+    using pointer = typename allocator_traits<Allocator>::template
+        rebind_alloc<value_type>::pointer;
+    /** Type of a const pointer to a value. */
+    using const_pointer = typename allocator_traits<Allocator>::template
+        rebind_alloc<value_type>::const_pointer;;
+    /** Type of an iterator. */
+    using iterator = rb_iterator<true, value_type, pointer, reference>;
+    /** Type of a const iterator. */
+    using const_iterator = rb_iterator<false, const value_type, const_pointer,
+        const_reference>;
+    /** Type of a reverse iterator. */
+    using reverse_iterator = NMSP::reverse_iterator<iterator>;
+    /** Type of a const reverse iterator. */
+    using const_reverse_iterator = NMSP::reverse_iterator<const_iterator>;
+    /** Allocator type. */
+    using allocator_type = typename allocator_traits<Allocator>::template
+        rebind_alloc<T>;
+    /** Comparison type for values. */
+    using value_compare = Compare;
+
+protected:
+    // Allocator traits
+    using traits = allocator_traits<allocator_type>;
+    // Node type.
+    using node_type = rb_node<value_type, value_compare, allocator_type>;
+    // Rebind the allocator for node allocation.
+    using node_allocator_type =
+        typename allocator_traits<Allocator>::template rebind_alloc<node_type>;
+    // Allocator traits type for ndoe allocation.
+    using node_traits = allocator_traits<node_allocator_type>;
+    // Number of elements.
+    size_type sz;
+    // Head node.
+    node_type* head;
+    // Left and right most nodes, to speed up begin() and end().
+    node_type* left_most;
+    node_type* right_most;
+    // Comparison functor for values.
+    value_compare comp;
+    // Allocator.
+    allocator_type alloc;
+    // Node allocator.
+    node_allocator_type node_alloc;
+    // Used to detect whether Compare is a transparent comparator. K is required
+    // to make this a deduced type so we can use SFINAE.
+    template <typename Cmp, typename K, typename = void>
+    struct is_transparent {};
+    template <typename Cmp, typename K>
+    struct is_transparent<Cmp, K, void_t<typename Cmp::is_transparent>> {
+        using type = void;
+    };
+
+public:
+    // Implementation of rb_iterator.
+    template <bool B, typename v_type, typename p_type, typename r_type>
+    class rb_iterator :
+        public NMSP::iterator<bidirectional_iterator_tag,
+                        v_type,
+                        difference_type,
+                        p_type,
+                        r_type>
+    {
+    public:
+        /**
+            Default constructor. Points to nothing.
+         */
+        rb_iterator() : current{nullptr}, rb{nullptr} {}
+
+        /**
+            Construct from a pointer and the parent tree.
+
+            @param c Current object.
+         */
+        explicit rb_iterator(node_type* c, const rb_tree* t) : current{c}, rb{t}
+        {}
+
+        /**
+            Implicitly construct a const iterator from a non-const one.
+            Necessary for inserting with hints.
+
+            @param other Other iterator to copy from.
+         */
+        rb_iterator(
+            const rb_iterator<true, value_type, pointer, reference>& other) :
+            current{other.current}, rb{other.rb}
+        {}
+
+        /**
+            Copy assignment.
+
+            @param other Other iterator to copy from.
+         */
+        rb_iterator& operator=(const rb_iterator& other) = default;
+
+        /**
+            Dereference. Provide the currently pointed to object. Non-const
+            versions are only enabled for the non-const instantiation.
+
+            @return The current object.
+         */
+        // SFINAE discard the non-const versions if B is false. We need Mut
+        // because SFINAE only applies to deduced types and B is already known.
+        template <bool Mut = B, typename = typename enable_if<Mut>::type>
+        reference operator*() { return current->get_data(); }
+        const_reference operator*() const { return current->get_data(); }
+
+        template <bool Mut = B, typename = typename enable_if<Mut>::type>
+        pointer operator->() { return &(current->get_data()); }
+        const_pointer operator->() const { return &(current->get_data()); }
+
+        /**
+            Increment the pointer.
+
+            @return The new iterator.
+         */
+        rb_iterator& operator++()
+        {
+            current = get_neighbour(current, tree_right);
+            return *this;
+        }
+
+        /**
+            Increment the pointer.
+
+            @return The old iterator.
+         */
+        rb_iterator operator++(int)
+        {
+            rb_iterator save = *this;
+            current = get_neighbour(current, tree_right);
+            return save;
+        }
+
+        /**
+            Decrement the pointer.
+
+            @return The new iterator.
+         */
+        rb_iterator& operator--()
+        {
+            // Assume we were at the end if current is nullptr.
+            if (current == nullptr && rb != nullptr)
+                current = rb->right_most;
+            else if (current != nullptr)
+                current = get_neighbour(current, tree_left);
+            return *this;
+        }
+
+        /**
+            Decrement the pointer.
+
+            @return The old iterator.
+         */
+        rb_iterator operator--(int)
+        {
+            // See operator--()
+            rb_iterator save = *this;
+            if (current == nullptr && rb != nullptr)
+                current = rb->right_most;
+            else if (current != nullptr)
+                current = get_neighbour(current, tree_left);
+            return save;
+        }
+
+    /**
+        Compare equality. Two iterators are equal if they belong to the same
+        tree and point at the same object. Default constucted iterators are
+        equal to each other.
+
+        @param other Iterator to compare with.
+        @return True if the iterators compare equal, false otherwise.
+     */
+    bool operator==(const rb_iterator& other) const
+    {
+        return (current == other.current && rb == other.rb);
+    }
+
+    // Allow comparison between const and non-const iterators. Use some SFINAE
+    // fiddling so that only one of these is present.
+    template <bool Mut = B, typename = typename enable_if<Mut>::type>
+    bool operator==(const const_iterator& other) const
+    {
+        return (current == other.current && rb == other.rb);
+    }
+    template <bool Mut = !B, typename = typename enable_if<Mut>::type>
+    bool operator==(const iterator& other) const
+    {
+        return (current == other.current && rb == other.rb);
+    }
+
+    /**
+        Compare non-equality. Two iterators are not equal if they belong to
+        different trees or point at different objects. Default constucted
+        iterators are equal to each other.
+
+        @param other Iterator to compare with.
+        @return True if the iterators compare not equal, false otherwise.
+     */
+    bool operator!=(const rb_iterator& other) const
+    {
+        return !(*this == other);
+    }
+
+    // Allow comparison between const and non-const iterators. Use some SFINAE
+    // fiddling so that only one of these is present.
+    template <bool Mut = B, typename = typename enable_if<Mut>::type>
+    bool operator!=(const const_iterator& other) const
+    {
+        return !(*this == other);
+    }
+    template <bool Mut = !B, typename = typename enable_if<Mut>::type>
+    bool operator!=(const iterator& other) const
+    {
+        return !(*this == other);
+    }
+
+    // The parent tree needs to directly access current.
+    friend rb_tree;
+
+    protected:
+        // Object pointed to.
+        node_type* current;
+        // The tree which this is an iterator for. Needed for proper end()
+        // treatment.
+        const rb_tree* rb;
+
+        // Returns a link to the next node.
+        node_type* get_neighbour(node_type* c, rbtree_dir dir)
+        {
+            if (c == nullptr)
+                return nullptr;
+
+            if (c->get_link(dir))
+            {
+                // If c has a dir child, go to that and then go as !dir as
+                // possible.
+                c = c->get_link(dir);
+                while (c->get_link(!dir) != nullptr)
+                    c = c->get_link(!dir);
+            }
+            else
+            {
+                // Step up until we find a parent that we're the !dir child of,
+                // or we reach the head node.
+                while (c->get_parent() != nullptr && 
+                    c->get_parent()->get_link(dir) == c)
+                    c = c->get_parent();
+
+                c = c->get_parent();
+            }
+
+            return c;
+        }
+    };
+
+    // Give children of rb_tree firect access to rb_iterator.current.
+protected:
+    node_type* get_current(const iterator& it) const {return it.current;}
+    node_type* get_current(const const_iterator& it) const {return it.current;}
+
+public:
+    /**
+        Default constructor. Makes an empty tree and uses the default comparator
+        and allocator.
+     */
+    rb_tree() :
+        sz{0},
+        head {nullptr},
+        left_most {nullptr},
+        right_most {nullptr},
+        comp{},
+        alloc{},
+        node_alloc{alloc}
+    {}
+
+    /**
+        Constructor with allocator. Makes an empty tree. Uses the default
+        comparator.
+
+        @param al Allocator to use.
+     */
+    explicit rb_tree (const allocator_type& al) :
+        sz{0},
+        head {nullptr},
+        left_most {nullptr},
+        right_most {nullptr},
+        comp{},
+        alloc{al},
+        node_alloc{alloc}
+    {}
+
+    /**
+        Constructor with allocator and comparator. Makes an empty tree.
+
+        @param al Allocator to use.
+        @param com Comparator to use.
+     */
+    explicit rb_tree (const value_compare& com,
+        const allocator_type& al = allocator_type{}) :
+        sz{0},
+        head {nullptr},
+        left_most {nullptr},
+        right_most {nullptr},
+        comp{com},
+        alloc{al},
+        node_alloc{alloc}
+    {}
+
+    /**
+        Copy constructor. Copies complete contents of tree and the comparator.
+        The allocator is provided or is obtained from allocator_traits::
+        select_on_container_copy_construction.
+
+        @param other Tree to make a copy of.
+        @param al Allocator to use.
+     */
+    rb_tree (const rb_tree& other) :
+        sz{other.sz},
+        head {nullptr},
+        left_most {nullptr},
+        right_most {nullptr},
+        comp{other.comp},
+        alloc{traits::select_on_container_copy_construction(other.get_allocator())},
+        node_alloc{alloc}
+    {
+        copy_impl(other);
+    }
+
+    rb_tree (const rb_tree& other, const allocator_type& al) :
+        sz{other.sz},
+        head {nullptr},
+        left_most {nullptr},
+        right_most {nullptr},
+        comp{other.comp},
+        alloc{al},
+        node_alloc{alloc}
+    {
+        copy_impl(other);
+    }
+
+    /**
+        Move constructor. Pirates the tree structure. The allocator is either
+        provided or move constructed from the other tree. If provided, but not
+        equal to the other allocator, memory allocation takes place.
+
+        @param other Tree to pirate.
+        @param al Allocator to use.
+     */
+    rb_tree (rb_tree&& other) :
+        sz{other.sz},
+        head{other.head},
+        left_most {other.left_most},
+        right_most {other.right_most},
+        comp{NMSP::move(other.comp)},
+        alloc{NMSP::move(other.alloc)},
+        node_alloc{NMSP::move(other.node_alloc)}
+    {
+        other.head = nullptr;
+        other.left_most = nullptr;
+        other.right_most = nullptr;
+        other.sz = 0;
+    }
+
+    rb_tree (rb_tree&& other, const allocator_type& al) :
+        sz{other.sz},
+        head{nullptr},
+        left_most {nullptr},
+        right_most {nullptr},
+        comp{NMSP::move(other.comp)},
+        alloc{al},
+        node_alloc{alloc}
+    {
+        if (node_alloc != other.node_alloc && other.head != nullptr)
+        {
+            head = node_traits::allocate(node_alloc, 1);
+            node_traits::construct(node_alloc, head,
+                NMSP::move(*other.head), node_alloc);
+
+            find_left_right();
+        }
+        else
+        {
+            head = other.head;
+            left_most = other.left_most;
+            right_most = other.right_most;
+
+            other.head = nullptr;
+            other.left_most = nullptr;
+            other.right_most = nullptr;
+            other.sz = 0;
+        }
+    }
+
+    /**
+        Destructor. Frees the whole tree.
+     */
+    virtual ~rb_tree()
+    {
+        clear();
+    }
+
+    /**
+        Copy assignment. The behaviour of the allocator depends on its
+        propagation traits.
+
+        @param other Tree to copy from.
+        @return This tree after copying.
+     */
+    rb_tree& operator=(const rb_tree& other)
+    {
+        clear();
+
+        if (traits::propagate_on_container_copy_assignment::value)
+            alloc = other.alloc;
+
+        if (node_traits::propagate_on_container_copy_assignment::value)
+            node_alloc = other.node_alloc;
+
+        sz = other.sz;
+        copy_impl(other);
+
+        return *this;
+    }
+
+    /**
+        Move assignment. The behaviour of the allocator depends on its
+        propagation traits. If it does not move and the source and target
+        allocators are not equal, an elementwise move occurs. Otherwise a
+        memory takeover can occur.
+
+        @param other Tree to copy from.
+        @return This tree after copying.
+     */
+    virtual rb_tree& operator=(rb_tree&& other)
+    {
+        clear();
+
+        sz = other.sz;
+        comp = NMSP::move(other.comp);
+
+        // Move the allocator, if we're supposed to.
+        if (traits::propagate_on_container_move_assignment::value)
+            alloc = NMSP::move(other.alloc);
+
+        bool node_alloc_move =
+            node_traits::propagate_on_container_move_assignment::value;
+        if (node_alloc_move)
+            node_alloc = NMSP::move(other.node_alloc);
+
+        if (!node_alloc_move && node_alloc != other.node_alloc &&
+            other.head != nullptr)
+        {
+            // If we didn't copy the allocator and they're not the same, we need
+            // to do an elementwise move.
+            head = node_traits::allocate(node_alloc, 1);
+            node_traits::construct(node_alloc, head,
+                NMSP::move(*other.head), node_alloc);
+
+            find_left_right();        
+        }
+        else
+        {
+            head = other.head;
+            left_most = other.left_most;
+            right_most = other.right_most;
+
+            other.head = nullptr;
+            other.left_most = nullptr;
+            other.right_most = nullptr;
+            other.sz = 0;
+        }
+
+        return *this;
+    }
+
+    /**
+        Tests whether the tree is valid.
+
+        @param print Whether to print out the tree structure.
+        @return 0 if invalid, 1 if the tree is empty, otherwise the black height.
+     */
+    virtual size_t check(bool print = false) const
+    {
+        if (head == nullptr)
+        {
+//            if (print)
+//                std::cout << "Empty tree\n";
+            return 1;
+        }
+        return head->check(print);
+    }
+
+    /**
+        Returns the allocator in use.
+
+        @return Allocator used by the container.
+     */
+    virtual allocator_type get_allocator() const { return alloc; }
+
+    /**
+        Gives an iterator to the first element.
+
+        @return Iterator or const iterator pointing at the first element.
+     */
+    virtual iterator begin() noexcept { return iterator {left_most, this}; }
+    virtual const_iterator begin() const noexcept
+    {
+        return const_iterator {left_most, this};
+    }
+    virtual const_iterator cbegin() const noexcept
+    {
+        return const_iterator {left_most, this};
+    }
+
+    /**
+        Gives an iterator to one past the last element.
+
+        @return Iterator or const iterator at one past the last element.
+     */
+    virtual iterator end() noexcept { return iterator {nullptr, this}; }
+    virtual const_iterator end() const noexcept
+    {
+        return const_iterator {nullptr, this};
+    }
+    virtual const_iterator cend() const noexcept
+    {
+        return const_iterator {nullptr, this};
+    }
+
+    /**
+        Gives a reverse iterator, pointing at the last element, but the first in
+        the reverse sequence.
+
+        @return Reverse iterator to the last element.
+     */
+    virtual reverse_iterator rbegin() noexcept
+    {
+        return reverse_iterator{end()};
+    }
+    virtual const_reverse_iterator rbegin() const noexcept
+    {
+        return const_reverse_iterator{end()};
+    }
+    virtual const_reverse_iterator crbegin() const noexcept
+    {
+        return const_reverse_iterator{end()};
+    }
+
+    /**
+        Gives a reverse iterator, pointing at the first element, but one past
+        the last in the reverse sequence.
+
+        @return Reverse iterator to the last element.
+     */
+    virtual reverse_iterator rend() noexcept
+    {
+        return reverse_iterator{begin()};
+    }
+    virtual const_reverse_iterator rend() const noexcept
+    {
+        return const_reverse_iterator{begin()};
+    }
+    virtual const_reverse_iterator crend() const noexcept
+    {
+        return const_reverse_iterator{begin()};
+    }
+
+    /**
+        Checks whether the container is empty.
+
+        @return True if the container is empty, false otherwise.
+     */
+    virtual bool empty() const noexcept { return (sz == 0); }
+
+    /**
+        Gets the current number of elements in the container.
+
+        @return Number of elements.
+     */
+    virtual size_type size() const noexcept { return sz; }
+
+    /**
+        A theoretical maximum for the number of elements. Provided by the
+        allocator. May not bear any resemblance to reality.
+
+        @return Maximum possible number of elements.
+     */
+    virtual size_type max_size() const noexcept
+    {
+        return traits::max_size(alloc);
+    }
+
+    /**
+        Empties the tree, freeing all memory.
+     */
+    virtual void clear()
+    {
+        if (head != nullptr)
+        {
+            node_traits::destroy(node_alloc, head);
+            node_traits::deallocate(node_alloc, head, 1);
+        }
+
+        head = nullptr;
+        left_most = nullptr;
+        right_most = nullptr;
+        sz = 0;
+    }
+
+    /**
+        Inserts a single node. The node is created and assigned to be red. A
+        normal binary tree insertion takes place. Resulting red violations are
+        fixed.
+
+        @param d Data for the new node.
+        @return Iterator pointing at the new node.
+     */
+    iterator insert(const value_type& d)
+    {
+        node_type* new_node = node_traits::allocate(node_alloc, 1);
+        node_traits::construct(node_alloc, new_node, d, nullptr, tree_red, comp,
+            alloc);
+
+        return insert_impl(new_node);
+    }
+
+    template <typename P, typename =
+        typename enable_if<is_constructible<value_type, P&&>::value>::type>
+    iterator insert(P&& d)
+    {
+        node_type* new_node = node_traits::allocate(node_alloc, 1);
+        node_traits::construct(node_alloc, new_node, nullptr, tree_red, comp,
+            alloc, forward<P>(d));
+        
+        return insert_impl(new_node);
+    }
+
+    iterator insert(value_type&& d)
+    {
+        node_type* new_node = node_traits::allocate(node_alloc, 1);
+        node_traits::construct(node_alloc, new_node, forward<value_type>(d),
+            nullptr, tree_red, comp, alloc);
+
+        return insert_impl(new_node);
+    }
+
+    /**
+        Inserts a single node. The hint provides a position to attempt to
+        position the node at. The complexitiy is amortised constant if the
+        element can be inserted just before the indicated position. If not,
+        a normal logarithmic insertion takes place.
+
+        @param hint Position to initially attempt insertion.
+        @param d Data for the new node.
+        @return Iterator pointing at the new element.
+     */
+    iterator insert(const_iterator hint, const value_type& d)
+    {
+        node_type* new_node = node_traits::allocate(node_alloc, 1);
+        node_traits::construct(node_alloc, new_node, d, nullptr, tree_red, comp,
+            alloc);
+
+        return insert_hint_impl(hint, new_node);
+    }
+
+    template <typename P, typename =
+        typename enable_if<is_constructible<value_type, P&&>::value>::type>
+    iterator insert(const_iterator hint, P&& d)
+    {
+        node_type* new_node = node_traits::allocate(node_alloc, 1);
+        node_traits::construct(node_alloc, new_node, nullptr, tree_red, comp,
+            alloc, forward<P>(d));
+        
+        return insert_hint_impl(hint, new_node);
+    }
+
+    iterator insert(const_iterator hint, value_type&& d)
+    {
+        node_type* new_node = node_traits::allocate(node_alloc, 1);
+        node_traits::construct(node_alloc, new_node, forward<value_type>(d),
+            nullptr, tree_red, comp, alloc);
+
+        return insert_hint_impl(hint, new_node);
+    }
+
+    /**
+        Constructs an new node from the given arguments and inserts it into the
+        tree.
+
+        @param args Set of arguments that will be passed to the data
+               constructor.
+        @return Iterator pointing at the new node.
+     */
+    template <typename... Args>
+    iterator emplace(Args&&... args)
+    {
+        node_type* new_node = node_traits::allocate(node_alloc, 1);
+        node_traits::construct(node_alloc, new_node, nullptr,
+            tree_red, comp, alloc, forward<Args>(args)...);
+
+        return insert_impl(new_node);
+    }
+
+    /**
+        Constructs an new node from the given arguments and inserts it into the
+        tree. The hint provides a position to attempt to position the node at.
+        The complexitiy is amortised constant if the element can be inserted
+        just before the indicated position. If not, a normal logarithmic
+        insertion takes place.
+
+        @param hint Position to initially attempt insertion.
+        @param args Set of arguments that will be passed to the data
+               constructor.
+        @return Iterator pointing at the new node.
+     */
+    template <typename... Args>
+    iterator emplace_hint(const_iterator hint, Args&&... args)
+    {
+        node_type* new_node = node_traits::allocate(node_alloc, 1);
+        node_traits::construct(node_alloc, new_node, nullptr,
+            tree_red, comp, alloc, forward<Args>(args)...);
+
+        return insert_hint_impl(hint, new_node);
+    }
+
+    /**
+        Deletes elements from the tree. Deletes the element at the provided
+        iterator.
+
+        @param pos Iterator to the element to delete.
+        @return Iterator following the removed element.
+     */
+    virtual iterator erase(const_iterator pos)
+    {
+        return erase_impl(pos);
+    }
+
+    /**
+        Deletes elements from the tree. Deletes the elements in the range
+        specified by the iterators.
+
+        @param first, last Iterators specifying the range to erase.
+        @return Iterator following the removed element.
+     */
+    virtual iterator erase(const_iterator first, const_iterator last)
+    {
+        iterator current {first.current, this};
+        while (current != last)
+            current = erase_impl(current);
+        return current;
+    }
+
+    /**
+        Deletes elements from the tree. Deletes all elements with data matching
+        the provided value.
+
+        @param d Key to match.
+        @return The number of elements deleted.
+     */
+    virtual size_t erase(const key_type& d)
+    {
+        iterator it = find(d);
+
+        if (it == end())
+            return 0;
+
+        size_t count = 0;
+        while (it != end() && !comp(*it, d) && !comp(d, *it))
+        {
+            ++count;
+            it = erase_impl(it);
+        }
+
+        if (it == begin())
+            return count;
+
+        for (--it; !comp(*it, d) && !comp(d, *it); --it)
+        {
+            ++count;
+            it = erase_impl(it);
+            if (it == begin())
+                break;
+        }
+
+        return count;
+    }
+
+    /**
+        Swaps the contents of this container with another one. No elements are
+        constructed or destructed. The behaviour of the allocator depends on its
+        traits. The container objects are swapped.
+
+        @param other Container to swap with.
+     */
+    virtual void swap(rb_tree& other)
+    {
+        NMSP::swap(sz, other.sz);
+        NMSP::swap(comp, other.comp);
+        NMSP::swap(head, other.head);
+        NMSP::swap(left_most, other.left_most);
+        NMSP::swap(right_most, other.right_most);
+        if (traits::propagate_on_container_swap::value)
+            NMSP::swap(alloc, other.alloc);
+        if (node_traits::propagate_on_container_swap::value)
+            NMSP::swap(node_alloc, other.node_alloc);
+    }
+
+    /**
+        Returns the number of nodes with data matching the provided key.
+
+        @param v Key to compare against.
+        @return Number of nodes matching v.
+     */
+    virtual size_type count (const key_type& v) const
+    {
+        return count_impl(v);
+    }
+
+    template<typename K,
+        typename = typename is_transparent<value_compare, K>::type>
+    size_type count(const K& v) const
+    {
+        return count_impl(v);
+    }
+
+    /**
+        Searches for a node with data matching the provided value.
+
+        @param v Key to search for.
+        @return Iterator pointing to the matching value, end() if not found.
+     */
+    virtual iterator find(const key_type& v)
+    {
+        return find_impl(v);
+    }
+
+    template<typename K,
+        typename = typename is_transparent<value_compare, K>::type>
+    iterator find(const K& v)
+    {
+        return find_impl(v);
+    }
+
+    virtual const_iterator find(const key_type& v) const
+    {
+        return find_impl(v);
+    }
+
+    template<typename K,
+        typename = typename is_transparent<value_compare, K>::type>
+    const_iterator find(const K& v) const
+    {
+        return find_impl(v);
+    }
+
+    /**
+        Returns a pair of iterators, the first of which is the first element not
+        less than the provided value, and the second is the first element
+        greater than the provided value.
+
+        @param v Value to search for.
+        @return Pair of iterators giving the range equal to the value.
+     */
+    virtual pair<iterator, iterator> equal_range(const key_type& v)
+    {
+        return pair<iterator, iterator>
+            {lower_bound_impl(v), upper_bound_impl(v)};
+    }
+
+    template<typename K,
+        typename = typename is_transparent<value_compare, K>::type>
+    pair<iterator, iterator> equal_range(const K& v)
+    {
+        return pair<iterator, iterator>
+            {lower_bound_impl(v), upper_bound_impl(v)};
+    }
+
+    virtual pair<const_iterator, const_iterator> equal_range(const key_type& v)
+        const
+    {
+        return pair<const_iterator, const_iterator>
+            {lower_bound_impl(v), upper_bound_impl(v)};
+    }
+
+    template<typename K,
+        typename = typename is_transparent<value_compare, K>::type>
+    pair<const_iterator, const_iterator> equal_range(const K& v) const
+    {
+        return pair<const_iterator, const_iterator>
+            {lower_bound_impl(v), upper_bound_impl(v)};
+    }
+
+    /**
+        Returns the first element not less than the provided value.
+
+        @param v Value to search for.
+        @return Iterator pointing to the first element not less than v, or end()
+                if none were found.
+     */
+    virtual iterator lower_bound(const key_type& v)
+    {
+        return lower_bound_impl(v);
+    }
+
+    template<typename K,
+        typename = typename is_transparent<value_compare, K>::type>
+    iterator lower_bound(const K& v)
+    {
+        return lower_bound_impl(v);
+    }
+
+    virtual const_iterator lower_bound(const key_type& v) const
+    {
+        return lower_bound_impl(v);
+    }
+
+    template<typename K,
+        typename = typename is_transparent<value_compare, K>::type>
+    const_iterator lower_bound(const K& v) const
+    {
+        return lower_bound_impl(v);
+    }
+
+    /**
+        Returns the first element greater than the provided value.
+
+        @param v Value to search for.
+        @return Iterator pointing to the first element greater than v, or end()
+                if none were found.
+     */
+    virtual iterator upper_bound(const key_type& v)
+    {
+        return upper_bound_impl(v);
+    }
+
+    template<typename K,
+        typename = typename is_transparent<value_compare, K>::type>
+    iterator upper_bound(const K& v)
+    {
+        return upper_bound_impl(v);
+    }
+
+    virtual const_iterator upper_bound(const key_type& v) const
+    {
+        return upper_bound_impl(v);
+    }
+
+    template<typename K,
+        typename = typename is_transparent<value_compare, K>::type>
+    const_iterator upper_bound(const K& v) const
+    {
+        return upper_bound_impl(v);
+    }
+
+    /**
+        Returns the functor used to compare values.
+
+        @return Functor for comparing values.
+     */
+    value_compare value_comp() const { return comp; }
+
+protected:
+    // Implementation of general parts of copying a tree.
+    void copy_impl(const rb_tree& other)
+    {
+        if (other.head != nullptr)
+        {
+            head = node_traits::allocate(node_alloc, 1);
+            node_traits::construct(node_alloc, head, *other.head, node_alloc);
+        }
+
+        find_left_right();
+    }
+
+    // Follows the tree downwards to find the left and right most nodes.
+    virtual void find_left_right()
+    {
+        left_most = head;
+        while (left_most != nullptr &&
+            left_most->get_link(tree_left) != nullptr)
+            left_most = left_most->get_link(tree_left);
+
+        right_most = head;
+        while (right_most != nullptr &&
+            right_most->get_link(tree_right) != nullptr)
+            right_most = right_most->get_link(tree_right);
+    }
+
+    // Checks whether the new node replaces left_most or right_most.
+    virtual void update_left_right(node_type* new_node)
+    {
+        // Two cases for either side. If the new node data is less (greater)
+        // than the current left_most (right_most) data, then it must update. If
+        // not, but equal, they may still have been entered as the left (right)
+        // child, requiring an update.
+        if (comp(new_node->get_data(), left_most->get_data()) ||
+            new_node == left_most->get_link(tree_left))
+            left_most = new_node;
+        if (comp(right_most->get_data(), new_node->get_data()) ||
+            new_node == right_most->get_link(tree_right))
+            right_most = new_node;
+    }
+
+    // Implementation of general parts of insert.
+    virtual iterator insert_impl(node_type* new_node)
+    {
+        // Insert.
+        if (head == nullptr)
+        {
+            head = new_node;
+            left_most = new_node;
+            right_most = new_node;
+            head->set_colour(tree_black);
+        }
+        else
+        {
+            head = new_node->insert(head);
+            head->set_colour(tree_black);
+        }
+        // Increase size.
+        ++sz;
+
+        // Check left and right most.
+        update_left_right(new_node);
+
+        return iterator{new_node, this};
+    }
+
+    // Checks whether an insertion hint is good or not. Returns a nullptr if bad
+    // or the node to insert below if good.
+    virtual node_type* check_insert_hint(const_iterator hint,
+        const value_type& d)
+    {
+        // If the tree is empty, we can ignore the hint and the normal insertion
+        // is constant time anyway.
+        if (head == nullptr)
+            return nullptr;
+
+        // Check that the hint indicates the correct value. Since we have to
+        // traverse the tree to previous this might be logarithmic. Maybe it's
+        // amortised constant?
+        const_iterator t_hint = hint;
+        const_iterator t_prev = --hint;
+        if (t_hint.current != nullptr && comp(*t_hint, d))
+            return nullptr;
+        if (t_prev.current != nullptr &&
+            comp(d, *t_prev))
+            return nullptr;
+
+        // I think the only ways this works are if the hint points at a node
+        // with a free left link, or the previous node has a free right link. Or
+        // other cases I haven't thought of yet.
+        if (t_hint.current != nullptr &&
+            t_hint.current->get_link(tree_left) == nullptr)
+            return t_hint.current;
+        if (t_prev.current != nullptr &&
+            t_prev.current->get_link(tree_right) == nullptr)
+            return t_prev.current;
+
+        return nullptr;
+    }
+
+    // Implementation of insertion with a provided hint.
+    virtual iterator insert_hint_impl(const_iterator hint, node_type* new_node)
+    {
+        // Check whether the hint is good.
+        node_type* root = check_insert_hint(hint, new_node->get_data());
+
+        // If the hint is bad (or the tree is empty) do a normal insert.
+        if (root == nullptr)
+            return insert_impl(new_node);
+
+        // Work out the direction, needed for fixing.
+        rbtree_dir dir = comp(root->get_data(), new_node->get_data());
+
+        // Insert manually.
+        root = new_node->insert(root);
+        ++sz;
+
+        // This might have introduced violations above the root insert position
+        // (any below should have been fixed). I guess we have to check, which
+        // would seem to be of logarithmic complexity. I guess we can see
+        // whether the fix changes the root. If it does not then there was no
+        // violation in the subtree. Since inserts only make red violations, if
+        // the subtree is good the whole tree is good. Since a violation is
+        // unlikely to propagte to the top, maybe it's amortised constant?
+        node_type* new_root = root;
+        rbtree_colour root_col = 
+            (new_root->get_colour() == tree_black ? tree_red : tree_black);
+        while ((new_root != root || root_col != new_root->get_colour()) &&
+            new_root->get_parent() != nullptr)
+        {
+            root = new_root->get_parent();
+            root_col = root->get_colour();
+            new_root = root->fix_insert(dir);
+        }
+
+        // Get the new head node. This is also a logarithmic operation. I don't
+        // think I'm doing this right. We can just chase up starting from the
+        // current head though, which usually won't have changed, so maybe this
+        // is really amortised constant too?
+        while (head->get_parent() != nullptr)
+            head = head->get_parent();
+
+        // Check left and right most.
+        update_left_right(new_node);
+
+        return iterator {new_node, this};
+    }
+
+    // Implementation of erase.
+    virtual iterator erase_impl(const_iterator pos)
+    {
+        iterator ret_val {pos.current, this};
+        ++ret_val;
+
+        // Update left and right most. Use the fact that although the
+        // arrangment of the nodes may change, their order does not. Using the
+        // iterator deals with special cases involving the head node.
+        if (left_most == pos.current)
+        {
+            const_iterator temp {pos};
+            ++temp;
+            left_most = temp.current;
+        }
+        if (right_most == pos.current)
+        {
+            const_iterator temp {pos};
+            --temp;
+            right_most = temp.current;
+        }
+
+        // Flags for whether the new tree has been balanced and the direction
+        // of the delete.
+        bool balanced = false;
+        rbtree_dir dir = tree_left;
+
+        // Remove the node at pos.
+        node_type* root = pos.current->erase(balanced, dir);
+        --sz;
+
+        // Return now if the tree is empty.
+        if (root == nullptr)
+        {
+            head = nullptr;
+            clear();
+            return ret_val;
+        } 
+
+        // Fix violations. Iterate up the tree until it reports no more
+        // violations or we've reached the top.
+        while (!balanced)
+        {
+            root = root->fix_erase(balanced, dir);
+            if (root->get_parent() != nullptr)
+            {
+                dir = (root->get_parent()->get_link(tree_right) == root);
+                root = root->get_parent();
+            }
+            else
+                break;
+        }
+
+        // The head node might have changed. This is logarithmic, but deleting
+        // is logairhtmic anyway.
+        head = root;
+        while (head->get_parent() != nullptr)
+            head = head->get_parent();
+
+        // Make sure the head node is black.
+        head->set_colour(tree_black);
+
+        return ret_val;
+    }
+
+    // Implementation of count. We can safely use a general template here as the
+    // filtering has been done in the public methods.
+    template <typename K>
+    size_type count_impl(const K& v) const
+    {
+        // Use find() to check if a matching element exists.
+        const_iterator match = find(v);
+        if (match == end())
+            return 0;
+
+        // Check before and after. find() isn't required to find the first
+        // matching element.
+        size_type count = 0;
+        for (const_iterator temp_match {match};
+            !comp(*temp_match, v) && !comp(v, *temp_match);
+            --temp_match)
+        {
+            ++count;
+            // Make sure we don't go beyond the beginning.
+            if (temp_match == begin())
+                break;
+        }
+
+        for (++match; match != end() && !comp(*match, v) && !comp(v, *match);
+            ++match)
+            ++count;
+
+        return count;
+    }
+
+    // Implementation of find. We can safely use a general template here as the
+    // filtering has been done in the public methods.
+    template <typename K>
+    iterator find_impl(const K& v)
+    {
+        node_type* current = head;
+
+        while (current != nullptr)
+        {
+            bool left = comp(v, current->get_data());
+            bool right = comp(current->get_data(), v);
+            if (!left && !right)
+                break;
+            else if (left)
+                current = current->get_link(tree_left);
+            else
+                current = current->get_link(tree_right);
+        }
+
+        return iterator {current, this};
+    }
+
+    template <typename K>
+    const_iterator find_impl(const K& v) const
+    {
+        node_type* current = head;
+
+        while (current != nullptr)
+        {
+            bool left = comp(v, current->get_data());
+            bool right = comp(current->get_data(), v);
+            if (!left && !right)
+                break;
+            else if (left)
+                current = current->get_link(tree_left);
+            else
+                current = current->get_link(tree_right);
+        }
+
+        return const_iterator {current, this};
+    }
+
+    // Implementation of lower_bound. We can safely use a general template here
+    // as the filtering has been done in the public methods.
+    template <typename K>
+    iterator lower_bound_impl(const K& v)
+    {
+        // Special case for empty.
+        if (empty())
+            return end();
+
+        // It would be nice to use find, but that would be wrong as the element
+        // does not have to be present. If the element is less than the key, we
+        // descend right. If the element is not less than the key, we descend
+        // right. If the node we descend to is nullptr, return the node
+        // descended from.
+        node_type* current = head;
+        node_type* best = nullptr;
+        while (true)
+        {
+            // Work out direction.
+            rbtree_dir dir = comp(current->get_data(), v);
+
+            // Update best.
+            if (dir == tree_left)
+                best = current;
+
+            // Terminate or step down.
+            if (current->get_link(dir) == nullptr)
+            {
+                if (best == nullptr)
+                    return end();
+                else if (dir == tree_right)
+                    return iterator {best, this};
+                else
+                    return iterator {current, this};
+            }
+            else
+                current = current->get_link(dir);
+        }
+    }
+
+    template <typename K>
+    const_iterator lower_bound_impl(const K& v) const
+    {
+        // Special case for empty.
+        if (empty())
+            return cend();
+
+        // It would be nice to use find, but that would be wrong as the element
+        // does not have to be present. If the element is less than the key, we
+        // descend right. If the element is not less than the key, we descend
+        // right. If the node we descend to is nullptr, return the node
+        // descended from.
+        node_type* current = head;
+        node_type* best = nullptr;
+        while (true)
+        {
+            // Work out direction.
+            rbtree_dir dir = comp(current->get_data(), v);
+
+            // Update best.
+            if (dir == tree_left)
+                best = current;
+
+            // Terminate or step down.
+            if (current->get_link(dir) == nullptr)
+            {
+                if (best == nullptr)
+                    return cend();
+                else if (dir == tree_right)
+                    return iterator {best, this};
+                else
+                    return iterator {current, this};
+            }
+            else
+                current = current->get_link(dir);
+        }
+    }
+
+    // Implementation of upper_bound. We can safely use a general template here
+    // as the filtering has been done in the public methods.
+    template <typename K>
+    iterator upper_bound_impl(const K& v)
+    {
+        // Special case for empty.
+        if (empty())
+            return end();
+
+        // It would be nice to use find, but that would be wrong as the element
+        // does not have to be present. If the key is less than the element, we
+        // descend left. If the key is not less than the element, we descend
+        // right. If the node we descend to is nullptr, return the node
+        // descended from.
+        node_type* current = head;
+        node_type* best = nullptr;
+        while (true)
+        {
+            // Work out direction.
+            rbtree_dir dir = !comp(v, current->get_data());
+
+            // Update best.
+            if (dir == tree_left)
+                best = current;
+
+            // Terminate or step down.
+            if (current->get_link(dir) == nullptr)
+            {
+                if (best == nullptr)
+                    return end();
+                else if (dir == tree_right)
+                    return iterator {best, this};
+                else
+                    return iterator {current, this};
+            }
+            else
+                current = current->get_link(dir);
+        }
+    }
+
+    template <typename K>
+    const_iterator upper_bound_impl(const K& v) const
+    {
+        // Special case for empty.
+        if (empty())
+            return cend();
+
+        // It would be nice to use find, but that would be wrong as the element
+        // does not have to be present. If the key is less than the element, we
+        // descend left. If the key is not less than the element, we descend
+        // right. If the node we descend to is nullptr, return the node
+        // descended from.
+        node_type* current = head;
+        node_type* best = nullptr;
+        while (true)
+        {
+            // Work out direction.
+            rbtree_dir dir = !comp(v, current->get_data());
+
+            // Update best.
+            if (dir == tree_left)
+                best = current;
+
+            // Terminate or step down.
+            if (current->get_link(dir) == nullptr)
+            {
+                if (best == nullptr)
+                    return cend();
+                else if (dir == tree_right)
+                    return const_iterator {best, this};
+                else
+                    return const_iterator {current, this};
+            }
+            else
+                current = current->get_link(dir);
+        }
+    }
+};
+
+/**
+    Tests whether two trees have the same size and all elements in equivalent
+    positions equal. Two trees can only be compared if they have the same
+    comparator type. The comparator instance of lhs is used. Two elements are
+    considered equal if (!comp(i, j) && !comp(j, i)).
+
+    @param lhs, rhs trees to compare.
+    @return Whether lhs and rhs are equal.
+ */
+template <typename T, typename Compare, typename Key, typename Alloc>
+bool operator==(const rb_tree<T, Compare, Key, Alloc>& lhs,
+    const rb_tree<T, Compare, Key, Alloc>& rhs)
+{
+    
+    auto eq_comp = [&lhs](const T& l, const T& r)
+    {
+        return (!lhs.value_comp()(l, r) && !lhs.value_comp()(r, l));
+    };
+
+    return (lhs.size() == rhs.size() &&
+        equal(lhs.begin(), lhs.end(), rhs.begin(), eq_comp));
+}
+
+/**
+    Tests whether two trees have different size or some elements in equivalent
+    positions different. Two trees can only be compared if they have the same
+    comparator type. The comparator instance of lhs is used. Two elements are
+    considered equal if (!comp(i, j) && !comp(j, i)).
+
+    @param lhs, rhs trees to compare.
+    @return Whether lhs and rhs are different.
+ */
+template <typename T, typename Compare, typename Key, typename Alloc>
+bool operator!=(const rb_tree<T, Compare, Key, Alloc>& lhs,
+    const rb_tree<T, Compare, Key, Alloc>& rhs)
+{
+    return !(lhs == rhs);
+}
+
+/**
+    Tests whether one tree is lexocographically less than another. Two trees can
+    only be compared if they have the same comparator type. The comparator
+    instance of lhs is used.
+
+    @param lhs, rhs trees to compare.
+    @return Whether lhs is lexocographically less than rhs.
+ */
+template <typename T, typename Compare, typename Key, typename Alloc>
+bool operator<(const rb_tree<T, Compare, Key, Alloc>& lhs,
+    const rb_tree<T, Compare, Key, Alloc>& rhs)
+{
+    return lexicographical_compare(lhs.begin(), lhs.end(),
+        rhs.begin(), rhs.end(), lhs.value_comp());
+}
+
+/**
+    Tests whether one tree is lexocographically greater than another. Two trees
+    can only be compared if they have the same comparator type. The comparator
+    instance of lhs is used.
+
+    @param lhs, rhs trees to compare.
+    @return Whether lhs is lexocographically greater than rhs.
+ */
+template <typename T, typename Compare, typename Key, typename Alloc>
+bool operator>(const rb_tree<T, Compare, Key, Alloc>& lhs,
+    const rb_tree<T, Compare, Key, Alloc>& rhs)
+{
+    return (rhs < lhs);
+}
+
+/**
+    Tests whether one tree is equal to or lexocographically less than another.
+    Two trees can only be compared if they have the same comparator type. The
+    comparator instance of lhs is used.
+
+    @param lhs, rhs trees to compare.
+    @return Whether lhs is equal to or lexocographically less than rhs.
+ */
+template <typename T, typename Compare, typename Key, typename Alloc>
+bool operator<=(const rb_tree<T, Compare, Key, Alloc>& lhs,
+    const rb_tree<T, Compare, Key, Alloc>& rhs)
+{
+    return !(rhs < lhs);
+}
+
+/**
+    Tests whether one tree is equal to or lexocographically greater than
+    another. Two trees can only be compared if they have the same comparator
+    type. The comparator instance of lhs is used.
+
+    @param lhs, rhs trees to compare.
+    @return Whether lhs is equal to or lexocographically greater than rhs.
+ */
+template <typename T, typename Compare, typename Key, typename Alloc>
+bool operator>=(const rb_tree<T, Compare, Key, Alloc>& lhs,
+    const rb_tree<T, Compare, Key, Alloc>& rhs)
+{
+    return !(lhs < rhs);
+}
+
+/**
+    Swaps the contents of two trees. Calls the member swap function of lhs.
+
+    @param lhs, rhs Trees to swap.
+ */
+template <typename T, typename Compare, typename Key, typename Alloc>
+void swap(rb_tree<T, Compare, Key, Alloc>& lhs,
+    rb_tree<T, Compare, Key, Alloc>& rhs)
+{
+    lhs.swap(rhs);
+}
+
+} // helper namespace
+} // NMSP namespace
+
+#endif /* RBTREE_H */

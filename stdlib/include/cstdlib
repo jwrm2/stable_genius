@@ -1,0 +1,94 @@
+#ifndef CSTDLIB_H
+#define CSTDLIB_H
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+#include <stddef.h>
+
+namespace NMSP {
+
+/**
+    Convert a string to an integer representation. Ignores leading whitespace.
+    Any non-numeric digits beyond the end of the numeric sequence are ignored.
+
+    @param str Start of the C string to convert.
+    @param str_end Gets set to the last character converted or the first
+           character of str if no conversion could be performed, unless it's a
+           nullptr.
+    @param base Radix to use for conversion. If set to 0, the base is
+           interpreted from the prefix of the number.
+    @return Integer value corresponding to str. If outside the representable
+            range for the type, one of the limits of the type. 0 if
+            the conversion could not be performed.
+ */
+long strtol(const char* str, char **str_end, int base);
+long long strtoll(const char* str, char **str_end, int base);
+unsigned long strtoul(const char* str, char **str_end, int base);
+unsigned long long strtoull(const char* str, char **str_end, int base);
+
+/**
+    Convert a C string to an integer representation. Ignores leading whitespace.
+    Any non-numeric digits beyond the end of the numeric sequence are ignored.
+    Assumes a base of 10.
+
+    @param str Start of the C string to convert.
+    @return Integer value corresponding to str. If outside the representable
+            range for the type, one of the limits of the type. 0 if
+            the conversion could not be performed.
+ */
+int atoi(const char* str);
+long atol(const char* str);
+long long atoll(const char* str);
+
+/**
+    Convert a C string to a floating point representation. Ignores leading
+    whitespace. Any non-numeric digits beyond the end of the representation are
+    ignored.
+
+    @param str Start of the C sring to convert.
+    @return Floating point value corresponding to the str.
+    @param str_end Gets set to the last character converted or the first
+           character of str if no conversion could be performed, unless it's a
+           nullptr. 
+    @return Floating poiunt value corresponding to str. If outside the
+            representable range for the type, the HUGE value for the type. 0 if
+            the conversion could not be performed.
+ */
+float strtof(const char* str, char** str_end);
+double strtod(const char* str, char** str_end);
+long double strtold(const char* str, char** str_end);
+
+/**
+    Abort the kernel: disable interrupts and enter an infinite loop. This needs
+    to be implemented in the kernel.
+ */
+extern "C" // libgcc links to this function
+void abort();
+
+/**
+    A wrapper around the kernel heap's malloc. Gets heap allocated memory of the
+    given size. Returns nullptr if the allocation fails, for examples if the
+    heap doesn't exist yet. Must be implemented in the kernel.
+
+    @param size Number of bytes to allocate.
+    @return A pointer to the start of the allocated memory.
+ */
+extern "C" // libgcc links to this function
+void* malloc(size_t size);
+
+/**
+    A wrapper around the kernel heap's free. Deletes memory previously allocated
+    by malloc and friends. Does nothing to a nullptr, or if the kernel heap does
+    not exist yet. Must be implemented in the kernel.
+
+    @param ptr Pointer to the memory to free.
+ */
+extern "C" // libgcc links to this function.
+void free(void* ptr);
+
+} // NMSP namespace
+
+#endif /* CSTDLIB_H */

@@ -1,0 +1,645 @@
+#ifndef STREAMBUF_H
+#define STREAMBUF_H
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+#include "../include/ios"
+#include "../include/utility"
+
+namespace NMSP {
+
+// Forward declarations.
+template <typename> class char_traits;
+template <typename, typename> class basic_filebuf;
+using filebuf = basic_filebuf<char, char_traits<char>>;
+
+/**
+    This class abstracts from a raw device to buffered input/ouput. The raw
+    device may be a file (or a special type of file such as a serial port), or
+    something like a string or vector that can also be considered as a character
+    sequence. Derived classes deal with the details of the interaction with the
+    associated character stream. This class provides the buffers and a general
+    interface.
+ */
+template <typename CharT, typename Traits = char_traits<CharT>>
+class basic_streambuf {
+public:
+    /** Type of the character. */
+    using char_type = CharT;
+    /** Type of the traits. traits_type::char_type must equal char_type. */
+    using traits_type = Traits;
+    /** Type of an int that can represent the char. Taken from traits_type. */
+    using int_type = typename traits_type::int_type;
+    /** Type that can represent a position in a stream. Taken from
+        traits_type. */
+    using pos_type = typename traits_type::pos_type;
+    /** Type of an int that can represent an offset in a stream. Taken from
+        traits_type. */
+    using off_type = typename traits_type::off_type;
+
+    /**
+        Destructor. Doesn't destruct the buffer areas, but is virtual, to allow
+        derived classes to deal with their buffers appropriately.
+     */
+    virtual ~basic_streambuf() {}
+
+    /**
+        Calls the virtual protected member functon imbue() to change the current
+        locale.
+        TODO Locale stuff is skipped for now.
+
+        @param loc New locale to set.
+        @return Locale before this function was called.
+     */
+    // locale pubimbue(const locale& loc);
+
+    /**
+        Gets a copy of the current locale.
+        TODO Locale stuff is skipped for now.
+
+        @return The current locale.
+     */
+    // locale getloc() const { return curr_loc; }
+
+    /**
+        Calls the virtual protected member function setbuf() to replace the 
+        buffer with a user specified array.
+
+        @param s Pointer to the first element of a CharT array.
+        @param n Number of elements in s.
+        @return This basic_streambuf.
+     */
+    basic_streambuf* pubsetbuf(char_type* s, streamsize n)
+    {
+        return setbuf(s, n);
+    }
+
+    /**
+        Calls the virtual protected member function seekoff() to adjust the
+        next pointer by an offset.
+
+        @param off Offset to move the next pointer by.
+        @param dir Base position to apply the offset to (beg, end or cur).
+        @param which Whether to offset the input or output stream, defaults to
+               both.
+        @return The absolute position after the change.
+     */
+    pos_type pubseekoff(off_type off, ios_base::seekdir dir,
+        ios_base::openmode which = ios_base::in | ios_base::out)
+    {
+        return seekoff(off, dir, which);
+    }
+
+    /**
+        Calls the virtual protected member function seekpos() to adjust the
+        next pointer to an new absolute position.
+
+        @param pos Absolute position to move the next pointer to.
+        @param which Whether to offset the input or output stream, defaults to
+               both.
+        @return The absolute position after the change.
+     */
+    pos_type pubseekpos(pos_type pos,
+        ios_base::openmode which = ios_base::in | ios_base::out)
+    {
+        return seekpos(pos, which);
+    }
+
+    /**
+        Calls the virtual protected member function sync() to synchronise with
+        the underlying device. This might flush the output buffer, or discard
+        and reload the input buffer.
+
+        @return 0 on success, -1 on failure.
+     */
+    int pubsync() { return sync(); }
+
+    /**
+        Attempts to determine how many characters are immediately available. If
+        there are characters waiting in the get area, returns egptr() - gptr()
+        to give the number of characters in the get area. If a read position is
+        not available, calls the virtual protected member function showmanyc(),
+        which may return the number of characters available in the associated
+        character stream before eof is encountered.
+
+        @return Number of characters in the read area, if available. Otherwise,
+                the number of characters in the associated input stream before
+                eof, if that can be determined, or 0 if unsure. -1 indicates no
+                characters are available.
+     */
+    streamsize in_avail()
+    {
+        streamsize ret_val = egptr() - gptr();
+        return (ret_val != 0 ? ret_val : showmanyc());
+    }
+
+    /**
+        Advances the get area by one character, then reads the character. Calls
+        sbumpc() to advance the sequence. Then calls sgetc() to read the
+        character. Returns eof if either of those functions returns eof.
+
+        @return Value of the next character, or eof if the associated character
+                stream is exhausted.
+     */
+    int_type snextc()
+    {
+        int_type ret_val = sbumpc();
+        if (!traits_type::eq_int_type(ret_val, traits_type::eof()))
+            ret_val = sgetc();
+
+        return ret_val;
+    }
+
+    /**
+        Reads one character from the get area and advances the next pointer by
+        one. Calls the protected virtual member function uflow() if read is not
+        currently available.
+
+        @return The character at the next pointer, or eof if not available.
+     */
+    int_type sbumpc()
+    {
+        int_type ret_val;
+        if (gptr() != nullptr && gptr() < egptr())
+        {
+            ret_val = traits_type::to_int_type(*gptr());
+            gbump(1);
+        }
+        else
+            ret_val = uflow();
+
+        return ret_val;
+    }
+
+    /**
+        Reads one character from the get area. Does not change the next pointer.
+        Calls the virtual protected member function underflow() if read is not
+        currently available.
+
+        @return The character at the next pointer, or eof if not available.
+     */
+    int_type sgetc()
+    {
+        int_type ret_val;
+        if (gptr() < egptr())
+            ret_val = traits_type::to_int_type(*gptr());
+        else
+            ret_val = underflow();
+        return ret_val;
+    }
+
+    /**
+        Calls the virtual protected member function xsgetn() to read count
+        characters from the get area into the user provided buffer. Will call
+        the protected virtual member function uflow() to get more characters if
+        enough are not available. Stops on eof.
+
+        @param s Buffer to put the read characters into.
+        @param count Number of characters to read.
+        @return The number of characters read. Will equal count on success. Will
+                be less than count if eof was reached.
+     */
+    streamsize sgetn(char_type* s, streamsize count)
+    {
+        return xsgetn(s, count);
+    }
+
+    /**
+        Write one character into the put area and advances the next pointer. If
+        the next pointer is unavailable, calls the protected virtual member
+        function overflow().
+
+        This isn't really supposed to be virtual, but I'm overriding it in
+        basic_filebuf.
+
+        @param ch Character to write.
+        @return The character written, or eof on failure.
+     */
+    virtual int_type sputc(char_type ch)
+    {
+        int_type ret_val;
+        if (pptr() < epptr())
+        {
+            traits_type::assign(*pptr(), ch);
+            pbump(1);
+            ret_val = traits_type::to_int_type(ch);
+        }
+        else
+            ret_val = overflow(traits_type::to_int_type(ch));
+        return ret_val;
+    }
+
+    /**
+        Calls the protected virtual member function xsputn(), to write count
+        characters beginning at the provided pointer into the output area. May
+        call thg protected virtual member function overflow() if there is not
+        enough space in the put area. Stops on eof.
+
+        @param s Buffer to get the characters from.
+        @param count NUmber of characters to get.
+        @return The number of characters written. Will equal count on success.
+                Will be less than count if eof was reached.
+     */
+    streamsize sputn(const char_type* s, streamsize count)
+    {
+        return xsputn(s, count);
+    }
+
+    /**
+        Puts a character back into the get area. If the get area is available
+        and the previous character mataches the character to put back,
+        decrements the next pointer. Otherwise calls the protected virtual
+        member function pbackfail() to modify the get area or associated
+        character stream.
+
+        @param ch Character to put back.
+        @return The character put back on success, or eof on fail.
+     */
+    int_type sputbackc(char_type ch)
+    {
+        int_type ret_val = traits_type::to_int_type(ch);
+        if (eback() < gptr() && traits_type::eq(ch, gptr()[-1]))
+            gbump(-1);
+        else
+            ret_val = pbackfail(ret_val);
+        return ret_val;
+    }
+
+    /**
+        Puts the last read character back into the get area, by decrementing the
+        next pointer if possible. Otherwise calls the protected virtual member
+        function pbackfail() to modify the get area or associated character
+        stream.
+
+        @return The character put back on success, or eof on fail.
+     */
+    int_type sungetc()
+    {
+        int_type ret_val;
+        if (eback() < gptr())
+        {
+            gbump(-1);
+            ret_val = traits_type::to_int_type(*gptr());
+        }
+        else
+            ret_val = pbackfail();
+        return ret_val;
+    }
+
+protected:
+    /** Start of the get area. */
+    char_type* in_beg;
+    /** Current position in the get area. */
+    char_type* in_cur;
+    /** End of the get area. */
+    char_type* in_end;
+    /** Start of the put area. */
+    char_type* out_beg;
+    /** Current position in the put area. */
+    char_type* out_cur;
+    /** End of the put area. */
+    char_type* out_end;
+    // TODO skipping loacle stuff for now.
+    // locale curr_loc;
+
+    /**
+        Default constructor. Only called from derived constructors. Initialises
+        the pointers to nullptr.
+        TODO initialises the locale to the global defualt locale.
+     */
+    basic_streambuf() :
+        in_beg {nullptr},
+        in_cur {nullptr},
+        in_end {nullptr},
+        out_beg {nullptr},
+        out_cur {nullptr},
+        out_end {nullptr}
+    {}
+
+    /**
+        Copy constructor. Performs a shallow copy, initialising the pointers to
+        the same locations as the other stream and making a copy of the locale.
+
+        @param other Other stream to make copy of.
+     */
+    basic_streambuf(const basic_streambuf& other) = default;
+
+    /**
+        Copy assignment. Performs a shallow copy, setting the pointers to the
+        same locations as the other stream. Does not alter anything at the
+        location of the old pointers. Makes a copy of the locale.
+
+        @param other Other stream to make copy of.
+        @return This stream.
+     */
+    basic_streambuf& operator=(const basic_streambuf& other) = default;
+
+    /**
+        Exchange the contents of this streambuf with another. Swaps the pointer
+        values without changing anything at the locations.
+        TODO swaps the locales.
+
+        @param other Other stream to swap with.
+     */
+    void swap(basic_streambuf& other)
+    {
+        NMSP::swap(in_beg, other.in_beg);
+        NMSP::swap(in_cur, other.in_cur);
+        NMSP::swap(in_end, other.in_end);
+        NMSP::swap(out_beg, other.out_beg);
+        NMSP::swap(out_cur, other.out_cur);
+        NMSP::swap(out_end, other.out_end);
+    }
+
+    /**
+        The base version of this function has no effect. Derived classes may
+        override it with actions to perform when the locale is changed.
+        TODO locale stuff is skipped for now.
+
+        @param loc Other locale to set.
+     */
+    // virtual void imbue(const locale& loc);
+
+    /**
+        The base version of this function has no effect. Derived classes may
+        override it to allow explicit replacement of the buffer.
+
+        @param s Pointer to the first element of a CharT array.
+        @param n Number of elements in s.
+        @return This basic_streambuf.
+     */
+    virtual basic_streambuf* setbuf(char_type*, streamsize)
+    {
+        return this;
+    }
+
+    /**
+        The base version of this function has no effect. Derived classes may
+        override it to allow the relative repositioning of the next pointers.
+
+        @param off Offset to move the next pointer by.
+        @param dir Base position to apply the offset to (beg, end or cur).
+        @param which Whether to offset the input or output stream, defaults to
+               both.
+        @return The absolute position after the change.
+     */
+    virtual pos_type seekoff(off_type, ios_base::seekdir,
+        ios_base::openmode = ios_base::in | ios_base::out)
+    {
+        return pos_type { off_type {-1}};
+    }
+
+    /**
+        The base version of this function has no effect. Derived classes may
+        override it to allow the absolute repositioning of the next pointers.
+
+        @param pos Absolute position to move the next pointer to.
+        @param which Whether to offset the input or output stream, defaults to
+               both.
+        @return The absolute position after the change.
+     */
+    virtual pos_type seekpos(pos_type,
+        ios_base::openmode = ios_base::in | ios_base::out)
+    {
+        return pos_type { off_type {-1}};
+    }
+
+    /**
+        The base version of this function has no effect. Derived classes may
+        override it to synchronise the buffers with the associated character
+        stream.
+
+        @return 0 on success, -1 on failure.
+     */
+    virtual int sync() { return 0; }
+
+    /**
+        Attempts to determine how many characters are available for reading.
+        underflow() will not return eof until at least that many characters have
+        been read. The base version of this function returns 0, indicating no
+        information could be determined. Derived class may override it to
+        provide better informtation.
+
+        @return Number of characters that can be read before eof. -1 indicates
+                no more reads are possible. 0 indicates nothing could be
+                determined.
+     */
+    virtual streamsize showmanyc() { return 0; }
+
+    /**
+        The base version of this function has no effect. Derived classes may
+        override it to update the get area with new data.
+
+        @return The value of the character now pointed to by the next pointer,
+                or eof on failure.
+     */
+    virtual int_type underflow() { return traits_type::eof(); }
+
+    /**
+        The base version of this function calls underflow(), then advances the
+        next pointer by one. Derived classes may override it for more specific
+        behaviour.
+
+        @return The value at the next pointer after loading new data into the
+                buffer, but before advancing the pointer.
+     */
+    virtual int_type uflow()
+    {
+        int_type ret_val = underflow();
+        gbump(1);
+        return ret_val;
+    }
+
+    /**
+        Reads count characters from the get area into the user provided buffer.
+        Will call uflow() to get more characters if enough are not available.
+        Stops on eof.
+
+        @param s Buffer to put the read characters into.
+        @param count Number of characters to read.
+        @return The number of characters read. Will equal count on success. Will
+                be less than count if eof was reached.
+     */
+    virtual streamsize xsgetn(char_type* s, streamsize count)
+    {
+        streamsize ret_val = 0;
+        while (ret_val < count)
+        {
+            int_type c = sbumpc();
+            if (traits_type::eq_int_type(c, traits_type::eof()))
+                break;
+            traits_type::assign(s[ret_val], c);
+            ++ret_val;
+        }
+
+        return ret_val;
+    }
+
+    /**
+        Gets the pointer to the start of the get area, or equivalently the end
+        of the put back area.
+
+        @return Pointer to the start of the get area.
+     */
+    char_type* eback() const { return in_beg; }
+
+    /**
+        Gets the next pointer for the get area.
+
+        @return Next pointer for the get area.
+     */
+    char_type* gptr() const { return in_cur; }
+
+    /**
+        Gets the pointer to the end of the get area.
+
+        @return Pointer to the end of the get area.
+     */
+    char_type* egptr() const { return in_end; }
+
+    /**
+        Advances the next pointer in the get area by the specified amount, which
+        may be positive or negative. Does not check for underflow, so may result
+        in gptr() > egptr() or gptr() < eback().
+        This isn't really supposed to be virtual, but I want to override it in
+        basic_filebuf.
+
+        @param count Number of characters to advance the next pointer by.
+     */
+    virtual void gbump(int count)
+    {
+        if (in_cur != nullptr)
+            in_cur += count;
+    }
+
+    /**
+        Sets the values of the pointers defining the get area.
+
+        @param gbeg Pointer to the new beginning of the get area.
+        @param gcur Pointer to the new next character in the get area.
+        @param gend Pointer to the new end of the get area.
+     */
+    void setg(char_type* gbeg, char_type* gcur, char_type* gend)
+    {
+        in_beg = gbeg;
+        in_cur = gcur;
+        in_end = gend;
+    }
+
+    /**
+        Writes count characters from the user provided buffer into the put area.
+        Will call overflow() to empty the put area if too many characters are
+        provided. Stops on eof.
+
+        @param s Buffer to get the characters from.
+        @param count Number of characters to write.
+        @return The number of characters write. Will equal count on success.
+                Will be less than count if eof was reached.
+     */
+    virtual streamsize xsputn(const char_type* s, streamsize count)
+    {
+        streamsize ret_val = 0;
+        while (ret_val < count)
+        {
+            int_type e = sputc(s[ret_val]);
+            if (traits_type::eq_int_type(e, traits_type::eof()))
+                break;
+            ++ret_val;
+        }
+        return ret_val;
+    }
+
+    /**
+        The base version of this function has no effect. Derived classes may
+        override it to create some space in the put area by writing characters
+        into the associated character stream and then writing the provided
+        character into the associated character stream or the out area.
+
+        @param Character to write.
+        @return Unspecified value not equal to eof on success, eof on failure.
+     */
+    virtual int_type overflow(int_type = traits_type::eof())
+    {
+        return traits_type::eof();
+    }
+
+    /**
+        Gets the pointer to the start of the put area.
+
+        @return Pointer to the start of the put area.
+     */
+    char_type* pbase() const { return out_beg; }
+
+    /**
+        Gets the next pointer for the put area.
+
+        @return Next pointer for the put area.
+     */
+    char_type* pptr() const { return out_cur; }
+
+    /**
+        Gets the pointer to the end of the put area.
+
+        @return Pointer to the end of the put area.
+     */
+    char_type* epptr() const { return out_end; }
+
+    /**
+        Advances the next pointer in the put area by the specified amount, which
+        may be positive or negative. Does not check for overflow, so may result
+        in pptr() > epptr() or pptr() < pbase().
+        This isn't really supposed to be virtual, but I want to override it in
+        basic_filebuf.
+
+        @param count Number of characters to advance the next pointer by.
+     */
+    virtual void pbump(int count)
+    {
+        if (out_cur != nullptr)
+            out_cur += count;
+    }
+
+    /**
+        Sets the values of the pointers defining the put area.
+
+        @param pbeg Pointer to the new beginning of the put area.
+        @param pcur Pointer to the new next character in the put area.
+        @param pend Pointer to the new end of the put area.
+     */
+    void setp(char_type* pbeg, char_type* pcur, char_type* pend)
+    {
+        out_beg = pbeg;
+        out_cur = pcur;
+        out_end = pend;
+    }
+
+    /**
+        The base version of this function has no effect. Derived classes may
+        override it to put a character back into the stream. This function is
+        called when there is no space in the get area to achive this, so the
+        get area may need to be reloaded from the associated character stream,
+        or when this function is called with an argument to modify the stream,
+        in which case the associated character stream should be modified if
+        possible.
+
+        @param Character to put back. No value, or eof(), indicates put back the
+               last read character.
+        @return Unspecified value not equal to eof on success, eof on failure.
+     */
+    virtual int_type pbackfail(int_type = traits_type::eof())
+    {
+        return traits_type::eof();
+    }
+};
+
+/**
+    Specialisation of basic_streambuf for char type.
+ */
+using streambuf = basic_streambuf<char>;
+
+} // end NMSP namespace
+
+#endif /* STREAMBUF_H */

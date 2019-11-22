@@ -1,0 +1,1562 @@
+#ifndef ISTREAM_H
+#define ISTREAM_H
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+#include <stdint.h>
+
+#include "../include/algorithm"
+#include "../include/cctype"
+#include "../include/exception"
+#include "../include/ios"
+#include "../include/limits"
+#include "../include/ostream"
+#include "../include/streambuf"
+#include "../include/utility"
+
+namespace NMSP {
+
+// Forward declarations
+template <typename, typename> class basic_istream;
+
+namespace helper {
+
+/**
+    A set of functions that convert a characters into a numerical value, for
+    input. TODO: These only work for chars and are not locale specific, so they
+    aren't very general, but good enough for the kernel for now.
+
+    @param val Store for the result.
+    @param istr Stream object from which to read the input.
+    @param neg For unsigned values, whether the input had a negative sign.
+    @return True on success, false on failure, except the stringbuffer version,
+            which returns the number of characters transferred.
+ */
+bool do_read(long long& val, basic_istream<char, char_traits<char>>& istr);
+
+bool do_read(unsigned long long& val,
+    basic_istream<char, char_traits<char>>& istr, bool& neg);
+
+bool do_read(long double& val, basic_istream<char, char_traits<char>>& istr);
+
+bool do_read(bool& val, basic_istream<char, char_traits<char>>& istr);
+
+streamsize do_read(basic_streambuf<char, char_traits<char>>* val,
+    basic_istream<char, char_traits<char>>& istr);
+
+} // end helper namespace
+
+/**
+    This class, the parent of all input streams, provides high level formatted
+    and unformatted character input from an object with a streambuf interface.
+ */
+template <typename CharT, typename Traits = char_traits<CharT>>
+class basic_istream : virtual public basic_ios<CharT, Traits> {
+public:
+    /** Type of the character. */
+    using char_type = CharT;
+    /** Type of the traits. traits_type::char_type must equal char_type. */
+    using traits_type = Traits;
+    /** Type of an int that can represent the char. Taken from traits_type. */
+    using int_type = typename traits_type::int_type;
+    /** Type that can represent a position in a stream. Taken from
+        traits_type. */
+    using pos_type = typename traits_type::pos_type;
+    /** Type of an int that can represent an offset in a stream. Taken from
+        traits_type. */
+    using off_type = typename traits_type::off_type;
+protected:
+    /** The type of the parent basic_ios, for convenience. */
+    using ios_type = basic_ios<char_type, traits_type>;
+    /** The type of the associated streambuffer, for convenience. */
+    using buf_type = basic_streambuf<CharT, Traits>;
+public:
+    /**
+        Constructor. Sets the associated stream buffer by calling init().
+
+        @param sb The associated stream buffer.
+     */
+    explicit basic_istream(buf_type* sb) :
+        ios_type {}, gcount_val {0}
+    {
+        ios_type::init(sb);
+    }
+
+    /**
+        Destructor. Doesn't do anything, the destruction of the associated
+        buffer is left to derived classes.
+     */
+    virtual ~basic_istream() {}
+
+    /**
+        An object of the sentry type is constructed at the start of all the
+        standard input operations. It checks that the stream is in a good state
+        and flushes the tied stream. The success of these operations can be
+        checked by calling the sentry's operator bool(). When the sentry is
+        destructed, either at the end of the input or when an exception is
+        thrown, any necessary cleanup operations are performed.
+     */
+    class sentry {
+    private:
+        // Convenience types.
+        using traits = basic_istream::traits_type;
+    public:
+        /**
+            Checks whether the stream is good. If it is, flush the tied stream.
+            If requested, gobble leading whitespace in the stream. If the stream
+            is still good, set the sentry state to good. If any of this fails,
+            set the sentry state to bad.
+
+            @param is Associated input stream.
+            @param noskipws Whether to gobble leading whitespace.
+         */
+        explicit sentry(basic_istream& is, bool noskipws = false) :
+            ok {false}, str {is}
+        {
+            // Flush the tied output stream.
+            if (str.good() && str.tie() != nullptr)
+                str.tie()->flush();
+
+            // Gobble whitespace
+            if (str.good() && (is.flags() & ios_base::skipws) != 0 && !noskipws)
+            {
+                basic_istream::int_type c = is.rdbuf()->sgetc();
+
+                while (!traits::eq_int_type(c, traits::eof()) && isspace(c))
+                    c = is.rdbuf()->snextc();
+
+                if (traits::eq_int_type(c, traits::eof()))
+                {
+                    try {
+                        is.setstate(ios_base::eofbit | ios_base::failbit);
+                    }
+                    catch (...) {}
+                }
+            }
+
+            if (str.good())
+                ok = true;
+            else
+            {
+                try {
+                    str.setstate(ios_base::failbit);
+                }
+                catch (...)
+                {
+                    throw ios_base::failure
+                        {"fail in istream sentry constructor"};
+                }
+            }
+        }
+
+        /**
+            Copy assignment is deleted.
+
+            @param other Sentry to (not) copy.
+            @return This sentry.
+         */
+        sentry& operator=(const sentry& other) = delete;
+
+        /**
+            Move assignment is deleted.
+
+            @param other Sentry to (not) pirate.
+            @return This sentry.
+         */
+        sentry& operator=(sentry&& other) = delete;
+
+        /**
+            Destructor. Performs cleanup operations, which here means nothing.
+         */
+        ~sentry() = default;
+
+        /**
+            Checks whether the sentry constructor operations were successfully
+            completed.
+
+            @return Whether the associated stream is ready to use.
+         */
+        explicit operator bool() const { return ok; }
+
+    private:
+        /** Stored the results of the initialisation checks performed by the
+            constructor. */
+        bool ok;
+        /** Reference to the associated basic_istream. */
+        basic_istream& str;
+    };
+
+    /**
+        These overloads of the input operator are used for I/O manipulators,
+        to allow constructs such as 'cin << endl'.
+
+        @param func An I/O manipulator function.
+        @return This stream after calling func(*this).
+     */
+    basic_istream& operator>>(ios_base& (*func)(ios_base&))
+    {
+        func(*this);
+        return *this;
+    }
+
+    basic_istream& operator>>(ios_type& (*func)(ios_type&))
+    {
+        func(*this);
+        return *this;
+    }
+
+    basic_istream& operator>>(basic_istream& (*func)(basic_istream&))
+    {
+        func(*this);
+        return *this;
+    }
+
+    /**
+        Formatted input functions. Constructs the sentry object, then attempts
+        to read characters from the associated output stream. Until whitespace
+        or the end of the stream is encountered. The attempts to convert the
+        characters into the desired type.
+        TODO: Conversion of characters to numbers should be performed by the
+        num_get::get() function, but we're not doing locales here.
+        TODO: this will return numeric_limits::max() for negative unsigned
+              values except for unsigned long long. This may not be compilant.
+              GCC has some odd behaviour with overflowing anyway.
+
+        @param val Value to read.
+        @return This stream after reading.
+     */
+    basic_istream& operator>>(short& val)
+    {
+        long long v = 0;
+        try {
+            helper::do_read(v, *this);
+        }
+        catch (...)
+        {
+            val = 0;
+            throw;
+        }
+        if (v > numeric_limits<short>::max())
+            val = numeric_limits<short>::max();
+        else if (v < numeric_limits<short>::lowest())
+            val = numeric_limits<short>::lowest();
+        else
+            val = v;
+        return *this;
+    }
+
+    basic_istream& operator>>(unsigned short& val)
+    {
+        unsigned long long v = 0;
+        bool neg;
+        try {
+            helper::do_read(v, *this, neg);
+        }
+        catch (...)
+        {
+            val = 0;
+            throw;
+        }
+        if (v > numeric_limits<unsigned short>::max())
+        {
+            if (neg && numeric_limits<unsigned long long>::max() - v + 1 <=
+                numeric_limits<unsigned short>::max())
+                val = v;
+            else
+                val = numeric_limits<unsigned short>::max();
+        }
+        else
+            val = v;
+        return *this;
+    }
+
+    basic_istream& operator>>(int& val)
+    {
+        long long v = 0;
+        try {
+            helper::do_read(v, *this);
+        }
+        catch (...)
+        {
+            val = 0;
+            throw;
+        }
+        if (v > numeric_limits<int>::max())
+            val = numeric_limits<int>::max();
+        else if (v < numeric_limits<int>::lowest())
+            val = numeric_limits<int>::lowest();
+        else
+            val = v;
+        return *this;
+    }
+
+    basic_istream& operator>>(unsigned int& val)
+    {
+        unsigned long long v = 0;
+        bool neg;
+        try {
+            helper::do_read(v, *this, neg);
+        }
+        catch (...)
+        {
+            val = 0;
+            throw;
+        }
+        if (v > numeric_limits<unsigned int>::max())
+        {
+            if (neg && numeric_limits<unsigned long long>::max() - v + 1 <=
+                numeric_limits<unsigned int>::max())
+                val = v;
+            else
+                val = numeric_limits<unsigned int>::max();
+        }
+        else
+            val = v;
+        return *this;
+    }
+
+    basic_istream& operator>>(long& val)
+    {
+        long long v = 0;
+        try {
+            helper::do_read(v, *this);
+        }
+        catch (...)
+        {
+            val = 0;
+            throw;
+        }
+        if (v > numeric_limits<long>::max())
+            val = numeric_limits<long>::max();
+        else if (v < numeric_limits<long>::lowest())
+            val = numeric_limits<long>::lowest();
+        else
+            val = v;
+        return *this;
+    }
+
+    basic_istream& operator>>(unsigned long& val)
+    {
+        unsigned long long v = 0;
+        bool neg;
+        try {
+            helper::do_read(v, *this, neg);
+        }
+        catch (...)
+        {
+            val = 0;
+            throw;
+        }
+        if (v > numeric_limits<unsigned long>::max())
+        {
+            if (neg && numeric_limits<unsigned long long>::max() - v + 1 <=
+                numeric_limits<unsigned long>::max())
+                val = v;
+            else
+                val = numeric_limits<unsigned long>::max();
+        }
+        else
+            val = v;
+        return *this;
+    }
+
+    basic_istream& operator>>(long long& val)
+    {
+        long long v = 0;
+        try {
+            helper::do_read(v, *this);
+        }
+        catch (...)
+        {
+            val = 0;
+            throw;
+        }
+        val = v;
+        return *this;
+    }
+
+    basic_istream& operator>>(unsigned long long& val)
+    {
+        unsigned long long v = 0;
+        bool neg;
+        try {
+            helper::do_read(v, *this, neg);
+        }
+        catch (...)
+        {
+            val = 0;
+            throw;
+        }
+        val = v;
+        return *this;
+    }
+
+    basic_istream& operator>>(float& val)
+    {
+        long double v;
+        try {
+            helper::do_read(v, *this);
+        }
+        catch (...)
+        {
+            val = 0;
+            throw;
+        }
+        if (v > numeric_limits<float>::max())
+            val = numeric_limits<float>::max();
+        else if (v < numeric_limits<float>::lowest())
+            val = numeric_limits<float>::lowest();
+        else if (v > 0 && v < numeric_limits<float>::min())
+            val = numeric_limits<float>::min();
+        else if (v < 0 && v > -numeric_limits<float>::min())
+            val = -numeric_limits<float>::min();
+        else
+            val = v;
+        return *this;
+    }
+
+    basic_istream& operator>>(double& val)
+    {
+        long double v;
+        try {
+            helper::do_read(v, *this);
+        }
+        catch (...)
+        {
+            val = 0;
+            throw;
+        }
+        if (v > numeric_limits<double>::max())
+            val = numeric_limits<double>::max();
+        else if (v < numeric_limits<double>::lowest())
+            val = numeric_limits<double>::lowest();
+        else if (v > 0 && v < numeric_limits<double>::min())
+            val = numeric_limits<double>::min();
+        else if (v < 0 && v > -numeric_limits<double>::min())
+            val = -numeric_limits<double>::min();
+        else
+            val = v;
+        return *this;
+    }
+
+    basic_istream& operator>>(long double& val)
+    {
+        long double v = 0;
+        try {
+            helper::do_read(v, *this);
+        }
+        catch (...)
+        {
+            val = 0;
+            throw;
+        }
+        val = v;
+        return *this;
+    }
+
+    basic_istream& operator>>(bool& val)
+    {
+        bool v = false;
+        try {
+            helper::do_read(v, *this);
+        }
+        catch (...)
+        {
+            val = false;
+            throw;
+        }
+        val = v;
+        return *this;
+    }
+
+    basic_istream& operator>>(void*& val)
+    {
+        unsigned long long v = 0;
+        bool neg;
+        ios_base::fmtflags fl;
+        try {
+            // Change flags to include hex.
+            fl = ios_type::setf(ios_base::hex, ios_base::basefield);
+            helper::do_read(v, *this, neg);
+        }
+        catch (...)
+        {
+            val = nullptr;
+            throw;
+        }
+        if (v > numeric_limits<uintptr_t>::max())
+        {
+            if (neg && numeric_limits<unsigned long long>::max() - v + 1 <=
+                numeric_limits<uintptr_t>::max())
+                val = reinterpret_cast<void*>(v);
+            else
+                val = reinterpret_cast<void*>(numeric_limits<uintptr_t>::max());
+        }
+        else
+            val = reinterpret_cast<void*>(v);
+
+        // Revert flags.
+        ios_type::flags(fl);
+        return *this;
+    }
+
+    basic_istream& operator>>(buf_type* val)
+    {
+        gcount_val = helper::do_read(val, *this);
+        return *this;
+    }
+
+    /**
+        Unformatted input. Constructs and checks sentry, then reads characters.
+
+        @param ch Read a character into this location.
+        @param s Read multiple characters into this location.
+        @param count Number of characters to read. Actually reads this minus 1
+               and puts a null charatcer at the end.
+        @param delim Stop reading if this is the next character (delim will not
+               be read).
+        @param strbuf Puts characters into this streambuffer.
+        @return First version returns the character read. All others return this
+                input stream.
+     */
+    int_type get()
+    {
+        // Set gcount now so that it's zero if anything goes wrong.
+        gcount_val = 0;
+
+        // Construct sentry, without skipping whitespace.
+        sentry sen {*this, true};
+
+        if (sen)
+        {
+            int_type c = ios_type::rdbuf()->sbumpc();
+
+            // Check for eof.
+            if (traits_type::eq_int_type(c, traits_type::eof()))
+                ios_type::setstate(ios_base::eofbit | ios_base::failbit);
+            // Valid character.
+            else
+            {
+                gcount_val = 1;
+                return c;
+            }
+        }
+
+        // Use eof as fail return value.
+        return traits_type::eof();
+    }
+
+    basic_istream& get(char_type& ch)
+    {
+        int_type c = get();
+        if (!traits_type::eq_int_type(c, traits_type::eof()))
+            ch = c;
+        return *this;
+    }
+
+    basic_istream& get(char_type* s, streamsize count)
+    {
+        get(s, count, '\n');
+        return *this;
+    }
+
+    basic_istream& get(char_type* s, streamsize count, char_type delim)
+    {
+        // Set gcount and s to the error condition, in case something goes
+        // wrong.
+        gcount_val = 0;
+        if (count > 0)
+            *s = char_type {};
+
+        // Construct sentry, without skipping whitespace.
+        sentry sen {*this, true};
+
+        if (sen)
+        {
+            for ( ; gcount_val < count - 1; ++gcount_val)
+            {
+                // Read a character.
+                int_type c = ios_type::rdbuf()->sbumpc();
+
+                // Check for eof.
+                if (traits_type::eq_int_type(c, traits_type::eof()))
+                {
+                    try {
+                        ios_type::setstate(ios_base::eofbit);
+                    }
+                    catch (...) {}
+                    break;
+                }
+                // Delimiter character.
+                else if (traits_type::eq(c, delim))
+                {
+                    ios_type::rdbuf()->sungetc();
+                    break;
+                }
+                // Valid character.
+                else
+                    s[gcount_val] = c;
+            }
+        }
+
+        // Set a null character at the end.
+        if (count > 0)
+            s[gcount_val] = char_type {};
+
+        // Check for failure.
+        if (gcount_val == 0)
+            ios_type::setstate(ios_base::failbit);
+
+        // Allow exceptions for eof to be thrown.
+        if (ios_type::eof() && (ios_type::exceptions() & ios_base::eofbit) != 0)
+            throw ios_base::failure("EoF in istream get");
+
+        return *this;
+    }
+
+    basic_istream& get(buf_type& strbuf)
+    {
+        get(strbuf, '\n');
+        return *this;
+    }
+
+    basic_istream& get(buf_type& strbuf, char_type delim)
+    {
+        // Set gcount now so that it's zero if anything goes wrong.
+        gcount_val = 0;
+
+        // Construct sentry, without skipping whitespace.
+        sentry sen {*this, true};
+
+        if (sen)
+        {
+            while (int_type c = ios_type::rdbuf()->sbumpc())
+            {
+                // Check for eof.
+                if (traits_type::eq_int_type(c, traits_type::eof()))
+                {
+                    try {
+                        ios_type::setstate(ios_base::eofbit);
+                    }
+                    catch (...) {}
+                    break;
+                }
+                // Delimiter character.
+                else if (traits_type::eq(c, delim))
+                {
+                    ios_type::rdbuf()->sungetc();
+                    break;
+                }
+                // Valid character.
+                else
+                {
+                    int_type ret = strbuf.sputc(c);
+                    // Check for eof.
+                    if (traits_type::eq_int_type(ret, traits_type::eof()))
+                    {
+                        ios_type::rdbuf()->sungetc();
+                        break;
+                    }
+                    ++gcount_val;
+                }
+            }
+        }
+
+        // Check for failure.
+        if (gcount_val == 0)
+            ios_type::setstate(ios_base::failbit);
+
+        // Allow exceptions for eof to be thrown.
+        if (ios_type::eof() && (ios_type::exceptions() & ios_base::eofbit) != 0)
+            throw ios_base::failure("EoF in istream get");
+
+        return *this;
+    }
+
+    /**
+        Look at the next character, if available, without extracting it.
+
+        @return Next character, or eof.
+     */
+    int_type peek()
+    {
+        // Set gcount now so that it's zero if anything goes wrong.
+        gcount_val = 0;
+
+        // Construct sentry, without skipping whitespace.
+        sentry sen {*this, true};
+
+        if (sen)
+        {
+            // Read character without advancing the pointer.
+            int_type c = ios_type::rdbuf()->sgetc();
+
+            // Check for eof. May throw an exception.
+            if (traits_type::eq_int_type(c, traits_type::eof()))
+                ios_type::setstate(ios_base::eofbit);
+
+            return c;
+        }
+
+        // Use eof as fail return value.
+        return traits_type::eof();
+    }
+
+    /**
+        Moves the associated stream buffer pointer back by one, so the last
+        read character will be read again. May fail if the stream buffer can't
+        manage that.
+
+        @return This istream.
+     */
+    basic_istream& unget()
+    {
+        // First clear eof.
+        ios_type::clear(ios_type::rdstate() & ~ios_base::eofbit);
+
+        // Always clears gcount.
+        gcount_val = 0;
+
+        // Construct sentry, without skipping whitespace.
+        sentry sen {*this, true};
+
+        if (sen)
+        {
+            // Move the get pointer back one.
+            int_type ret = ios_type::rdbuf()->sungetc();
+            // Check for failure.
+            if (traits_type::eq_int_type(ret, traits_type::eof()))
+                ios_type::setstate(ios_base::badbit);
+        }
+
+        return *this;
+    }
+
+    /**
+        Puts a character into the associated stream buffer, so that it will be
+        the next read character. May fail if the stream buffer can't manage
+        that.
+
+        @param ch Character to put back.
+        @return This istream.
+     */
+    basic_istream& putback(char_type ch)
+    {
+        // First clear eof.
+        ios_type::clear(ios_type::rdstate() & ~ios_base::eofbit);
+
+        // Always clears gcount.
+        gcount_val = 0;
+
+        // Construct sentry, without skipping whitespace.
+        sentry sen {*this, true};
+
+        if (sen)
+        {
+            // Put the character into the stream buffer.
+            int_type ret = ios_type::rdbuf()->sputbackc(ch);
+            // Check for failure.
+            if (traits_type::eq_int_type(ret, traits_type::eof()))
+                ios_type::setstate(ios_base::badbit);
+        }
+
+        return *this;
+    }
+
+    /**
+        Unformatted input. Constructs and checks sentry, then reads characters
+        until a newline or the given delimiter is found. Like get, except that
+        the delimiter is read (but not stored).
+
+        @param s Read multiple characters into this location.
+        @param count Number of characters to read. Actually reads this minus 1
+               and puts a null charatcer at the end.
+        @param delim Stop reading if this is the next character (delim will not
+               be read).
+        @return This istream.
+     */
+    basic_istream& getline(char_type* s, streamsize count)
+    {
+        getline(s, count, '\n');
+        return *this;
+    }
+
+    basic_istream& getline(char_type* s, streamsize count, char_type delim)
+    {
+        // Set gcount and s to the error condition, in case something goes
+        // wrong.
+        gcount_val = 0;
+        if (count > 0)
+            *s = char_type {};
+        bool found_delim = false;
+
+        // Construct sentry, without skipping whitespace.
+        sentry sen {*this, true};
+
+        if (sen)
+        {
+            for ( ; gcount_val < count - 1; ++gcount_val)
+            {
+                // Read a character.
+                int_type c = ios_type::rdbuf()->sbumpc();
+
+                // Check for eof.
+                if (traits_type::eq_int_type(c, traits_type::eof()))
+                {
+                    try {
+                        ios_type::setstate(ios_base::eofbit);
+                    }
+                    catch (...) {}
+                    break;
+                }
+                // Delimiter character. Extracted, but not stored.
+                else if (traits_type::eq(c, delim))
+                {
+                    found_delim = true;
+                    break;
+                }
+                // Valid character.
+                else
+                    s[gcount_val] = c;
+            }
+        }
+
+        // Set a null character at the end.
+        if (count > 0)
+            s[gcount_val] = char_type {};
+
+        // Not a fail if we've reached count - 1, but the next character is the
+        // delimiter.
+        if (traits_type::eq(ios_type::rdbuf()->sgetc(), delim))
+        {
+            found_delim = true;
+            ios_type::rdbuf()->sbumpc();
+        }
+
+        // Add a value to gcount for the delimiter.
+        if (found_delim)
+            ++gcount_val;
+
+        // Check for failure.
+        if (gcount_val == 0 || (gcount_val == count - 1 && !found_delim))
+            ios_type::setstate(ios_base::failbit);
+
+        // Allow exceptions for eof to be thrown.
+        if (ios_type::eof() && (ios_type::exceptions() & ios_base::eofbit) != 0)
+            throw ios_base::failure("EoF in istream get");
+
+        return *this;
+    }
+
+    /**
+        Extract and discard characters until the delimter is found, eof is
+        reached, or count characters have been read. The delimiter is also
+        extracted and discarded.
+
+        @param count Maximum number of characters to read. Defaults to 1.
+        @param delim Stop after reading this character. Defaults to eof.
+        @return This istream.
+     */
+    basic_istream& ignore(streamsize count = 1,
+        int_type delim = traits_type::eof())
+    {
+        // Set gcount now so that it's zero if anything goes wrong.
+        gcount_val = 0;
+
+        // Construct sentry, without skipping whitespace.
+        sentry sen {*this, true};
+
+        if (sen)
+        {
+            for ( ; count == numeric_limits<streamsize>::max() ||
+                gcount_val < count; ++gcount_val)
+            {
+                // Read a character.
+                int_type c = ios_type::rdbuf()->sbumpc();
+
+                // Check for eof.
+                if (traits_type::eq_int_type(c, traits_type::eof()))
+                {
+                    try {
+                        ios_type::setstate(ios_base::eofbit);
+                    }
+                    catch (...) {}
+                    break;
+                }
+                // Delimiter character. If c is equal to 255 (that is the
+                // character 0xFF was read), that's not the same as eof for
+                // int_type, but it is for char_type. Confusing...
+                else if (!traits_type::eq_int_type(delim, traits_type::eof()) &&
+                    traits_type::eq(c, delim))
+                {
+                    ++gcount_val;
+                    break;
+                }
+            }
+        }
+
+        // Allow exceptions for eof to be thrown.
+        if (ios_type::eof() && (ios_type::exceptions() & ios_base::eofbit) != 0)
+            throw ios_base::failure("EoF in istream get");
+
+        return *this;
+    }
+
+    /**
+        Reads characters in bulk and writes them to the provided location. Stops
+        when count characters have been read or eof is reached.
+
+        @param s Read multiple characters into this location.
+        @param count Number of characters to read.
+        @return This istream.
+     */
+    basic_istream& read(char_type* s, streamsize count)
+    {
+        // Set gcount now so that it's zero if anything goes wrong.
+        gcount_val = 0;
+
+        // Construct sentry, without skipping whitespace.
+        sentry sen {*this, true};
+
+        if (sen)
+            // Do a bulk read from the stream buffer. This will stop on eof.
+            gcount_val = ios_type::rdbuf()->sgetn(s, count);
+
+        // Check for failure.
+        if (gcount_val != count)
+            ios_type::setstate(ios_base::failbit | ios_base::eofbit);
+
+        return *this;
+    }
+
+    /**
+        Reads characters in bulk and writes them to the provided location.
+        Checks the number of characters reported by the stream buffer to be
+        immediately available and reads at most that many. Also stops if count
+        characters have been read or eof is reached.
+
+        @param s Read multiple characters into this location.
+        @param count Number of characters to read.
+        @return This istream.
+     */
+    basic_istream& readsome(char_type* s, streamsize count)
+    {
+        // Set gcount now so that it's zero if anything goes wrong.
+        gcount_val = 0;
+
+        // Construct sentry, without skipping whitespace.
+        sentry sen {*this, true};
+
+        if (sen)
+        {
+            // Test the number of available characters.
+            streamsize avail = ios_type::rdbuf()->in_avail();
+            if (avail == -1)
+                ios_type::setstate(ios_base::eofbit);
+            else if (avail > 0)
+            {
+                count = min(count, avail);
+                // Do a bulk read from the stream buffer. This will stop on eof.
+                gcount_val = ios_type::rdbuf()->sgetn(s, count);
+                // Check for eof.
+                if (gcount_val != count)
+                    ios_type::setstate(ios_base::eofbit);
+            }
+        }
+
+        return *this;
+    }
+
+    /**
+        Gets the number of characters read by the last unformatted input
+        operation.
+
+        @return Number of characters read by the last unformatted input
+                operation.
+     */
+    streamsize gcount() const { return gcount_val; }
+
+    /**
+        Gets the current position of the get pointer in the associated stream
+        buffer, or -1 if the stream is not in a good state.
+
+        @return Current position of the get pointer.
+     */
+    pos_type tellg()
+    {
+        pos_type ret_val {-1};
+
+        // Constuct sentry
+        basic_istream::sentry sen {*this, true};
+
+        // Carry on if the sentry is fine
+        if (sen)
+        {
+            ret_val = ios_type::rdbuf()->
+                pubseekoff(0, ios_base::cur, ios_base::in);
+        }
+
+        return ret_val;
+    }
+
+    /**
+        Sets the inptut position indicator of the associated stream.
+
+        @param pos Absolute position to set the input position to.
+        @param off Relative position to set the input position to.
+        @param dir Base for specifying a relative position.
+        @return This basic_istream.
+     */
+    basic_istream& seekg(pos_type pos)
+    {
+        // Constuct sentry
+        basic_istream::sentry sen {*this, true};
+
+        // Carry on if the sentry is fine
+        if (sen)
+        {
+            pos_type ret_val = ios_type::rdbuf()->
+                pubseekpos(pos, ios_base::in);
+
+            if (ret_val == pos_type {-1})
+            {
+                try {
+                    ios_type::setstate(ios_base::failbit);
+                }
+                catch (...) {
+                    throw ios_base::failure {"basic_istream::seekg failed"};
+                }
+            }
+        }
+
+        return *this;
+    }
+
+    basic_istream& seekg(off_type off, ios_base::seekdir dir)
+    {
+        // Constuct sentry
+        basic_istream::sentry sen {*this, true};
+
+        // Carry on if the sentry is fine
+        if (sen)
+        {
+            pos_type ret_val = ios_type::rdbuf()->
+                pubseekoff(off, dir, ios_base::in);
+
+            if (ret_val == pos_type {-1})
+            {
+                try {
+                    ios_type::setstate(ios_base::failbit);
+                }
+                catch (...) {
+                    throw ios_base::failure {"basic_istream::seekg failed"};
+                }
+            }
+        }
+
+        return *this;
+    }
+
+    /**
+        Resyncs the stream buffer with its underlying source, in order to pick
+        up any recent changes.
+
+        @return 0 on success, -1 on failure for any reason.
+     */
+    int sync()
+    {
+        // Constuct sentry
+        basic_istream::sentry sen {*this};
+
+        // Carry on if the sentry is fine
+        if (sen)
+        {
+            int ret_val = ios_type::rdbuf()->pubsync();
+
+            if (ret_val == -1)
+            {
+                try {
+                    ios_type::setstate(ios_base::badbit);
+                }
+                catch (...) {
+                    throw ios_base::failure
+                        {"basic_istream::sync failed"};
+                }
+                return -1;
+            }
+
+            return 0;
+        }
+
+        return -1;
+    }
+
+protected:
+    // Stores the value to be returned by gcount.
+    streamsize gcount_val;
+
+    /**
+        Copy construction is deleted.
+
+        @param other basic_istream to (not) copy.
+     */
+    basic_istream(const basic_istream& other) = delete;
+
+    /**
+        Move construction. Pirate the state of another istream. Calls the move()
+        method inherited from basic_ios, which moves everything belonging to the
+        base class except the associated buffer. Then copies the gcount value
+        and sets the other gcount value to zero. The buffer move is left to
+        derived classes.
+
+        @param other istream to pirate from.
+     */
+    basic_istream(basic_istream&& other) : ios_type {}, gcount_val {0}
+    {
+        ios_type::move(other);
+        NMSP::swap(gcount_val, other.gcount_val);
+    }
+
+    /**
+        Copy assignemnt is deleted.
+
+        @param other basic_istream to (not) copy.
+        @return This basic_istream.
+     */
+    basic_istream& operator=(const basic_istream& other) = delete;
+
+    /**
+        Move assignment. Swaps the states of this and the other basic_istream,
+        by calling the swap() method inherited from basic_ios and swaps the
+        gcount values. Does not change the associated buffer, that is left to
+        derived classes.
+
+        @param other istream to swap with.
+        @return This basic_istream.
+     */
+    basic_istream& operator=(basic_istream&& other)
+    {
+        ios_type::swap(other);
+        NMSP::swap(gcount_val, other.gcount_val);
+        return *this;
+    }
+
+    /**
+        Overrides the basic_ios swap function, to swap all members of except the
+        associated stream buffer, which is left to derived classes.
+
+        @param other Other basic_istream to swap with.
+     */
+    void swap(basic_istream& other)
+    {
+        // Call the parent function to swap parent members.
+        ios_type::swap(other);
+        // We also need to swap the additional gcount member.
+        NMSP::swap(gcount_val, other.gcount_val);
+    }
+};
+
+/**
+    Formatted input operations for characters and character arrays. The first
+    version extracts a single character, if available. The second version
+    extracts characters until whitespace is found or the number specified in the
+    current width field is reached, adding an additional null character at the
+    end. The third version allows input operations on rvalue references.
+    TODO: some attention will be required if locales are implemented.
+
+    @param st Input stream to read from.
+    @param ch Location to store a single character.
+    @param s Location to store multiple characters.
+    @param value Location to store a value.
+    @return st
+ */
+template <typename CharT, typename Traits>
+basic_istream<CharT, Traits>& operator>>(basic_istream<CharT, Traits>& st,
+    CharT& ch)
+{
+    // Construct sentry, which may skip leading whitespace.
+    typename basic_istream<CharT, Traits>::sentry sen {st};
+
+    if (sen)
+    {
+        typename basic_istream<CharT, Traits>::int_type c =
+            st.rdbuf()->sbumpc();
+
+        // Check for eof.
+        if (Traits::eq_int_type(c, Traits::eof()))
+            st.setstate(ios_base::eofbit | ios_base::failbit) ;
+        // Valid character.
+        ch = Traits::to_char_type(c);
+            
+    }
+
+    return st;
+}
+
+template <typename CharT, typename Traits>
+basic_istream<CharT, Traits>& operator>>(basic_istream<CharT, Traits>& st,
+    signed char& ch)
+{
+    // Construct sentry, which may skip leading whitespace.
+    typename basic_istream<CharT, Traits>::sentry sen {st};
+
+    if (sen)
+    {
+        typename basic_istream<CharT, Traits>::int_type c =
+            st.rdbuf()->sbumpc();
+
+        // Check for eof.
+        if (Traits::eq_int_type(c, Traits::eof()))
+            st.setstate(ios_base::eofbit | ios_base::failbit) ;
+        // Valid character.
+        ch = Traits::to_char_type(c);
+    }
+
+    return st;
+}
+
+template <typename CharT, typename Traits>
+basic_istream<CharT, Traits>& operator>>(basic_istream<CharT, Traits>& st,
+    unsigned char& ch)
+{
+    // Construct sentry, which may skip leading whitespace.
+    typename basic_istream<CharT, Traits>::sentry sen {st};
+
+    if (sen)
+    {
+        typename basic_istream<CharT, Traits>::int_type c =
+            st.rdbuf()->sbumpc();
+
+        // Check for eof.
+        if (Traits::eq_int_type(c, Traits::eof()))
+            st.setstate(ios_base::eofbit | ios_base::failbit) ;
+        // Valid character.
+        ch = Traits::to_char_type(c);
+    }
+
+    return st;
+}
+
+template <typename CharT, typename Traits>
+basic_istream<CharT, Traits>& operator>>(basic_istream<CharT, Traits>& st,
+    CharT* s)
+{
+    // Set a null character now, in case something goes wrong.
+    *s = typename basic_istream<CharT, Traits>::char_type {};
+
+    // Construct sentry, which may skip leading whitespace.
+    typename basic_istream<CharT, Traits>::sentry sen {st};
+
+    streamsize pos = 0;
+    if (sen)
+    {
+        for (pos = 0; typename basic_istream<CharT, Traits>::int_type c =
+            st.rdbuf()->sbumpc(); ++pos)
+        {
+            // Check for exceeding width.
+            if (st.width() != 0 && pos >= st.width() - 1)
+            {
+                st.rdbuf()->sungetc();
+                break;
+            }
+            // Check for eof.
+            if (Traits::eq_int_type(c, Traits::eof()))
+            {
+                try {
+                    st.setstate(ios_base::eofbit);
+                }
+                catch (...) {}
+                break;
+            }
+            // Whitespace character.
+            else if (isspace(c))
+            {
+                st.rdbuf()->sungetc();
+                break;
+            }
+            // Valid character.
+            else
+                s[pos] = static_cast<signed char>(c);
+        }
+    }
+
+    // Reset width.
+    st.width(0);
+
+    // Check for failure.
+    if (pos == 0)
+        st.setstate(ios_base::failbit);
+    // Set a null character at the end.
+    else
+        s[pos] = typename basic_istream<CharT, Traits>::char_type {};
+
+    // Allow exceptions for eof to be thrown.
+    if (st.eof() && (st.exceptions() & ios_base::eofbit) != 0)
+        throw ios_base::failure("EoF in formatted character string input");
+
+    return st;
+}
+
+template <typename CharT, typename Traits>
+basic_istream<CharT, Traits>& operator>>(basic_istream<CharT, Traits>& st,
+    signed char* s)
+{
+    // Set a null character now, in case something goes wrong.
+    *s = '\0';
+
+    // Construct sentry, which may skip leading whitespace.
+    typename basic_istream<CharT, Traits>::sentry sen {st};
+
+    streamsize pos = 0;
+    if (sen)
+    {
+        for (pos = 0; typename basic_istream<CharT, Traits>::int_type c =
+            st.rdbuf()->sbumpc(); ++pos)
+        {
+            // Check for exceeding width.
+            if (st.width() != 0 && pos >= st.width() - 1)
+            {
+                st.rdbuf()->sungetc();
+                break;
+            }
+            // Check for eof.
+            if (Traits::eq_int_type(c, Traits::eof()))
+            {
+                try {
+                    st.setstate(ios_base::eofbit);
+                }
+                catch (...) {}
+                break;
+            }
+            // Whitespace character.
+            else if (isspace(c))
+            {
+                st.rdbuf()->sungetc();
+                break;
+            }
+            // Valid character.
+            else
+                s[pos] = static_cast<signed char>(c);
+        }
+    }
+
+    // Reset width.
+    st.width(0);
+
+    // Check for failure.
+    if (pos == 0)
+        st.setstate(ios_base::failbit);
+    // Set a null character at the end.
+    else
+        s[pos] = '\0';
+
+    // Allow exceptions for eof to be thrown.
+    if (st.eof() && (st.exceptions() & ios_base::eofbit) != 0)
+        throw ios_base::failure("EoF in formatted character string input");
+
+    return st;
+}
+
+template <typename CharT, typename Traits>
+basic_istream<CharT, Traits>& operator>>(basic_istream<CharT, Traits>& st,
+    unsigned char* s)
+{
+    // Set a null character now, in case something goes wrong.
+    *s = '\0';
+
+    // Construct sentry, which may skip leading whitespace.
+    typename basic_istream<CharT, Traits>::sentry sen {st};
+
+    streamsize pos = 0;
+    if (sen)
+    {
+        for (pos = 0; typename basic_istream<CharT, Traits>::int_type c =
+            st.rdbuf()->sbumpc(); ++pos)
+        {
+            // Check for exceeding width.
+            if (st.width() != 0 && pos >= st.width() - 1)
+            {
+                st.rdbuf()->sungetc();
+                break;
+            }
+            // Check for eof.
+            if (Traits::eq_int_type(c, Traits::eof()))
+            {
+                try {
+                    st.setstate(ios_base::eofbit);
+                }
+                catch (...) {}
+                break;
+            }
+            // Whitespace character.
+            else if (isspace(c))
+            {
+                st.rdbuf()->sungetc();
+                break;
+            }
+            // Valid character.
+            else
+                s[pos] = static_cast<unsigned char>(c);
+        }
+    }
+
+    // Reset width.
+    st.width(0);
+
+    // Check for failure.
+    if (pos == 0)
+        st.setstate(ios_base::failbit);
+    // Set a null character at the end.
+    else
+        s[pos] = '\0';
+
+    // Allow exceptions for eof to be thrown.
+    if (st.eof() && (st.exceptions() & ios_base::eofbit) != 0)
+        throw ios_base::failure("EoF in formatted character string input");
+
+    return st;
+}
+
+template <typename CharT, typename Traits, typename T>
+basic_istream<CharT, Traits>& operator>>(basic_istream<CharT, Traits>&& is,
+    T& value)
+{
+    // Invoke the overload for T.
+    return (is >> value);
+}
+
+/**
+    Specialisation of basic_istream for normal characters.
+ */
+using istream = basic_istream<char>;
+
+/**
+    An I/O manipulator that gobbles leading whitespace in an input stream, until
+    a non-whistespace character or end of file is found. Does not affect the
+    gcount value of the input stream.
+
+    @param is Input stream to gobble for.
+    @return is
+ */
+template <typename CharT, typename Traits>
+basic_istream<CharT, Traits>& ws(basic_istream<CharT, Traits>& is)
+{
+    // The sentry object constructor will skip ws for us. We just need to
+    // temporarily set the is to skip ws, call the sentry constructor and
+    // restore the flags.
+    ios_base::fmtflags fl = is.flags();
+    is.flags(fl | ios_base::skipws);
+
+    typename basic_istream<CharT, Traits>::sentry sen {is};
+
+    is.flags(fl);
+}
+
+/**
+    This stream inherits from both basic_istream and basic_ostream. It is has
+    the normal read and write operations.
+ */
+template <typename CharT, typename Traits = char_traits<CharT>>
+class basic_iostream :
+    public basic_istream<CharT, Traits>,
+    public basic_ostream<CharT, Traits>
+{
+public:
+    /** Type of the character. */
+    using char_type = CharT;
+    /** Type of the traits. traits_type::char_type must equal char_type. */
+    using traits_type = Traits;
+    /** Type of an int that can represent the char. Taken from traits_type. */
+    using int_type = typename traits_type::int_type;
+    /** Type that can represent a position in a stream. Taken from
+        traits_type. */
+    using pos_type = typename traits_type::pos_type;
+    /** Type of an int that can represent an offset in a stream. Taken from
+        traits_type. */
+    using off_type = typename traits_type::off_type;
+protected:
+    /** The type of the parent istream, for convenience. */
+    using istream_type = basic_istream<CharT, Traits>;
+    /** The type of the parent istream, for convenience. */
+    using ostream_type = basic_ostream<CharT, Traits>;
+    /** The type of the associated streambuffer, for convenience. */
+    using buf_type = basic_streambuf<CharT, Traits>;
+public:
+    /**
+        Constructor. Both base streams are initialised with the same stream
+        buffer.
+
+        @param sb Stream buffer to use.
+     */
+    explicit basic_iostream(buf_type* sb) : istream_type {sb}, ostream_type {sb}
+    {}
+
+    /**
+        Copy construction is deleted.
+
+        @param other Other stream to (not) copy from.
+     */
+    basic_iostream(const basic_iostream& other) = delete;
+
+    /**
+        Copy assignemnt is deleted.
+
+        @param other Other stream to (not) copy from.
+        @return This stream.
+     */
+    basic_iostream& operator=(const basic_iostream& other) = delete;
+
+    /**
+        Destructor. Does nothing. Derived classes are responsible for cleaning
+        up the stream buffer.
+     */
+    virtual ~basic_iostream() {}
+
+protected:
+    /**
+        Move construction. The istream parent is move constructed from the other
+        stream. That now may be in an invalid state. The parent ostream is
+        constructed from this.
+
+        @param other Other stream to pirate the state from.
+     */
+    basic_iostream(basic_iostream&& other) :
+        istream_type {NMSP::move(other)},
+        ostream_type {*this}
+    {}
+
+    /**
+        Move assignment. Equivalent to calling swap().
+
+        @param other Other stream to pirate the state from.
+        @return This stream.
+     */
+    basic_iostream& operator=(basic_iostream&& other)
+    {
+        swap(other);
+        return *this;
+    }
+
+    /**
+        Swaps the contents of the stream. Calls the parent istream type swap,
+        which does everything necessary for the ostream type too.
+
+        @param other Other stream to swap state with.
+     */
+    void swap(basic_iostream& other)
+    {
+        istream_type::swap(other);
+    }
+};
+
+/**
+    Specialisation of basic_iostream for normal characters.
+ */
+using iostream = basic_iostream<char>;
+
+} // end NMSP namespace
+
+#endif /* ISTREAM_H */

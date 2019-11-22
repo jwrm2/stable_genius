@@ -1,0 +1,29 @@
+#ifndef CWCHAR_H
+#define CWCHAR_H
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+#include <stddef.h>
+
+namespace NMSP {
+
+/**
+    Data structure representing the conversion state of a stream.
+ */
+struct mbstate_t {
+private:
+    static constexpr size_t sz = 6;
+
+public:
+    int fill[sz] = {0};
+
+    bool operator==(const mbstate_t& other) const;
+    bool operator!=(const mbstate_t& other) const;
+};
+
+} // NMSP namespace
+
+#endif /* CWCHAR_H */

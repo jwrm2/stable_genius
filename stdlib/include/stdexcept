@@ -1,0 +1,158 @@
+#ifndef STDEXCEPT_H
+#define STDEXCEPT_H
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+#include <stddef.h>
+
+#include "../include/exception"
+
+namespace NMSP {
+
+// Forward declarations.
+template <typename>
+class allocator;
+template <typename, typename, typename>
+class basic_string;
+template <typename>
+class char_traits;
+using string = basic_string<char, char_traits<char>, allocator<char>>;
+
+namespace helper {
+/**
+    Provides a copy-on-write string for use with standard exceptions. Required
+    as copying standard exceptions is not allowed to throw, whereas copying
+    standrad strings may.
+ */
+class ref_count_str {
+public:
+    /**
+        Default constructor. No message.
+     */
+    ref_count_str();
+
+    /**
+        Construct with the contents of an existing string. Takes a copy of the
+        data.
+
+        @param s Existing string to use.
+     */
+    ref_count_str(const string& s);
+
+    /**
+        Construct with the contents of an existing C-string. Takes a copy of the
+        data.
+
+        @param str Existing C-string to use.
+     */
+    ref_count_str(const char* str);
+
+    /**
+        Copy constructor. Construct with the contents of an existing ref_count_str.
+        Does not take a copy of the data.
+
+        @param other Other ref_count_str to copy.
+     */
+    ref_count_str(const ref_count_str& other) noexcept;
+
+    /**
+        Copy assignment. Assign the contents of an existing ref_count_str. Does not
+        take a copy of the data.
+
+        @param other Other ref_count_str to copy.
+        @return This string.
+     */
+    ref_count_str& operator=(const ref_count_str& other) noexcept;
+
+    /**
+        Move constructor. Construct with the contents of an existing ref_count_str.
+        Takes over management of the data.
+
+        @param other Other ref_count_str to pirate.
+     */
+    ref_count_str(ref_count_str&& other) noexcept;
+
+    /**
+        Move assignemnt. Assign the contents of an exisiting ref_count_str. Takes
+        over management of the data.
+
+        @param other Other ref_count_str to pirate.
+        @return This string.
+     */
+    ref_count_str& operator=(ref_count_str&& other) noexcept;
+
+    /**
+        Destructor. Only destroys data if this is the only reference.
+     */
+    ~ref_count_str();
+
+    /**
+        Gets a pointer to the data.
+
+        @return Pointer to the data.
+     */
+    const char* get() const noexcept;
+
+private:
+    // Pointer to the actual data.
+    string* msg;
+    // Number of references.
+    size_t* refs;
+};
+
+
+} // end helper namespace
+
+/**
+    Runtime errors. Generally unpredictable as they represent problems
+    external to the programme.
+ */
+class runtime_error : public exception {
+public:
+    /**
+        Constructor. Takes a string describing the error.
+
+        @param s String describing the error.
+        @param str C-string describing the error.
+     */
+    explicit runtime_error(const string& s);
+    explicit runtime_error(const char* str);
+
+    /**
+        Copy constructor. Make a copy of the other exception.
+
+        @param other Exception to copy.
+     */
+    runtime_error(const runtime_error& other) noexcept;
+
+    /**
+        Copy assignment. Make a copy of the other exception.
+
+        @param other Exception to copy.
+        @return This exception.
+     */
+    runtime_error& operator=(const runtime_error& other) noexcept;
+
+    /**
+        Destructor. Cleans up the message string if there aren't other refernces
+        to it.
+     */
+    virtual ~runtime_error();
+
+    /**
+        Gives the message describing the error, as provided to the constructor.
+
+        @return Message describing the error.
+     */
+    virtual const char* what() const noexcept override;
+
+protected:
+    // Message indicating the type of error.
+    helper::ref_count_str msg;
+};
+
+} // end NMSP namespace
+#endif /* STDEXCEPT_H */

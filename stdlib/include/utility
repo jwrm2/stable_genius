@@ -1,0 +1,538 @@
+#ifndef UTILITY_H
+#define UTILITY_H
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+#include <stddef.h>
+
+#include "../include/type_traits"
+
+namespace NMSP {
+
+// Forward declarations
+template <typename...>
+class tuple;
+
+/**
+    Provides a way of testing member functions in decltype expressions without
+    calling the constructor. Not actually defined anywhere, so can't really be
+    called.
+
+    @param T The type to return.
+ */
+template<class T>
+typename add_rvalue_reference<T>::type declval() noexcept;
+
+/**
+    These functions are used to implement "perfect forwarding".
+
+    @param t arguments to forward.
+    @return Arguments adjusted for lvalue or rvalue references.
+ */
+template<typename T>
+T&& forward(typename remove_reference<T>::type& t)
+{ return static_cast<T&&>(t); }
+
+template<typename T>
+T&& forward(typename remove_reference<T>::type&& t)
+{
+    static_assert(!is_lvalue_reference<T>::value, "");
+    return static_cast<T&&>(t);
+}
+
+/**
+    Cast a value to an rvalue to allow moving it.
+
+    @param t Type to be moved.
+    @return rvalue reference to t.
+ */
+template <typename T>
+typename remove_reference<T>::type&& move(T&& t) noexcept
+{
+    return static_cast<typename remove_reference<T>::type&&>(t);
+}
+
+/**
+    Swap two values,, using move semantics.
+
+    @param a first object to swap.
+    @param b second object to swap.
+ */
+template <typename T>
+void swap(T& a, T& b) noexcept(is_nothrow_move_constructible<T>::value &&
+    is_nothrow_move_assignable<T>::value)
+{
+    T temp = NMSP::move(a);
+    a = NMSP::move(b);
+    b = NMSP::move(temp);
+}
+
+template <typename T, size_t N>
+void swap(T (&a)[N], T (&b)[N]) noexcept(noexcept(swap(*a, *b)))
+{
+    for (size_t i = 0; i < N; ++i)
+        swap(a[i], b[i]);
+}
+
+/**
+    Empty type used to distinguish between overloads dealing with tuples.
+ */
+struct piecewise_construct_t {};
+
+/**
+    Container holding two objects of arbitrary type.
+
+    @param T1 type of first object.
+    @param T2 type of second object.
+ */
+template <typename T1, typename T2>
+class pair {
+public:
+    /** Type of the first object. */
+    using first_type = T1;
+    /** Type of the second object. */
+    using second_type = T2;
+
+    /** Copy of the first object. */
+    T1 first;
+    /** Copy of the second object. */
+    T2 second;
+
+    /**
+        Default constructor. Uses the default constructors of the two objects.
+     */
+    constexpr pair() : first{}, second{} {}
+
+    /**
+        Construct the pair from copies of the provided objects.
+
+        @param x First object to copy.
+        @param y Second object to copy.
+     */
+    constexpr pair(const first_type& x, const second_type& y) :
+        first{x}, second{y} {}
+
+    /**
+        Construct the pair by moving the provided objects. They may be of
+        different types providing they are convertible.
+
+        @param U1 convertible to first_type.
+        @param U2 convertible to second_type.
+        @param x First object to move.
+        @param y Second object to move.
+     */
+    template <typename U1, typename U2, typename =
+        typename enable_if<helper::meta_and<
+        is_constructible<first_type, U1&&>,
+        is_constructible<second_type, U2&&>>::value>::type>
+    constexpr pair(U1&& x, U2&& y) :
+        first{forward<U1>(x)}, second{forward<U2>(y)} {}
+
+    /**
+        Mixed move and copy. Make the objects by copying one and moving the
+        other. Objects to e moved may be of different types providing they are
+        convertible.
+
+        @param U1 convertible to first_type.
+        @param U2 convertible to second_type.
+        @param x First object to copy.
+        @param y Second object to copy.
+     */
+    template <typename U1, typename =
+        typename enable_if<is_constructible<first_type, U1&&>::value>::type>
+    constexpr pair(U1&& x, const second_type& y) :
+        first{forward<U1>(x)}, second{y} {}
+
+    template <typename U2, typename =
+        typename enable_if<is_constructible<second_type, U2&&>::value>::type>
+    constexpr pair(const first_type& x, U2&& y) :
+        first{x}, second{forward<U2>(y)} {}
+
+    /**
+        Copy constructor. Only allowed if the types of this pair are both
+        constructable from the types of the other pair.
+
+        @param U1 first_type of other pair.
+        @param U2 second_type of other pair.
+        @param other Other pair to copy from.
+     */
+    template <typename U1, typename U2, typename =
+        typename enable_if<helper::meta_and<
+        is_constructible<first_type, const U1&>,
+        is_constructible<second_type, const U2&>>::value>::type>
+    constexpr pair(const pair<U1, U2>& other) :
+        first{other.first}, second{other.second} {}
+
+    /**
+        Copy constructor for objects of the same type.
+
+        @param other Other pair to copy from.
+     */
+    constexpr pair(const pair& other) = default;
+
+    /**
+        Move constructor. Only allowed if the types of this pair are
+        constructible from the types of the other pair.
+
+        @param U1 first_type of other pair.
+        @param U2 second_type of other pair.
+        @param other Other pair to move from.
+     */
+    template <typename U1, typename U2, typename =
+        typename enable_if<helper::meta_and<
+        is_constructible<first_type, U1&&>,
+        is_constructible<second_type, U2&&>>::value>::type>
+    constexpr pair(pair<U1, U2>&& other) :
+        first{forward<U1>(other.first)}, second{forward<U2>(other.second)} {}
+
+    /**
+        Move constructor for objects of the same type.
+
+        @param other Other pair to move from.
+     */
+    constexpr pair(pair&& other) = default;
+
+    /**
+        Construct by forwarding the arguments of the first tuple to the
+        constructor of first_type and the arguments of the second tuple to the
+        constructor of second_type.
+
+        @param Args1 Types of the first tuple.
+        @param Args2 Types of the second tuple.
+        @param first_args Arguments for the first constructor.
+        @param second_args Arguments for the second constructor.
+     */
+    template <typename... Args1, typename... Args2>
+    pair(piecewise_construct_t, tuple<Args1...>, tuple<Args2...>);
+
+    /**
+        Copy assignement from same type.
+
+        @param other Other pair to copy from.
+        @return This pair.
+     */
+    pair& operator=(const pair& other)
+    {
+        first = other.first;
+        second = other.second;
+        return *this;
+    }
+
+    /**
+        Copy assignement from different type.
+
+        @param U1 first_type of other pair.
+        @param U2 second_type of other pair.
+        @param other Other pair to copy from.
+        @return This pair.
+     */
+    template <typename U1, typename U2>
+    pair& operator=(const pair<U1, U2>& other)
+    {
+        first = other.first;
+        second = other.second;
+        return *this;
+    }
+
+    /**
+        Move assignement from same type.
+
+        @param other Other pair to move from.
+        @return This pair.
+     */
+    pair& operator=(pair&& other)
+        noexcept(helper::meta_and<is_nothrow_move_assignable<first_type>,
+        is_nothrow_move_assignable<second_type>>::value)
+    {
+        first = forward<first_type>(other.first);
+        second = forward<second_type>(other.second);
+        return *this;
+    }
+
+    /**
+        Move assignement from different type.
+
+        @param U1 first_type of other pair.
+        @param U2 second_type of other pair.
+        @param other Other pair to move from.
+        @return This pair.
+     */
+    template <typename U1, typename U2>
+    pair& operator=(pair<U1, U2>&& other)
+        noexcept(helper::meta_and<is_nothrow_move_assignable<first_type>,
+        is_nothrow_move_assignable<second_type>>::value)
+    {
+        first = forward<U1>(other.first);
+        second = forward<U2>(other.second);
+        return *this;
+    }
+
+    /**
+        Swaps first and second with the contents of other.
+
+        @param other Other pair to swap with.
+     */
+    void swap(pair& other) noexcept(noexcept(swap(first, other.first)) &&
+        noexcept(swap(second, other.second)))
+    {
+        using NMSP::swap;
+        swap(first, other.first);
+        swap(second, other.second);
+    }
+};
+
+/**
+    Compares two pairs for equality. They are equal if both first and second
+    compare equal, otherwise not.
+
+    @param T1 Type of first.
+    @param T2 Type of second.
+    @param x First pair to compare.
+    @param y Second pair to compare.
+    @return Whether x and y are equal.
+ */
+template <typename T1, typename T2>
+bool operator==(const pair<T1, T2>& x, const pair<T1, T2>& y)
+{
+    return (x.first == y.first && x.second == y.second);
+}
+
+/**
+    Compares two pairs for non-equality. They are not equal if either first or
+    second compare not equal.
+
+    @param T1 Type of first.
+    @param T2 Type of second.
+    @param x First pair to compare.
+    @param y Second pair to compare.
+    @return Whether x and y are not equal.
+ */
+template <typename T1, typename T2>
+bool operator!=(const pair<T1, T2>& x, const pair<T1, T2>& y)
+{
+    return !(x == y);
+}
+
+/**
+    Decides if one pair is less than another. x < y if x.first < y.first and
+    not if x.first > y.first. If x.first == y.first, compare second instead.
+
+    @param T1 Type of first.
+    @param T2 Type of second.
+    @param x First pair to compare.
+    @param y Second pair to compare.
+    @return Whether x < y.
+ */
+template <typename T1, typename T2>
+bool operator<(const pair<T1, T2>& x, const pair<T1, T2>& y)
+{
+    return (x.first < y.first || (!(y.first < x.first) && x.second < y.second));
+}
+
+/**
+    Decides if one pair is greater than another. x > y if y < x.
+
+    @param T1 Type of first.
+    @param T2 Type of second.
+    @param x First pair to compare.
+    @param y Second pair to compare.
+    @return Whether x > y.
+ */
+template <typename T1, typename T2>
+bool operator>(const pair<T1, T2>& x, const pair<T1, T2>& y)
+{
+    return (y < x);
+}
+
+/**
+    Decides if one pair is less than or equal to another. x <= y if !(y < x).
+
+    @param T1 Type of first.
+    @param T2 Type of second.
+    @param x First pair to compare.
+    @param y Second pair to compare.
+    @return Whether x <= y.
+ */
+template <typename T1, typename T2>
+bool operator<=(const pair<T1, T2>& x, const pair<T1, T2>& y)
+{
+    return !(y < x);
+}
+
+/**
+    Decides if one pair is greater than or equal to another. x >= y if !(x < y).
+
+    @param T1 Type of first.
+    @param T2 Type of second.
+    @param x First pair to compare.
+    @param y Second pair to compare.
+    @return Whether x >= y.
+ */
+template <typename T1, typename T2>
+bool operator>=(const pair<T1, T2>& x, const pair<T1, T2>& y)
+{
+    return !(x < y);
+}
+
+/**
+    Swaps the contents of two pairs.
+
+    @param T1 Type of first.
+    @param T2 Type of second.
+    @param x First pair to swap.
+    @param y Second pair to swap.
+ */
+template <typename T1, typename T2>
+void swap(pair<T1, T2>& x, pair<T1, T2>& y) noexcept(noexcept(x.swap(y)))
+{
+    x.swap(y);
+}
+
+/**
+    Utility to make a pair.
+
+    @param T1 Type of first object.
+    @param T2 Type of second object.
+    @param x First object.
+    @param y Second pair.
+    @return Pair made from x and y.
+ */
+template <typename T1, typename T2>
+constexpr pair<typename helper::decay_and_strip<T1>::type,
+    typename helper::decay_and_strip<T2>::type>
+make_pair(T1&& x, T2&& y)
+{
+    return pair<typename helper::decay_and_strip<T1>::type,
+        typename helper::decay_and_strip<T2>::type>
+        { forward<T1>(x), forward<T2>(y) };
+}
+
+// Forward declarations.
+template <typename T> class tuple_size;
+template <size_t I, typename T> class tuple_element;
+
+/**
+    Specialisation of tuple_size for pair, always gives 2.
+
+    @param A pair.
+    @param T1 first_type of pair.
+    @param T2 second_type of pair.
+    @return integral_constant with value 2.
+ */
+template <typename T1, typename T2>
+struct tuple_size<pair<T1, T2>> : public integral_constant<size_t, 2> {};
+
+/**
+    Specialisation of tuple_element for pair. Gives the first_type or
+    second_type of the pair.
+
+    @param A pair.
+    @param T1 first_type of pair.
+    @param T2 second_type of pair.
+    @param 0 or 1. Index of type to access.
+    @return first_type or second_type.
+ */
+template <typename T1, typename T2>
+struct tuple_element<0, pair<T1, T2>> { using type = T1; };
+
+template <typename T1, typename T2>
+struct tuple_element<1, pair<T1, T2>> { using type = T2; };
+
+/**
+    Gets a reference to the first or second element of the pair.
+
+    @param T1 first_type of pair.
+    @param T2 second_type of pair.
+    @param I Index to fetch.
+    @param p Pair to access.
+    @return Reference to p.first or p.second.
+ */
+namespace helper {
+    // Given a pair, get's the first or second value.
+    template <size_t I>
+    struct get_pair_helper;
+
+    // Specialisation for first element.
+    template <>
+    struct get_pair_helper<0> {
+        template <typename T1, typename T2>
+        static constexpr T1& get(pair<T1, T2>& p) noexcept { return p.first; }
+
+        template <typename T1, typename T2>
+        static constexpr T1&& move_get(pair<T1, T2>&& p) noexcept
+        {
+            return forward<T1>(p.first);
+        }
+
+        template <typename T1, typename T2>
+        static constexpr const T1& const_get(const pair<T1, T2>& p) noexcept
+        {
+            return p.first;
+        }
+    };
+
+    // Specialisation for second element.
+    template <>
+    struct get_pair_helper<1> {
+        template <typename T1, typename T2>
+        static constexpr T2& get(pair<T1, T2>& p) noexcept { return p.second; }
+
+        template <typename T1, typename T2>
+        static constexpr T2&& move_get(pair<T1, T2>&& p) noexcept
+        {
+            return forward<T2>(p.second);
+        }
+
+        template <typename T1, typename T2>
+        static constexpr const T2& const_get(const pair<T1, T2>& p) noexcept
+        {
+            return p.second;
+        }
+    };
+} // helper namespace
+
+// Index access, lvalue reference
+template <size_t I, typename T1, typename T2>
+constexpr typename
+    tuple_element<I, pair<T1, T2>>::type& get(pair<T1, T2>& p) noexcept
+{
+    return helper::get_pair_helper<I>::get(p);
+}
+// Index access, const lvalue reference
+template <size_t I, typename T1, typename T2>
+constexpr const typename
+    tuple_element<I, pair<T1, T2>>::type& get(const pair<T1, T2>& p) noexcept
+{
+    return helper::get_pair_helper<I>::const_get(p);
+}
+// Index access, rvalue reference
+template <size_t I, typename T1, typename T2>
+constexpr typename
+    tuple_element<I, pair<T1, T2>>::type&& get(pair<T1, T2>&& p) noexcept
+{
+    return helper::get_pair_helper<I>::move_get(move(p));
+}
+// Type access, first, lvalue reference
+template <typename T1, typename T2>
+constexpr T1& get(pair<T1, T2>& p) noexcept { return p.first; }
+// Type access, first, const lvalue reference
+template <typename T1, typename T2>
+constexpr const T1& get(const pair<T1, T2>& p) noexcept { return p.first; }
+// Type access, first, rvalue reference
+template <typename T1, typename T2>
+constexpr T1&& get(pair<T1, T2>&& p) noexcept { return move(p.first); }
+// Type access, second, lvalue reference
+template <typename T1, typename T2>
+constexpr T1& get(pair<T2, T1>& p) noexcept { return p.second; }
+// Type access, second, const lvalue reference
+template <typename T1, typename T2>
+constexpr const T1& get(const pair<T2, T1>& p) noexcept { return p.second; }
+// Type access, second, rvalue reference
+template <typename T1, typename T2>
+constexpr T1&& get(pair<T2, T1>&& p) noexcept { return move(p.second); }
+
+} // NMSP namespace
+#endif /* UTILITY_H */

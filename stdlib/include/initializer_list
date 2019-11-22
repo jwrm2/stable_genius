@@ -1,0 +1,131 @@
+// We only use this header if there is no standard library availble. Otherwise
+// we have to use the standard one to avoid name clashes.
+
+#ifdef HOSTED_TEST
+
+#include <initializer_list>
+
+#else /* HOSTED_TEST */
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+#ifndef INITIALIZER_LIST_H
+#define INITIALIZER_LIST_H
+
+#include <stddef.h>
+
+namespace std { // Has to be in std. Compiler magic is involved.
+
+/**
+    Specifies a lightweight container that is principally used in constructors
+    for other containers.
+ */
+template <typename T>
+class initializer_list {
+public:
+    /**
+        Type of elements.
+     */
+    using value_type = T;
+    /**
+        Type of a reference to an element.
+     */
+    using reference = value_type&;
+    /**
+        Type of a const reference to an element.
+     */
+    using const_reference = const value_type&;
+    /**
+        Unsigned integer type.
+     */
+    using size_type = size_t;
+    /**
+        Iterator type.
+     */
+    using iterator = const value_type*;
+    /**
+        Const iterator type.
+     */
+    using const_iterator = const value_type*;
+
+private:
+    // Beginning of the array.
+    iterator elem;
+    // Length of the array.
+    size_type sz;
+
+    // Private constructor for the compiler.
+    initializer_list(const_iterator e, size_type s) : elem{e}, sz{s} {}
+
+public:
+    /**
+        Default constructor creates an empty list.
+     */
+    constexpr initializer_list() : elem{nullptr}, sz{0} {}
+
+    /**
+        Gets the number of elements in the list.
+
+        @return Size of the list.
+     */
+    constexpr size_type size() const noexcept { return sz; }
+
+    /**
+        Gets an iterator to the first element of the array.
+
+        @return An iterator to the start of the array, or to nothing if the
+                array is empty.
+     */
+    constexpr const_iterator begin() const noexcept
+    {
+        return const_iterator{elem};
+    }
+
+    /**
+        Gets an iterator to the last element of the array.
+
+        @return An iterator to the end of the array, or to nothing if the array
+                is empty.
+     */
+    constexpr const_iterator end() const noexcept
+    {
+        return const_iterator{elem + sz};
+    }
+};
+
+/**
+    Gets an iterator to the first element of an initializer_list.
+
+    @param il List to get the start of.
+    @return An iterator to the start of the array, or to nothing if the
+            array is empty.
+ */
+template <typename T>
+constexpr typename initializer_list<T>::const_iterator
+    begin(initializer_list<T> il) noexcept
+{
+    return il.begin();
+}
+
+/**
+    Gets an iterator to the last element of an initializer_list.
+
+    @param il List ot get the end of.
+    @return An iterator to the end of the array, or to nothing if the array
+            is empty.
+ */
+template <typename T>
+constexpr typename initializer_list<T>::const_iterator
+    end(initializer_list<T> il) noexcept
+{
+    return il.end();
+}
+
+} // std namespace
+
+#endif
+
+#endif /* HOSTED_TEST */

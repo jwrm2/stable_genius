@@ -1,0 +1,101 @@
+#ifndef CMATH_H
+#define CMATH_H
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+#include "../include/type_traits"
+
+namespace NMSP {
+
+/**
+    Represents a quiet NaN value for a float. The definition is provided by the
+    compiler.
+ */
+#ifndef NAN
+#define NAN __builtin_nanf("")
+#endif
+
+/**
+    A value used by library functions to indicate infinity for a float value.
+    The definition is provided by the compiler.
+ */
+#ifndef HUGE_VALF
+#define HUGE_VALF __builtin_huge_valf()
+#endif
+/**
+    A value used by library functions to indicate infinity for a double value.
+    The definition is provided by the compiler.
+ */
+#ifndef HUGE_VAL
+#define HUGE_VAL __builtin_huge_val()
+#endif
+/**
+    A value used by library functions to indicate infinity for a double value.
+    The definition is provided by the compiler.
+ */
+#ifndef HUGE_VALL
+#define HUGE_VALL __builtin_huge_vall()
+#endif
+
+/**
+    Round a double to the nearest integer. Halfway rounds away from zero.
+
+    @param input Value to round.
+    @return Rounded result.
+ */
+double round(double input);
+
+/**
+    Truncate a double towards zero.
+
+    @param input Value to truncate.
+    @return Truncated result.
+ */
+double trunc(double input);
+
+/**
+    Returns the largest integer less than the argument.
+
+    @param input Value to floor.
+    @return Largest integer less than input.
+ */
+double floor(double input);
+
+/**
+    Gives the absolute value of a double.
+
+    @param input Value to use.
+    @return Absolute value.
+ */
+double fabs(double input);
+
+/**
+    Floating point modulus function.
+
+    @param input Value to mod.
+    @param mod Value to be used as the modulus.
+    @return Remainder when input is divided by mod.
+ */
+double fmod(double input, double mod);
+
+/**
+    Tests whether a value is Not a Number (NaN).
+
+    @param arg Value to test. Must be a floating point or integral type.
+    @return True if arg is NaN, false otherwise.
+ */
+bool isnan(float arg);
+bool isnan(double arg);
+bool isnan(long double arg);
+template <typename T>
+typename enable_if<is_integral<T>::value, bool>::type isnan(T arg)
+{
+    return false;
+}
+
+} // NMSP namespace
+
+#endif /* CMATH_H */

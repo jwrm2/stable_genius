@@ -1,0 +1,121 @@
+/**
+    Standard header, providing functions for detecting properties of
+    characters. Only works with ASCII.
+ */
+#ifndef CCTYPE_H
+#define CCTYPE_H
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+namespace NMSP {
+
+/**
+    Checks whether a character is alphanumeric.
+
+    @param c Character to test.
+    @return Zero for false, non zero otherwise.
+ */
+int isalnum(int c);
+
+/**
+    Checks whether a character is alphabetic.
+
+    @param c Character to test.
+    @return Zero for false, non zero otherwise.
+ */
+int isalpha(int c);
+
+/**
+    Checks whether a character is a control character.
+
+    @param c Character to test.
+    @return Zero for false, non zero otherwise.
+ */
+int iscntrl(int c);
+
+/**
+    Checks whether a character is a decimal digit.
+
+    @param c Character to test.
+    @return Zero for false, non zero otherwise.
+ */
+int isdigit(int c);
+
+/**
+    Checks whether a character is has a graphical representation.
+
+    @param c Character to test.
+    @return Zero for false, non zero otherwise.
+ */
+int isgraph(int c);
+
+/**
+    Checks whether a character is lower case alphabetic.
+
+    @param c Character to test.
+    @return Zero for false, non zero otherwise.
+ */
+int islower(int c);
+
+/**
+    Checks whether a character is printable.
+
+    @param c Character to test.
+    @return Zero for false, non zero otherwise.
+ */
+int isprint(int c);
+
+/**
+    Checks whether a character is punctuation.
+
+    @param c Character to test.
+    @return Zero for false, non zero otherwise.
+ */
+int ispunct(int c);
+
+/**
+    Checks whether a character is white space.
+
+    @param c Character to test.
+    @return Zero for false, non zero otherwise.
+ */
+int isspace(int c);
+
+/**
+    Checks whether a character is upper case alphabetic.
+
+    @param c Character to test.
+    @return Zero for false, non zero otherwise.
+ */
+int isupper(int c);
+
+/**
+    Checks whether a character is a hexadecimal digit.
+
+    @param c Character to test.
+    @return Zero for false, non zero otherwise.
+ */
+int isxdigit(int c);
+
+/**
+    Converts the character to its lowercase equivalent.
+
+    @param ch Character to convert.
+    @return ch in lowercase, or ch if no equivalent exists.
+ */
+int tolower(int ch);
+
+/**
+    Converts the character to its uppercase equivalent.
+
+    @param ch Character to convert.
+    @return ch in uppercase, or ch if no equivalent exists.
+ */
+int toupper(int ch);
+
+} // NMSP namespace
+
+#endif /* CCTYPE_H */

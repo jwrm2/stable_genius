@@ -1,0 +1,715 @@
+#ifndef SYSTEM_ERROR_H
+#define SYSTEM_ERROR_H
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+#include "../include/cerrno"
+#include "../include/functional"
+#include "../include/stdexcept"
+#include "../include/type_traits"
+
+namespace NMSP {
+
+// Forward declarations.
+template <typename> class allocator;
+template <typename, typename, typename> class basic_string;
+template <typename> class char_traits;
+using string = basic_string<char, char_traits<char>, allocator<char>>;
+class error_code;
+class error_condition;
+enum class errc;
+error_condition make_error_condition(errc e) noexcept;
+error_code make_error_code(errc e) noexcept;
+
+/**
+    Enumeration of known error conditions. Based on the values from errno.
+ */
+enum class errc {
+    /** Operation not permitted. */
+    operation_not_permitted = EPERM,
+    /** No such file or directory. */
+    no_such_file_or_directory = ENOENT,
+    /** No such process. */
+    no_such_process = ESRCH,
+    /** Interrupted system call. */
+    interrupted = EINTR,
+    /** I/O error. */
+    io_error = EIO,
+    /** No such device or address. */
+    no_such_device_or_address = ENXIO,
+    /** Argument list too long. */
+    argument_list_too_long = E2BIG,
+    /** Executable format error. */
+    executable_format_error = ENOEXEC,
+    /** Bad file number. */
+    bad_file_descriptor = EBADF,
+    /** No child processes. */
+    no_child_process = ECHILD,
+    /** Try again. */
+    resource_unavailable_try_again = EAGAIN,
+    /** Operation would block. */
+    operation_would_block = EWOULDBLOCK,
+    /** Out of memory. */
+    not_enough_memory = ENOMEM,
+    /** Permission denied. */
+    permission_denied = EACCES,
+    /** Bad address. */
+    bad_address = EFAULT,
+    /** Device or resource busy. */
+    device_or_resource_busy = EBUSY,
+    /** File exists. */
+    file_exists = EEXIST,
+    /** Cross-device link. */
+    cross_device_link = EXDEV,
+    /** No such device. */
+    no_such_device = ENODEV,
+    /**  Not a directory. */
+    not_a_directory = ENOTDIR,
+    /** Is a directory. */
+    is_a_directory = EISDIR,
+    /** Invalid argument. */
+    invalid_argument = EINVAL,
+    /** File table overflow. */
+    too_many_files_open_in_system = ENFILE,
+    /** Too many open files. */
+    too_many_files_open = EMFILE,
+    /** Not a typewriter. */
+    inappropriate_io_control_operation = ENOTTY,
+    /** Text file busy. */
+    text_file_busy = ETXTBSY,
+    /** File too large. */
+    file_too_large = EFBIG,
+    /** No space left on device. */
+    no_space_on_device = ENOSPC,
+    /** Illegal seek. */
+    invalid_seek = ESPIPE,
+    /** Read-only file system. */
+    read_only_file_system = EROFS,
+    /** Too many links. */
+    too_many_links = EMLINK,
+    /** Broken pipe. */
+    broken_pipe = EPIPE,
+    /** Maths argument out of domain of function. */
+    argument_out_of_domain = EDOM,
+    /** Maths result not representable. */
+    result_out_of_range = ERANGE,
+    /** Resource deadlock would occur. */
+    resource_deadlock_would_occur = EDEADLK,
+    /** File name too long. */
+    filename_too_long = ENAMETOOLONG,
+    /** No record locks available. */
+    no_lock_available = ENOLCK,
+    /** Invalid system call number. */
+    function_not_supported = ENOSYS,
+    /** Directory not empty. */
+    directory_not_empty = ENOTEMPTY,
+    /** Too many symbolic link lebels. */
+    too_many_symbolic_link_levels = ELOOP,
+    /** No message of desired type. */
+    no_message = ENOMSG,
+    /** Identifier removed. */
+    identifier_removed = EIDRM,
+    /** Device not a stream. */
+    not_a_stream = ENOSTR,
+    /** No data available. */
+    no_message_available = ENODATA,
+    /** Timer expired. */
+    stream_timeout = ETIME,
+    /** Out of stream resources. */
+    no_stream_resources = ENOSR,
+    /** Link has been severed. */
+    no_link = ENOLINK,
+    /** Protocol error. */
+    protocol_error = EPROTO,
+    /** Not a data message. */
+    bad_message = EBADMSG,
+    /** Value too large for defined data type. */
+    value_too_large = EOVERFLOW,
+    /** Illegal byte sequence. */
+    illegal_byte_sequence = EILSEQ,
+    /** Socket operation on non-socket. */
+    not_a_socket = ENOTSOCK,
+    /** Destination address required. */
+    destination_address_required = EDESTADDRREQ,
+    /** Message too long. */
+    message_size = EMSGSIZE,
+    /** Protocol type wrong for socket. */
+    wrong_protocol_type = EPROTOTYPE,
+    /** Protocol not available. */
+    no_protocol_option = ENOPROTOOPT,
+    /** Protocol not supported. */
+    protocol_not_supported = EPROTONOSUPPORT,
+    /** Operation not supported on transport endpoint. */
+    operation_not_supported = EOPNOTSUPP,
+    /** Operation not supported. */
+    not_supported = ENOTSUPP,
+    /** Address family not supported by protocol. */
+    address_family_not_supported = EAFNOSUPPORT,
+    /** Address already in use. */
+    address_in_use = EADDRINUSE,
+    /** Cannot assign requested address. */
+    address_not_available = EADDRNOTAVAIL,
+    /** Network is down. */
+    network_down = ENETDOWN,
+    /** Network is unreachable. */
+    network_unreachable = ENETUNREACH,
+    /** Network connection dropped because of reset. */
+    network_reset = ENETRESET,
+    /** Software caused connection abort. */
+    connection_aborted = ECONNABORTED,
+    /** Connection reset by peer. */
+    connection_reset = ECONNRESET,
+    /** No buffer space available. */
+    no_buffer_space = ENOBUFS,
+    /** Transport endpoint is already connected. */
+    already_connected = EISCONN,
+    /** Transport endpoint is not connected. */
+    not_connected = ENOTCONN,
+    /** Connection timed out. */
+    timed_out = ETIMEDOUT,
+    /** Connection refused. */
+    connection_refused = ECONNREFUSED,
+    /** No route to host. */
+    host_unreachable = EHOSTUNREACH,
+    /** Operation already in progress. */
+    connection_already_in_progress = EALREDY,
+    /** Operation now in progress. */
+    operation_in_progress = EINPROGRESS,
+    /** Operation cancelled. */
+    operation_canceled = ECANCELED,
+    /** Owner died. */
+    owner_dead = EOWNERDEAD,
+    /** State not recoverable. */
+    state_not_recoverable = ENOTRECOVERABLE
+};
+
+/**
+    Tests whether a type is an error code enumeration. The member value is true
+    if the type is, false otherwise.
+ */
+template <typename T>
+struct is_error_code_enum : public false_type {};
+
+/**
+    Tests whether a type is an error condition enumeration. The member value is
+    true if the type is, false otherwise.
+ */
+template <typename T>
+struct is_error_condition_enum : public false_type {};
+
+template <>
+struct is_error_condition_enum<errc> : public true_type {};
+
+/**
+    Base class for various classes holding descriptions of various system
+    errors.
+ */
+class error_category {
+public:
+    /**
+        Default constructor. Does nothing as the class stores no data.
+     */
+    constexpr error_category() noexcept = default;
+
+    /**
+        Copy construction is deleted.
+
+        @param other error_category to (not) copy.
+     */
+    error_category(const error_category& other) = delete;
+
+    /**
+        Copy assignment is deleted.
+
+        @param other error_category to (not) copy.
+        @return This error_category.
+     */
+    error_category& operator=(const error_category& other) = delete;
+
+    /**
+        Destructor. Does nothing.
+     */
+    virtual ~error_category() noexcept = default;
+
+    /**
+        Returns a C-string describing this error category. Pure virtual,
+        implemented in specific categories.
+
+        @return C-string describing this category.
+     */
+    virtual const char* name() const noexcept = 0;
+
+    /**
+        Provides the mapping from codes to error conditions for this category.
+
+        @param v Error code.
+        @return ec Error condition corresponding to the code.
+     */
+    virtual error_condition default_error_condition(int code) const noexcept;
+
+    /**
+        Checks whether an error code and condition are equivalent for this
+        category.
+
+        @param c Error code.
+        @param cond Error condition.
+        @return Whether the code and condition are equivalent.
+     */
+    virtual bool equivalent(int c, const error_condition& cond) const noexcept;
+    virtual bool equivalent(const error_code& c, int cond) const noexcept;
+
+    /**
+        Gets the string describing an error condition in this category. Pure
+        virtual, implemented in specific categories.
+
+        @param i Error code.
+        @return String for this condition in this category.
+     */
+    virtual string message(int i) const = 0;
+
+    /**
+        Checks whether two categories are the same.
+
+        @param rhs Other category to compare with.
+        @return True if the categories are the same. False otherwise.
+     */
+    bool operator==(const error_category& rhs) const noexcept
+    {
+        return (this == &rhs);
+    }
+
+    /**
+        Checks whether two categories are not the same.
+
+        @param rhs Other category to compare with.
+        @return True if the categories are not the same. False otherwise.
+     */
+    bool operator!=(const error_category& rhs) const noexcept
+    {
+        return !(*this == rhs);
+    }
+
+    /**
+        Checks whether this error category is less than another. Does a pointer
+        comparison on the addresses of the category objects.
+
+        @param rhs Other category to compare with.
+        @return True if this object is earlier in memory than rhs.
+     */
+    bool operator<(const error_category& rhs) const noexcept
+    {
+        return less<const error_category*>{}(this, &rhs);
+    }
+};
+
+/**
+    Gets a reference to the static object of type inherited from error_category
+    that represents errors corresponding to POSIX errno codes.
+
+    @return A reference to a static object representing generic errors.
+ */
+const error_category& generic_category() noexcept;
+
+/**
+    Gets a reference to the static object of type inherited from error_category
+    that represents errors corresponding to system specific errno codes.
+
+    @return A reference to a static object representing system errors.
+ */
+const error_category& system_category() noexcept;
+
+/**
+    A platform independent error code. Similar to error_code, but platform
+    independent.
+ */
+class error_condition {
+public:
+    /**
+        Default constructor. Makes an error condition with 0 code and in the
+        generic category.
+     */
+    error_condition() noexcept : val{0}, cat{&generic_category()} {}
+
+    /**
+        Constuctor. Makes an error condition with the given value in the given
+        category.
+
+        @param ec Error condition.
+        @param ecat Error category.
+     */
+    error_condition(int ec, const error_category& ecat) noexcept :
+        val{ec}, cat{&ecat}
+    {}
+
+    /**
+        Constructor. Gets the code from an enum. Only participates if the enum
+        corresponds to an error condition type.
+
+        @param en Enumerated error condition.
+     */
+    template<typename ErrorCondEnum, typename =
+        typename enable_if<is_error_condition_enum<ErrorCondEnum>::value>::type>
+    error_condition(ErrorCondEnum e) noexcept
+    {
+        *this = make_error_condition(e);
+    }
+
+    /**
+        Overloaded copy assignment (default copy assignment also exists
+        implicitly). Assigns an enumerated error condition to this error
+        condition. Only participates if the enum corresponds to an error code
+        type.
+
+        @param en Enumerated error condition.
+        @return This error condition.
+     */
+    template <typename ErrorCondEnum>
+        typename enable_if<is_error_condition_enum<ErrorCondEnum>::value,
+        error_code&>::type
+    operator=(ErrorCondEnum e) noexcept
+    {
+        return (*this = make_error_condition(e));
+    }
+
+    /**
+        Assigns a new error condition and category.
+
+        @param ec Error condition.
+        @param ecat Error category.
+     */
+    void assign(int ec, const error_category& ecat) noexcept
+    {
+        val = ec;
+        cat = &ecat;
+    }
+
+    /**
+        Sets the stored values to the defaults, being 0 for the condition and
+        the system category.
+     */
+    void clear() noexcept
+    {
+        assign(0, system_category());
+    }
+
+    /**
+        Get the stored error condition.
+
+        @return The stored error condition.
+     */
+    int value() const noexcept { return val; }
+
+    /**
+        Get the stored error category.
+
+        @return The stored error category.
+     */
+    const error_category& category() const noexcept { return *cat; }
+
+    /**
+        Gets the message corresponding to the current value in the current
+        category.
+
+        @return Explanatory message for the error.
+     */
+    string message() const;
+
+    /**
+        Checks if the current value is valid (non-zero).
+
+        @return True if the stored value is valid, false otherwise.
+     */
+    explicit operator bool() const noexcept
+    {
+        return (val != 0);
+    }
+
+private:
+    // Stored error condition.
+    int val;
+    // Stored error category.
+    const error_category* cat;
+};
+
+/**
+    Given a member of an error condition enumeration, create an error_code with
+    the generic category.
+
+    @param e Error condition enumerated value.
+    @return Equivalent error condition.
+ */
+error_condition make_error_condition(errc e) noexcept;
+
+/**
+    Checks whether two error conditions are equal. The value and category must
+    both be the same to compare equal.
+
+    @param lhs, rhs Error conditions to compare.
+    @return True if lhs and rhs are equal, false otherwise.
+ */
+bool operator==(const error_condition& lhs, const error_condition& rhs)
+    noexcept;
+
+/**
+    Checks whether two error conditions are not equal. At least one of the value
+    or category must be different to compare not equal.
+
+    @param lhs, rhs Error conditions to compare.
+    @return False if lhs and rhs are equal, true otherwise.
+ */
+bool operator!=(const error_condition& lhs, const error_condition& rhs)
+    noexcept;
+
+/**
+    Checks whether one error condition compares less than another. lhs is less
+    than rhs if the category of lhs is less than the category of rhs, or if the
+    categories are equal and the value of lhs is less than the value of rhs.
+
+    @param lhs, rhs Error codes to compare.
+    @return True if lhs is less than rhs, false otherwise.
+ */
+bool operator<(const error_condition& lhs, const error_condition& rhs) noexcept;
+
+/**
+    Implementation specific error codes. A bit like error_condition, but
+    platform dependent.
+ */
+class error_code {
+public:
+    /**
+        Default constructor. Makes an error code with 0 code and in the system
+        category.
+     */
+    error_code() noexcept : val{0}, cat{&system_category()} {}
+
+    /**
+        Constuctor. Makes an error code with the given value in the given
+        category.
+
+        @param ec Error code.
+        @param ecat Error category.
+     */
+    error_code(int ec, const error_category& ecat) noexcept :
+        val{ec}, cat{&ecat}
+    {}
+
+    /**
+        Constructor. Gets the code from an enum. Only participates if the enum
+        corresponds to an error code type.
+
+        @param en Enumerated error code.
+     */
+    template<typename ErrorCodeEnum, typename =
+        typename enable_if<is_error_code_enum<ErrorCodeEnum>::value>::type>
+    error_code(ErrorCodeEnum e) noexcept { *this = make_error_code(e); }
+
+    /**
+        Overloaded copy assignment (default copy assignment also exists
+        implicitly). Assigns an enumerated error code to this error code. Only
+        participates if the enum corresponds to an error code type.
+
+        @param en Enumerated error code.
+        @return This error code.
+     */
+    template <typename ErrorCodeEnum>
+    typename enable_if<is_error_code_enum<ErrorCodeEnum>::value, error_code&>::type
+    operator=(ErrorCodeEnum e) noexcept { return (*this = make_error_code(e)); }
+
+    /**
+        Assigns a new error code and category.
+
+        @param ec Error code.
+        @param ecat Error category.
+     */
+    void assign(int ec, const error_category& ecat) noexcept
+    {
+        val = ec;
+        cat = &ecat;
+    }
+
+    /**
+        Sets the stored values to the defaults, being 0 for the code and the
+        system category.
+     */
+    void clear() noexcept
+    {
+        assign(0, system_category());
+    }
+
+    /**
+        Get the stored error code.
+
+        @return The stored error code.
+     */
+    int value() const noexcept { return val; }
+
+    /**
+        Get the stored error category.
+
+        @return The stored error category.
+     */
+    const error_category& category() const noexcept { return *cat; }
+
+    /**
+        Gets the default error condition for the current error value in the
+        current category.
+
+        @return Default error condition.
+     */
+    error_condition default_error_condition() const noexcept;
+
+    /**
+        Gets the message corresponding to the current value in the current
+        category.
+
+        @return Explanatory message for the error.
+     */
+    string message() const;
+
+    /**
+        Checks if the current value is valid (non-zero).
+
+        @return True if the stored value is valid, false otherwise.
+     */
+    explicit operator bool() const noexcept
+    {
+        return (val != 0);
+    }
+
+private:
+    // Stored error code.
+    int val;
+    // Stored error category.
+    const error_category* cat;
+};
+
+/**
+    Given a member of an error code enumeration, create an error_code with the
+    generic category.
+
+    @param e Error code enumerated value.
+    @return Equivalent error code.
+ */
+error_code make_error_code(errc e) noexcept;
+
+/**
+    Checks whether two error codes are equal. The value and category must both
+    be the same to compare equal.
+
+    @param lhs, rhs Error codes to compare.
+    @return True if lhs and rhs are equal, false otherwise.
+ */
+bool operator==(const error_code& lhs, const error_code& rhs) noexcept;
+
+/**
+    Checks whether two error codes are not equal. At least one of the value or
+    category must be different to compare not equal.
+
+    @param lhs, rhs Error codes to compare.
+    @return False if lhs and rhs are equal, true otherwise.
+ */
+bool operator!=(const error_code& lhs, const error_code& rhs) noexcept;
+
+/**
+    Checks whether one error code compares less than another. lhs is less than
+    rhs if the category of lhs is less than the category of rhs, or if the
+    categories are equal and the value of lhs is less than the value of rhs.
+
+    @param lhs, rhs Error codes to compare.
+    @return True if lhs is less than rhs, false otherwise.
+ */
+bool operator<(const error_code& lhs, const error_code& rhs) noexcept;
+
+/**
+    Checks whether an error code and an error condition are the same. Uses the
+    equivalent method of the error category, to decide whether the code and
+    condition are referring to the same thing.
+
+    @param code Error code to compare.
+    @param cond Error condition to compare.
+    @return True if code and condition are equivalent, false otherwise.
+ */
+bool operator==(const error_condition& cond, const error_code& code) noexcept;
+
+bool operator==(const error_code& code, const error_condition& cond) noexcept;
+
+/**
+    Checks whether an error code and an error condition are not the same. Uses
+    the equivalent method of the error category, to decide whether the code and
+    condition are referring to the same thing.
+
+    @param code Error code to compare.
+    @param cond Error condition to compare.
+    @return True if code and condition are not equivalent, false otherwise.
+ */
+bool operator!=(const error_condition& cond, const error_code& code) noexcept;
+
+bool operator!=(const error_code& code, const error_condition& cond) noexcept;
+
+/**
+    Exception thrown by functions interfacing with underlying system functions,
+    where there is an associated error code to report.
+ */
+class system_error : public runtime_error {
+public:
+    /**
+        Constructor. Stores an error code.
+
+        @param e Error code.
+     */
+    system_error(error_code e = error_code{});
+
+    /**
+        Constructor. Stores an error code and message
+
+        @param e Error code.
+        @param s String describing the error.
+        @param str C-string describing the error.
+     */
+    system_error(error_code e, const string& s);
+    system_error(error_code e, const char* str);
+
+    /**
+        Constructor. Generates the error code from the underlying code and
+        category.
+
+        @param ev Underlying code in the category enumeration.
+        @param ecat Error category.
+     */
+    system_error(int ev, const error_category& ecat);
+
+    /**
+        Constructor. Generates the error code from the underlying code, category
+        and message.
+
+        @param ev Underlying code in the category enumeration.
+        @param ecat Error category.
+        @param s String describing the error.
+        @param str C-string describing the error.
+     */
+    system_error(int ev, const error_category& ecat, const string& s);
+    system_error(int ev, const error_category& ecat, const char* str);
+
+    /**
+        Destructor. Destroys the error message only if there is one reference to
+        it.
+     */
+    virtual ~system_error() noexcept = default;
+
+    /**
+        Get a reference to the error code provided at construction.
+
+        @return Stored error code.
+     */
+    const error_code& code() const noexcept { return ec; }
+
+private:
+    // Stored error code.
+    error_code ec;
+};
+
+} // end NMSP namespace
+#endif /* SYSTEM_ERROR_H */

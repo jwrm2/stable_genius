@@ -1,0 +1,1388 @@
+#ifndef TYPE_TRAITS_H
+#define TYPE_TRAITS_H
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+#include <stddef.h>
+
+namespace NMSP {
+
+/**
+    Provides compile-time constants as types.
+ */
+template<typename T, T v>
+struct integral_constant{
+    static constexpr T value = v;
+    using value_type = T;
+    using type = integral_constant<T, v>;
+    constexpr operator T() const { return v; }
+};
+
+/**
+    True and false values, instantiations of integral_constant.
+ */
+using true_type = integral_constant<bool, true>;
+using false_type = integral_constant<bool, false>;
+
+/**
+    Maps a sequence of any type to type void.
+ */
+template<typename...>
+using void_t = void;
+
+/**
+    Tests whether two types are the same as each other.
+
+    @param T, U types to test.
+    @return true_type if the types are the same, false_type otherwise.
+ */
+template<class T, class U>
+struct is_same : public false_type {};
+ 
+template<class T>
+struct is_same<T, T> : public true_type {};
+
+// The next two template classes are for use in type existence detection. Since
+// we provide void to the template, template resolution will only succeed for
+// the resolution if the type can be successfully converted to void. If not, we
+// fall back on the generalisation (negative case).
+
+namespace helper {
+    // Implementation of the detection idiom (negative case).
+    template<typename Default, typename Void,
+        template<typename...> class T, typename... Args>
+    struct detector
+    {
+      using value_t = false_type;
+      using type = Default;
+    };
+
+    // Implementation of the detection idiom (positive case).
+    template<typename Default, template<typename...> class T,
+        typename... Args>
+    struct detector<Default, void_t<T<Args...>>, T, Args...>
+    {
+      using value_t = true_type;
+      using type = T<Args...>;
+    };
+} // helper namespace
+
+/**
+    Detect whether T<Args...> is a valid type, use Default if not. Note that
+    T must be a template, not a concrete class.
+ */
+template<typename Default, template<typename...> class T, typename... Args>
+using detected_or = helper::detector<Default, void, T, Args...>;
+
+/**
+    Conditional type. Defines type as T is B is true and F is B is false.
+
+    @param B condition.
+    @param T type if B is true.
+    @param F type if B is false.
+    @return T or F, depenedent on B.
+ */
+template<bool B, class T, class F>
+struct conditional { using type = T; };
+ 
+template<class T, class F>
+struct conditional<false, T, F> { using type = F; };
+
+/**
+    Returns the given type if the condition is true. Otherwise undefined.
+
+    @param B condition.
+    @param T type to return.
+ */
+template<bool B, typename T = void>
+struct enable_if {};
+
+template<typename T>
+struct enable_if<true, T> { using type = T; };
+
+// Meta programming helper types.
+namespace helper {
+    // Given a set of types, each of which ust have a ::value implicitly
+    // convertible to a bool, recursively 'or' the conditions. No conditions
+    // evaluates to true.
+    template<typename...>
+    struct meta_or;
+
+    template<>
+    struct meta_or<> : public true_type {};
+
+    template<typename B>
+    struct meta_or<B> : public B {};
+
+    template<typename B1, typename... BN>
+    struct meta_or<B1, BN...> : conditional<B1::value, B1, meta_or<BN...>>::type {};
+
+    // Given a set of types, each of which must have a ::value implicitly
+    // convertible to a bool, recursively 'and' the conditions. No conditions
+    // evaluates to true.
+    template<typename...>
+    struct meta_and;
+
+    template<>
+    struct meta_and<> : public true_type {};
+
+    template<typename B>
+    struct meta_and<B> : public B {};
+
+    template<typename B1, typename... BN>
+    struct meta_and<B1, BN...> : conditional<B1::value, meta_and<BN...>, B1>::type {};
+
+    // Given a type with a ::value implicitly convertible to a bool, return
+    // the opposite value.
+    template <typename B>
+    struct meta_not : public integral_constant<bool, !B::value> {};
+} // helper namespace
+
+// void if the conditions are all true, undefined if not. Provides a way
+// to require conditions in a template specification.
+namespace helper {
+    template<typename... T>
+    using Require = typename enable_if<helper::meta_and<T...>::value>::type;
+} // helper namespace
+
+/**
+    Remove const from a type. Does nothing to non-const types.
+
+    @param T type to modify.
+    @return T without const.
+ */
+template<typename T>
+struct remove_const { using type = T; };
+
+template<typename T>
+struct remove_const<const T> { using type = T; };
+
+/**
+    Remove volatile from a type. Does nothing to non-volatile types.
+
+    @param T type to modify.
+    @return T without volatile.
+ */
+template<typename T>
+struct remove_volatile { using type = T; };
+
+template<typename T>
+struct remove_volatile<volatile T> { using type = T; };
+
+/**
+    Remove const and/or volatile from a type. Does nothing to non-const
+    non-volatile types.
+
+    @param T type to modify.
+    @return T without const or volatile.
+ */
+template<typename T>
+struct remove_cv {
+    using type = typename remove_volatile<typename remove_const<T>::type>::type;
+};
+
+/**
+    Tests whether a type is const qualified.
+
+    @param T type to test.
+    @param true_type if T is const, false_type otherwise.
+ */
+template<typename T>
+struct is_const : public false_type {};
+
+template<typename T>
+struct is_const<const T> : public true_type {};
+
+/**
+    Tests whether a type is volatile qualified.
+
+    @param T type to test.
+    @param true_type if T is volatile, false_type otherwise.
+ */
+template<typename T>
+struct is_volatile : public false_type {};
+
+template<typename T>
+struct is_volatile<volatile T> : public true_type {};
+
+/**
+    Tests whether a type is void.
+
+    @param T type to test.
+    @return true_type is the type is void, false_type otherwise.
+ */
+namespace helper {
+    template <typename>
+    struct is_void_helper : public false_type {};
+
+    template <>
+    struct is_void_helper<void> : public true_type {};
+} // helper namesapce
+
+template <typename T>
+struct is_void : public helper::is_void_helper<typename remove_cv<T>::type> {};
+
+/**
+    Tests whether the type is an enum (or enum class). Uses the compiler
+    in-built function __is_enum.
+
+    @param T type to test.
+    @return true_type for an enum, false_type otherwise.
+ */
+template <typename T>
+struct is_enum : public integral_constant<bool, __is_enum(T)> {};
+
+/**
+    Gives the underlying type of an enum. This may be explicity specified. If it
+    is not, the default is int for scoped enums and compiler defined for
+    unscoped enums. Uses the compiler in-built function __underlying_type.
+
+    @param T type to test.
+    @return Underlying type of enum T.
+ */
+template <typename T>
+struct underlying_type {
+    using type = __underlying_type(T);
+};
+
+/**
+    Tests whether the type is integral.
+
+    @param T type to test.
+    @return true_type for an integral type, false_type otherwise.
+ */
+template <typename T>
+struct is_integral;
+
+namespace helper {
+
+    template <typename T>
+    struct is_integral_helper : public false_type {};
+
+    template<>
+    struct is_integral_helper<bool> : public true_type {};
+    template<>
+    struct is_integral_helper<char> : public true_type {};
+    template<>
+    struct is_integral_helper<signed char> : public true_type {};
+    template<>
+    struct is_integral_helper<unsigned char> : public true_type {};
+    template<>
+    struct is_integral_helper<short> : public true_type {};
+    template<>
+    struct is_integral_helper<unsigned short> : public true_type {};
+    template<>
+    struct is_integral_helper<int> : public true_type {};
+    template<>
+    struct is_integral_helper<unsigned int> : public true_type {};
+    template<>
+    struct is_integral_helper<long> : public true_type {};
+    template<>
+    struct is_integral_helper<unsigned long> : public true_type {};
+    template<>
+    struct is_integral_helper<long long> : public true_type {};
+    template<>
+    struct is_integral_helper<unsigned long long> : public true_type {};
+} // helper namesapce
+
+template <typename T>
+struct is_integral : helper::is_integral_helper<typename remove_cv<T>::type> {};
+
+/**
+    Tests whether a type is a builtin floating point type.
+
+    @param T type to test.
+    @return true_type if the type is a floating point, false_type otherwise.
+ */
+namespace helper {
+    // default case
+    template <typename>
+    struct is_floating_point_helper : public false_type {};
+    // possible types
+    template <>
+    struct is_floating_point_helper<float> : public true_type {};
+    template <>
+    struct is_floating_point_helper<double> : public true_type {};
+    template <>
+    struct is_floating_point_helper<long double> : public true_type {};
+} // helper namespace
+
+template <typename T>
+struct is_floating_point : 
+    public helper::is_floating_point_helper<typename remove_cv<T>::type> {};
+
+/**
+    Tests whether a type is a pointer.
+
+    @param T type to test.
+    @return true_type if the type is a pointer, false_type otherwise.
+ */
+namespace helper {
+    template <typename>
+    struct is_pointer_helper : public false_type {};
+
+    template <typename T>
+    struct is_pointer_helper<T*> : public true_type {};
+} // helper namespace
+
+template <typename T>
+struct is_pointer : 
+    public helper::is_pointer_helper<typename remove_cv<T>::type> {};
+
+/**
+    Tests whether a type is a member pointer.
+
+    @param T type to test.
+    @return true_type if the type is a member pointer, false_type otherwise.
+ */
+namespace helper {
+    template <typename>
+    struct is_member_pointer_helper : public false_type {};
+
+    template <typename T, typename C>
+    struct is_member_pointer_helper<T C::*> : public true_type {};
+} // helper namespace
+
+template <typename T>
+struct is_member_pointer : 
+    public helper::is_member_pointer_helper<typename remove_cv<T>::type> {};
+
+/**
+    Tests whether a type is a null pointer type.
+
+    @param T type to test.
+    @return true_type if the type is a null pointer type, false_type otherwise.
+ */
+namespace helper {
+    template <typename>
+    struct is_null_pointer_helper : public false_type {};
+
+    template <>
+    struct is_null_pointer_helper<nullptr_t> : public true_type {};
+} // helper namespace
+
+template <typename T>
+struct is_null_pointer : 
+    public helper::is_null_pointer_helper<typename remove_cv<T>::type> {};
+
+/**
+    Tests whether a type is an array.
+
+    @param T type to test.
+    @return true_type is the type is an array, false_type otherwise.
+ */
+template <typename T>
+struct is_array : public false_type {};
+
+template <typename T>
+struct is_array<T[]> : public true_type {};
+
+template <typename T, size_t N>
+struct is_array<T[N]> : public true_type {};
+
+/**
+    Tests whether a type is arithmetic, ie an integral or floating point builtin
+    type.
+
+    @param T type to test.
+    @return true_type if the type is arithmetic, false_type otherwise.
+ */
+template <typename T>
+struct is_arithmetic :
+    public integral_constant<bool, helper::meta_or<is_integral<T>,
+        is_floating_point<T>>::value>
+    {};
+
+/**
+    Tests whether a type is scalar.
+
+    @param T type to test.
+    @return true_type if the type is a scalar, false_type otherwise.
+ */
+template <typename T>
+struct is_scalar : public integral_constant<bool,
+    helper::meta_or<is_arithmetic<T>,
+        is_enum<T>,
+        is_pointer<T>,
+        is_member_pointer<T>,
+        is_null_pointer<T>>::value>
+    {};
+
+/**
+    Gives the extent of a known bounds array in the optional specified dimension
+    or 0 for any other type (including arrays of unknown bounds).
+
+    @param T type to test.
+    @param N dimension to test.
+    @return Size of T in dimension N.
+ */
+template <typename, unsigned = 0>
+struct extent : public integral_constant<size_t, 0> {};
+
+template <typename T, unsigned U, size_t S>
+struct extent<T[S], U> :
+    public integral_constant<size_t, U == 0 ? S : extent<T, U-1>::value> {};
+
+template <typename T, unsigned U>
+struct extent<T[], U> :
+    public integral_constant<size_t, U == 0 ? 0 : extent<T, U-1>::value> {};
+
+/**
+    Removes the extent from an array type. Does not act recursively, so
+    multidimensional arrays will become an array with dimension less one.
+    Non-array types are unchanged.
+
+    @param T type to convert.
+    @param X, if T is X[]/X[N], otherwise T.
+ */
+template <typename T>
+struct remove_extent { using type = T; };
+
+template <typename T>
+struct remove_extent<T[]> { using type = T; };
+
+template <typename T, size_t N>
+struct remove_extent<T[N]> { using type = T; };
+
+/**
+    Removes all extents and dimensions from an array type, leaving just the
+    base type. Non-array types are unchanged.
+
+    @param T type to modify.
+    @return X, if T is a (possibly multidimensional) array of type X, otherwise
+            T.
+ */
+template <typename T>
+struct remove_all_extents { using type = T; };
+
+template <typename T>
+struct remove_all_extents<T[]> : public remove_all_extents<T> {};
+
+template <typename T, size_t N>
+struct remove_all_extents<T[N]> : public remove_all_extents<T> {};
+
+// Constructions to test whether an array type has known or unknown bounds.
+
+namespace helper {
+    // Check whether an array has known bounds. This takes advantage of extent
+    // returning 0 for non-array types.
+    template <typename T>
+    struct is_array_known_bounds :
+        public integral_constant<bool, (extent<T>::value > 0)> {};
+
+    // Check whether an array has unknown bounds.
+    template <typename T>
+    struct is_array_unknown_bounds :
+        public meta_and<is_array<T>,
+            integral_constant<bool, (extent<T>::value == 0)>>
+    {};
+
+} // helper namespace
+
+/**
+    Tests whether a type is a function.
+
+    @param Res return type of the function.
+    @param Args arguments of the function.
+    @return true_type is the type is a function, false_type otherwise.
+ */
+template <typename>
+struct is_function : public false_type {};
+
+// Basic test
+template <typename Res, typename... Args>
+struct is_function<Res(Args...)> : public true_type {};
+// Need to check lvalue and rvalue references
+template <typename Res, typename... Args>
+struct is_function<Res(Args...) &> : public true_type {};
+template <typename Res, typename... Args>
+struct is_function<Res(Args...) &&> : public true_type {};
+// Also need to check for variadic function parameters (not just template
+// parameter pack).
+template <typename Res, typename... Args>
+struct is_function<Res(Args......)> : public true_type {};
+template <typename Res, typename... Args>
+struct is_function<Res(Args......) &> : public true_type {};
+template <typename Res, typename... Args>
+struct is_function<Res(Args......) &&> : public true_type {};
+// Repeat with const function
+template <typename Res, typename... Args>
+struct is_function<Res(Args...) const> : public true_type {};
+template <typename Res, typename... Args>
+struct is_function<Res(Args...) const &> : public true_type {};
+template <typename Res, typename... Args>
+struct is_function<Res(Args...) const &&> : public true_type {};
+template <typename Res, typename... Args>
+struct is_function<Res(Args......) const> : public true_type {};
+template <typename Res, typename... Args>
+struct is_function<Res(Args......) const &> : public true_type {};
+template <typename Res, typename... Args>
+struct is_function<Res(Args......) const &&> : public true_type {};
+// Repeat with volatile function
+template <typename Res, typename... Args>
+struct is_function<Res(Args...) volatile> : public true_type {};
+template <typename Res, typename... Args>
+struct is_function<Res(Args...) volatile &> : public true_type {};
+template <typename Res, typename... Args>
+struct is_function<Res(Args...) volatile &&> : public true_type {};
+template <typename Res, typename... Args>
+struct is_function<Res(Args......) volatile> : public true_type {};
+template <typename Res, typename... Args>
+struct is_function<Res(Args......) volatile &> : public true_type {};
+template <typename Res, typename... Args>
+struct is_function<Res(Args......) volatile &&> : public true_type {};
+// Repeat with const volatile function
+template <typename Res, typename... Args>
+struct is_function<Res(Args...) const volatile> : public true_type {};
+template <typename Res, typename... Args>
+struct is_function<Res(Args...) const volatile &> : public true_type {};
+template <typename Res, typename... Args>
+struct is_function<Res(Args...) const volatile &&> : public true_type {};
+template <typename Res, typename... Args>
+struct is_function<Res(Args......) const volatile> : public true_type {};
+template <typename Res, typename... Args>
+struct is_function<Res(Args......) const volatile &> : public true_type {};
+template <typename Res, typename... Args>
+struct is_function<Res(Args......) const volatile &&> : public true_type {};
+
+// Tests whether a type is referenceable.
+// Returns true_type if the type is referenceable, false_type otherwise.
+namespace helper {
+    struct is_referenceable_helper {
+        using fail = void;
+        template<typename T>
+        static T& test(int);
+        template<typename T>
+        static fail test(...);
+    };
+
+    template<typename T>
+    struct is_referenceable : public integral_constant<bool,
+        !is_same<decltype(is_referenceable_helper::test<T>(0)),
+        is_referenceable_helper::fail>::value> {};
+} // helper namesapce
+
+/**
+    Tests whether the type is a union. Uses the compiler in-built function
+    __is_union.
+
+    @param T type to test.
+    @return true_type for a union, false_type otherwise.
+ */
+template <typename T>
+struct is_union : public integral_constant<bool, __is_union(T)> {};
+
+/**
+    Tests whether a type is a non-union class (or struct). Uses the compiler
+    in-built function __is_class.
+
+    @param T type to test.
+    @return true_type if the type is a class, false_type otherwise.
+ */
+template <typename T>
+struct is_class : public integral_constant<bool, __is_class(T)> {};
+
+/**
+    Tests whether a type is an object.
+
+    @param T type to test.
+    @return true_type if the type is an object, false_type otherwise.
+ */
+template<class T>
+struct is_object : integral_constant<bool, is_scalar<T>::value ||
+    is_array<T>::value || is_union<T>::value || is_class<T>::value> {};
+
+/**
+    Tests whether a type is an lvalue reference.
+
+    @param T type to test.
+    @return true_type if the type is an lvalue reference, false_type otherwise.
+ */
+template<class T>
+struct is_lvalue_reference : false_type {};
+
+template<class T>
+struct is_lvalue_reference<T&> : true_type {};
+
+/**
+    Tests whether a type is an rvalue reference.
+
+    @param T type to test.
+    @return true_type if the type is an rvalue reference, false_type otherwise.
+ */
+template<class T>
+struct is_rvalue_reference : false_type {};
+
+template<class T>
+struct is_rvalue_reference<T&&> : true_type {};
+
+/**
+    Tests whether a type is a reference.
+
+    @param T type to test.
+    @return true_type if the type is a reference, false_type otherwise.
+ */
+template<class T>
+struct is_reference : public helper::meta_or<is_lvalue_reference<T>, is_rvalue_reference<T>> {};
+
+/**
+    Removes reference, if possible. Otherwise gives the original type.
+
+    @param T type to adjust.
+    @return Type referenced by T, or T if T is not a reference.
+ */
+template<typename T>
+struct remove_reference { using type = T; };
+
+template<typename T>
+struct remove_reference<T&> { using type = T; };
+
+template<typename T>
+struct remove_reference<T&&> { using type = T; };
+
+/**
+    Adds a reference to an lvalue, if possible.
+
+    @param T type to modify.
+    @return T as an lvalue reference.
+ */
+template<typename T> struct add_lvalue_reference;
+
+namespace helper {
+    template<typename T, bool = is_referenceable<T>::value>
+    struct add_lvalue_reference_helper { using type = T; };
+
+    template<typename T>
+    struct add_lvalue_reference_helper<T, true> { using type = T&; };
+} // helper namespace
+
+template<typename T>
+struct add_lvalue_reference : public helper::add_lvalue_reference_helper<T> {};
+
+/**
+    Adds a reference to an rvalue, if possible.
+
+    @param T type to modify.
+    @return T as an rvalue reference.
+ */
+template<typename T> struct add_rvalue_reference;
+
+namespace helper {
+    template<typename T, bool = is_referenceable<T>::value>
+    struct add_rvalue_reference_helper { using type = T; };
+
+    template<typename T>
+    struct add_rvalue_reference_helper<T, true> { using type = T&&; };
+} // helper namespace
+
+template<typename T>
+struct add_rvalue_reference : public helper::add_rvalue_reference_helper<T> {};
+
+// Matches the cv qualifiers of a type to a given type.
+namespace helper {
+    template <typename U, bool = false, bool = false>
+    struct cv_helper { using type = U; };
+
+    template <typename U>
+    struct cv_helper<U, true, false> { using type = const U; };
+
+    template <typename U>
+    struct cv_helper<U, false, true> { using type = volatile U; };
+
+    template <typename U>
+    struct cv_helper<U, true, true> { using type = const volatile U; };
+
+    template <typename T, typename U>
+    struct match_cv { using type = typename cv_helper<U, is_const<T>::value, is_volatile<T>::value>::type; };
+} // helper namespace
+
+/**
+    Turns a signed integral type into its equiavlent unsigned version. Does
+    nothing to unsigned integral types. For enums, gives the smallest
+    signed integer type with the same size as the underlying enum type.
+    Undefined for bools or non-intergal/enum types.
+
+    @param T type to convert.
+    @return Unsigned version of T.
+ */
+template<typename T> struct make_unsigned;
+
+namespace helper {
+    // Default case - do nothing to the type (covers already unsigned cases and
+    // bool).
+    template<typename T>
+    struct make_unsigned_helper { using type = T; };
+
+    // Specialiasations for each integral type.
+    template<>
+    struct make_unsigned_helper<char> { using type = unsigned char; };
+    template<>
+    struct make_unsigned_helper<signed char> { using type = unsigned char; };
+    template<>
+    struct make_unsigned_helper<short> { using type = unsigned short; };
+    template<>
+    struct make_unsigned_helper<int> { using type = unsigned int; };
+    template<>
+    struct make_unsigned_helper<long> { using type = unsigned long; };
+    template<>
+    struct make_unsigned_helper<long long> { using type = unsigned long long; };
+
+    // Select between integral and enum types. This case covers neither. The
+    // standard behaviour is undefined.
+    template<typename T, bool = is_integral<T>::value, bool = is_enum<T>::value>
+    struct make_unsigned_selector {};
+
+    // Integral case.
+    template<typename T>
+    struct make_unsigned_selector<T, true, false> {
+    private:
+        // Get the type with cv qualifiers removed.
+        using no_cv_type = typename helper::make_unsigned_helper<typename remove_cv<T>::type>::type;
+    public:
+        // Readd the appropriate cv qualifiers.
+        using type = typename helper::match_cv<T, no_cv_type>::type;
+    };
+
+    // Enum case
+    template<typename T>
+    struct make_unsigned_selector<T, false, true> {
+    private:
+        // Get the type with cv qualifiers removed.
+        using type_l = typename conditional<sizeof(T) <= sizeof(unsigned long), unsigned long, unsigned long long>::type;
+        using type_i = typename conditional<sizeof(T) <= sizeof(unsigned int), unsigned int, type_l>::type;
+        using type_s = typename conditional<sizeof(T) <= sizeof(unsigned short), unsigned short, type_i>::type;
+        using no_cv_type = typename conditional<sizeof(T) <= sizeof(unsigned short), unsigned char, type_s>::type;
+    public:
+        // Readd the appropriate cv qualifiers.
+        using type = typename helper::match_cv<T, no_cv_type>::type;
+    };
+} // helper namespace
+
+// Primary definition
+template<typename T>
+struct make_unsigned : public helper::make_unsigned_selector<T> {};
+
+// Resolve some circular dependancies with utility.h with forward declarations.
+namespace helper {
+    template<class T>
+    typename add_rvalue_reference<T>::type declval() noexcept;
+    template <typename T>
+    typename remove_reference<T>::type&& move(T&& t) noexcept;
+} // helper namespace
+
+/**
+    Tests whether one type can be converted to another.
+
+    @param From initial type
+    @param To final type
+    @return true_type if From can be converted to To, false_type otherwise.
+ */
+template <typename From, typename To>
+struct is_convertible;
+
+namespace helper {
+    // The conversion needs to fail if To is an array or function. If From is
+    // void, To must also be void.
+    template <typename From, typename To,
+        bool = meta_or<is_void<From>, is_function<To>, is_array<To>>::value>
+    struct is_convertible_helper {
+        using type = is_void<To>;
+    };
+
+    // Here we do the actual work. The test is based on calling a function that
+    // takes a To but we give it a From. Function overload resolution picks
+    // between the results.
+    template <typename From, typename To>
+    struct is_convertible_helper<From, To, false>
+    {
+    private:
+        template <typename T>
+        static void test_aux(T);
+
+        template <typename F, typename T,
+            typename = decltype(test_aux<T>(declval<F>()))>
+        static true_type test(int);
+
+        template <typename, typename>
+        static false_type test(...);
+
+    public:
+        using type = decltype(test<From, To>(0));
+    };
+
+} // helper namespace
+
+template <typename From, typename To>
+struct is_convertible : public helper::is_convertible_helper<From, To>::type {};
+
+/**
+    Tests whether one type is a base type of another. Ignores cv qualifiers.
+    Definitely false if one of the types is not a class. True if both types are
+    the same. Uses the compiler inbuilt test.
+
+    @param Base base class to test.
+    @param Derived class to test.
+    @return true_type if Derived is derived from Base, false_type otherwise.
+ */
+template <typename Base, typename Derived>
+struct is_base_of :
+    public integral_constant<bool, __is_base_of(Base, Derived)> {};
+
+/**
+    Tests whether an object has a destructor. Functions, unbounded arrays and
+    void are definitely false. References and scalars are definitely true.
+
+    @param T type to test.
+    @return true_type if T is destructible, false_type otherwise.
+ */
+namespace helper {
+    // Actual test.
+    template <typename T>
+    struct is_destructible_helper_test {
+    private:
+        template<typename T1, typename = decltype(declval<T1&>().~T1())>
+        static true_type test(int);
+
+        template<typename>
+        static false_type test(...);
+    public:
+        using type = decltype(test<T>(0));
+    };
+
+    // Test whether type is any of the special cases.
+    template <typename T,
+        bool = meta_or<is_void<T>, is_array_unknown_bounds<T>, is_function<T>>::value,
+        bool = meta_or<is_reference<T>, is_scalar<T>>::value>
+    struct is_destructible_helper;
+
+    // Special types that are definitely false.
+    template <typename T>
+    struct is_destructible_helper<T, true, false> : public false_type {};
+
+    // Special types that are definitely true.
+    template <typename T>
+    struct is_destructible_helper<T, false, true> : public true_type {};
+
+    // Everything else. Run the test.
+    template <typename T>
+    struct is_destructible_helper<T, false, false> :
+        public is_destructible_helper_test<T>::type {};
+} // helper namespace
+
+template <typename T>
+struct is_destructible : public helper::is_destructible_helper<T> {};
+
+/**
+    Tests whether a given type has a default constructor. The implementation is
+    complicated by having to deal with the case of arrays. An array is not
+    default constructible if it has unknown bounds. If it has known bounds, it
+    is default constructible if the underlying type is. Also, void types are not
+    default constructible.
+
+    @param T type to test.
+    @return true_type if T is default_constructible, false_type otherwise.
+ */
+namespace helper {
+    // The actual test.
+    template <typename T>
+    struct is_default_constructible_helper_test {
+    private:
+        template<typename T1, typename = decltype(T1())>
+        static true_type test(int);
+
+        template<typename T1>
+        static false_type test(...);
+    public:
+        using type = decltype(test<T>(0));
+    };
+
+    // Need to check whether the type is array or void.
+    template <typename T, bool = is_array<T>::value, bool = is_void<T>::value>
+    struct is_default_constructible_helper;
+
+    // Simple case, do the test.
+    template <typename T>
+    struct is_default_constructible_helper<T, false, false> :
+        public is_default_constructible_helper_test<T>::type {};
+
+    // Void case, definitely false.
+    template <typename T>
+    struct is_default_constructible_helper<T, false, true> :
+        public false_type {};
+
+    // Complicated test. Only true if array is bounded and the
+    // underlying type passes the test.
+    template <typename T>
+    struct is_default_constructible_helper<T, true, false> :
+        public meta_and<is_array_known_bounds<T>,
+            typename is_default_constructible_helper_test<typename remove_all_extents<T>::type>::type>
+    {};
+}
+
+template <typename T>
+struct is_default_constructible :
+    public helper::is_default_constructible_helper<T> {};
+
+/**
+    Tests whether an object of the given type can be constructed with the
+    given arguments. The implementation of this apparently must be very
+    complicated. The complication seems to arise from the different ways a
+    single argument can be used for a constructor. Try working from the end
+    upwards to understand.
+
+    @param T type to test.
+    @return true_type if the object can be constructed, false_type otherwise.
+ */
+namespace helper {
+    // Check for direct conversion between types.
+    template <typename From, typename To>
+    struct is_static_castable_helper {
+    private:
+        template<typename From1, typename To1,
+            typename = decltype(static_cast<To1>(declval<From1>()))>
+        static true_type test(int);
+
+        template<typename, typename>
+        static false_type test(...);
+
+    public:
+        using type = decltype(test<From, To>(0));
+    };
+
+    template <typename From, typename To>
+    struct is_static_castable :
+        public is_static_castable_helper<From, To>::type {};
+
+    // Checking the non reference case.
+    template <typename T, typename Arg>
+    struct is_direct_constructible_helper {
+    private:
+        template<typename T1, typename Arg1, typename = decltype(::new T1(declval<Arg>()))>
+        static true_type test(int);
+
+        template<typename, typename>
+        static false_type test(...);
+
+    public:
+        using type = decltype(test<T, Arg>(0));
+    };
+    
+    template <typename T, typename Arg>
+    struct is_direct_constructible_new_safe :
+        public meta_and<is_destructible<T>,
+            typename is_direct_constructible_helper<T, Arg>::type>
+    {};
+
+    // Check whether we have a downcasting reference.
+    template <typename From, typename To,
+        bool = meta_or<is_void<From>, is_function<From>>::value>
+    struct is_base_to_derived_ref;
+
+    template <typename From, typename To>
+    struct is_base_to_derived_ref<From, To, true> : public false_type {};
+
+    template <typename From, typename To>
+    struct is_base_to_derived_ref<From, To, false> {
+    private:
+        using From_strip =
+            typename remove_cv<typename remove_reference<From>::type>::type;
+        using To_strip =
+            typename remove_cv<typename remove_reference<To>::type>::type;
+    public:
+        using type = bool;
+        static constexpr type value =
+            meta_and<meta_not<is_same<From_strip, To_strip>>,
+                is_base_of<From_strip, To_strip>>::value;
+    };
+
+    // Check whether we're making an lvalue reference from an rvalue reference.
+    template <typename From, typename To,
+        bool = meta_and<is_lvalue_reference<From>, is_rvalue_reference<To>>::value>
+    struct is_lvalue_to_rvalue_ref;
+
+    template <typename From, typename To>
+    struct is_lvalue_to_rvalue_ref<From, To, false> : public false_type {};
+
+    template <typename From, typename To>
+    struct is_lvalue_to_rvalue_ref<From, To, true> {
+    private:
+        using From_strip =
+            typename remove_cv<typename remove_reference<From>::type>::type;
+        using To_strip =
+            typename remove_cv<typename remove_reference<To>::type>::type;
+    public:
+        using type = bool;
+        static constexpr type value = 
+            meta_and<meta_not<is_function<From_strip>>,
+                meta_or<is_same<From_strip, To_strip>,
+                    is_base_of<To_strip, From_strip>>>::value;
+    };
+
+    // Dealing with constructing a reference.
+    template <typename T, typename Arg>
+    struct is_direct_constructible_ref_cast :
+        public meta_and<is_static_castable<Arg, T>,
+            meta_not<meta_or<is_base_to_derived_ref<Arg, T>,
+            is_lvalue_to_rvalue_ref<Arg, T>>>>
+    {};
+
+    // Testing whether we can construct from a single variable. Depends on
+    // whether we're constructing a reference or not?
+    template <typename T, typename Arg>
+    struct is_direct_constructible :
+        public conditional<is_reference<T>::value,
+            is_direct_constructible_ref_cast<T, Arg>,
+            is_direct_constructible_new_safe<T, Arg>>::type
+    {}; 
+
+    // Actual test for multiple arguments
+    template <typename T, typename... Args>
+    struct is_constructible_helper_test {
+    private:
+        template<typename T1, typename... Args1, typename = decltype(T1{declval<Args1>()...})>
+        static true_type test(int);
+
+        template<typename, typename...>
+        static false_type test(...);
+
+    public:
+        using type = decltype(test<T, Args...>(0));
+    };
+
+    // Multiple arguments
+    template <typename T, typename... Args>
+    struct is_constructible_helper :
+        public is_constructible_helper_test<T, Args...>::type {};
+
+    // One argument
+    template <typename T, typename Arg>
+    struct is_constructible_helper<T, Arg> :
+        public is_direct_constructible<T, Arg> {};
+
+    // Default construction
+    template <typename T>
+    struct is_constructible_helper<T> : public is_default_constructible<T> {};
+} // helper namespace
+
+template <typename T, typename... Args>
+struct is_constructible : public helper::is_constructible_helper<T, Args...> {};
+
+/**
+    Tests whether an object can be constructed with a nothrow defaualt
+    constructor.
+
+    @param T type to test.
+    @return true_type if the object can be nothrow default constructed,
+            false_type otherwise.
+ */
+namespace helper {
+    // Actual test
+    template <typename T>
+    struct is_nothrow_default_constructible_helper_test :
+        public integral_constant<bool, noexcept(T())> {};
+
+    // Need to test whether T is an array.
+    template <typename T, bool = is_array<T>::value>
+    struct is_nothrow_default_constructible_helper;
+
+    // Not an array, do the simple test.
+    template <typename T>
+    struct is_nothrow_default_constructible_helper<T, false> :
+        public is_nothrow_default_constructible_helper_test<T> {};
+
+    // Is an array, check it's bounded and then test the unbounded type.
+    template <typename T>
+    struct is_nothrow_default_constructible_helper<T, true> :
+        public meta_and<is_array_known_bounds<T>,
+            is_nothrow_default_constructible_helper_test<typename remove_all_extents<T>::type>>
+        {};
+} // helper namesapce
+
+template <typename T>
+struct is_nothrow_default_constructible :
+    public helper::meta_and<is_default_constructible<T>,
+        helper::is_nothrow_default_constructible_helper<T>>
+{};
+
+/**
+    Tests whether an object can be constructed with a nothrow constructor.
+
+    @param T type to test.
+    @return true_type if the object is nothrow constructible, false_type
+            otherwise.
+ */
+namespace helper {
+    // Explicit construction
+    template <typename T, typename... Args>
+    struct is_nothrow_constructible_helper :
+        public integral_constant<bool, noexcept(T(declval<Args>()...))> {};
+
+    // Implicit construction
+    template <typename T, typename Arg>
+    struct is_nothrow_constructible_helper<T, Arg> :
+        public integral_constant<bool, noexcept(static_cast<T>(declval<Arg>()))> {};
+
+    // Default construction
+    template <typename T>
+    struct is_nothrow_constructible_helper<T> :
+        public is_nothrow_default_constructible<T> {};
+} // helper namesapce
+
+template <typename T, typename... Args>
+struct is_nothrow_constructible :
+    helper::meta_and<is_constructible<T, Args...>,
+        helper::is_nothrow_constructible_helper<T, Args...>>::type
+    {};
+
+/**
+    Tests whether an object can be constructed by a move constructor
+    guaranteed not to throw. First checks if the object is move constructible,
+    then whether it is nothrow constructible.
+
+    @param T type to test.
+    @return true_type if the object is nothrow move constructible, false_type
+            otherwise.
+ */
+namespace helper {
+    // Check whether type can be moved.
+    template <typename T, bool = is_referenceable<T>::value>
+    struct is_nothrow_move_constructible_helper;
+
+    // Can't be moved, failure.
+    template <typename T>
+    struct is_nothrow_move_constructible_helper<T, false> :
+        public false_type {};
+
+    // Can be moved, check if it's nothrow constructible from an rvalue
+    // reference.
+    template <typename T>
+    struct is_nothrow_move_constructible_helper<T, true> :
+        public is_nothrow_constructible<T, T&&> {};
+} // helper namespace
+
+template <typename T>
+struct is_nothrow_move_constructible :
+    public helper::is_nothrow_move_constructible_helper<T> {};
+
+/**
+    Tests whether an object can be assigned by another.
+
+    @param T type to be assigned.
+    @param U type used for assignment.
+    @return true_type if T is assignable by U, false_type otherwise.
+ */
+namespace helper {
+    template <typename T, typename U>
+    struct is_assignable_helper {
+    private:
+        template <typename T1, typename U1,
+            typename = decltype(declval<T1>() = declval<U1>())>
+        static true_type test(int);
+
+        template <typename, typename>
+        static false_type test(...);
+    public:
+        using type = decltype(test<T, U>(0));
+    };
+} // helper namespace
+
+template <typename T, typename U>
+struct is_assignable : public helper::is_assignable_helper<T, U>::type {};
+/**
+    Tests whether an object can be assigned by another guaranteeing not to throw
+    an exception.
+
+    @param T type to be assigned.
+    @param U type used for assignment.
+    @return true_type if T is nothrow assignable by U, false_type otherwise.
+ */
+namespace helper {
+    template <typename T, typename U>
+    struct is_nothrow_assignable_helper :
+        public integral_constant<bool, noexcept(declval<T>() = declval<U>())>
+    {};
+} // helper namespace
+
+template <typename T, typename U>
+struct is_nothrow_assignable :
+    public helper::meta_and<is_assignable<T, U>,
+        helper::is_nothrow_assignable_helper<T, U>>
+    {};
+
+/**
+    Tests whether an object can be assigned to with a move assignment that
+    doesn't throw. First checks if the type is referencable and if it is, checks
+    if it's nothrow assignable.
+
+    @param T type to test.
+    @return true_type if T is nothrow move assignable, false_type otherwise.
+ */
+namespace helper {
+    // Check whether the type is referenceable.
+    template <typename T, bool = is_referenceable<T>::value>
+    struct is_nothrow_move_assignable_helper;
+
+    // Not referenceable, definitely can't be move assigned.
+    template <typename T>
+    struct is_nothrow_move_assignable_helper<T, false> : public false_type {};
+
+    // Referenceable, so check whether it's nothrow assignable.
+    template <typename T>
+    struct is_nothrow_move_assignable_helper<T, true> :
+        public is_nothrow_assignable<T&, T&&> {};
+} // helper namespace
+
+template <typename T>
+struct is_nothrow_move_assignable :
+    public helper::is_nothrow_move_assignable_helper<T> {};
+
+/**
+    For a normal type, gives a pointer to the type. For a reference, removes the
+    reference and gives a pointer to the base type.
+
+    @param T type to modify.
+    @return Pointer to T.
+ */
+namespace helper {
+    // Default case, give a pointer to T.
+    template <typename T, bool = is_function<T>::value>
+    struct add_pointer_helper { using type = T*; };
+
+    // Function types, I'm not pretending to know exactly what all this is.
+    template <typename T>
+    struct add_pointer_helper<T, true> { using type = T; };
+
+    template <typename T, typename... Args>
+    struct add_pointer_helper<T(Args...), true> { using type = T(*)(Args...); };
+
+    template <typename T, typename... Args>
+    struct add_pointer_helper<T(Args..., ...), true> {
+        using type = T(*)(Args..., ...);
+    };
+} // helper namespace
+
+template <typename T>
+struct add_pointer :
+    helper::add_pointer_helper<typename remove_reference<T>::type> {};
+
+/**
+    For normal types, provides the dereferenced type with cv qualifiers removed.
+    For arrays, provides a pointer to the base type. For functions, provides a
+    fucntion pointer.
+
+    @param T type to convert.
+    @return Base type of T.
+ */
+namespace helper {
+    // Check whether the type is a function or an array (it can't be both).
+    template <typename T, bool = is_array<T>::value,
+        bool = is_function<T>::value>
+    struct decay_helper {};
+
+    // Normal case. Remove cv qualifiers.
+    template <typename T>
+    struct decay_helper<T, false, false> : public remove_cv<T> {};
+
+    // Array case. Provide a pointer to the base type.
+    template <typename T>
+    struct decay_helper<T, true, false> {
+        using type = typename remove_extent<T>::type*;
+    };
+
+    // Function case. Provide a function pointer.
+    template <typename T>
+    struct decay_helper<T, false, true> : public add_pointer<T> {};
+
+} // helper namespace
+
+template <typename T>
+struct decay :
+    public helper::decay_helper<typename remove_reference<T>::type> {};
+
+// Forward declarations
+template <typename T>
+class reference_wrapper;
+
+namespace helper {
+    // Adds a reference to a type when given a reference_wrapper round a type.
+    // Type is unchanged if the type is not a reference wrapper.
+    template <typename T>
+    struct strip_reference_wrapper {
+        using type = T;
+    };
+
+    template <typename T>
+    struct strip_reference_wrapper<reference_wrapper<T>> {
+        using type = T&;
+    };
+
+    // Strips a reference wrapper from a type and performs the normal decay
+    // transformation.
+    template <typename T>
+    struct decay_and_strip {
+        using type =
+            typename strip_reference_wrapper<typename decay<T>::type>::type;
+    };
+}
+
+/**
+    Provides the common type that all the template arguments can be converted
+    to, if it exists.
+
+    @param T... types to convert.
+    @return Common type for all T, or undefined.
+ */
+// Forward declaration
+template <typename...>
+struct common_type;
+
+namespace helper {
+    // Carries out the actual test.
+    template <typename T1, typename T2>
+    using common_test =
+        decltype(false ? declval<T1>() : declval<T2>());
+
+    // Two parameters, perform the test.
+    template <typename T1, typename T2, typename = void>
+    struct common_type_helper {};
+
+    template <typename T1, typename T2>
+    struct common_type_helper<T1, T2, void_t<common_test<T1, T2>>> :
+        public decay<common_test<T1, T2>> {};
+
+    // Check for success on recursion.
+    template <typename Void, typename T1, typename T2, typename... TN>
+    struct common_type_recursion {};
+
+    template <typename T1, typename T2, typename... TN>
+    struct common_type_recursion<void_t<typename common_type<T1, T2>::type>,
+        T1, T2, TN...> :
+        public common_type<typename common_type<T1, T2>::type, TN...> {};
+
+} // helper namespace
+
+// Zero parameter case, undefined.
+template <typename...>
+struct common_type {};
+
+// One paramter case, use the decay type of that parameter.
+template <typename T>
+struct common_type<T> : public decay<T> {};
+
+// Two parameter case. Perform the test.
+template <typename T1, typename T2>
+struct common_type<T1, T2> :
+    public helper::common_type_helper<typename decay<T1>::type, typename decay<T2>::type>
+{};
+
+// Three parameter case, recursively apply the operation, checking for success
+// each time.
+template <typename T1, typename T2, typename... TN>
+struct common_type<T1, T2, TN...> :
+    public helper::common_type_recursion<void, T1, T2, TN...> {};
+
+} // NMSP namesapce
+#endif /* TYPE_TRAITS_H */

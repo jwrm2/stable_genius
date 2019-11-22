@@ -1,0 +1,95 @@
+#ifndef NEW_H
+#define NEW_H
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+#include <stddef.h>
+
+#include "../include/exception"
+
+namespace NMSP {
+
+/**
+    Type used as a tag to select the nothrow new overloads.
+ */
+struct nothrow_t { explicit nothrow_t() = default; };
+extern const nothrow_t nothrow;
+
+/**
+    Exception thrown when new fails to allocate.
+ */
+class bad_alloc : public exception {
+public:
+    /**
+        Default constructor.
+     */
+    bad_alloc() noexcept {}
+
+    /**
+        Virtual destructor.
+     */
+    virtual ~bad_alloc() noexcept;
+
+    /**
+        Gives an explanatory string.
+
+        @return String describing this exception.
+     */
+    const char* what() const noexcept;
+};
+
+/**
+    Exception thrown when a bad array size is passed to new.
+ */
+class bad_array_new_length : public bad_alloc {
+public:
+    /**
+        Default constructor.
+     */
+    bad_array_new_length() noexcept {}
+
+    /**
+        Virtual destructor.
+     */
+    virtual ~bad_array_new_length() noexcept;
+
+    /**
+        Gives an explanatory string.
+
+        @return String describing this exception.
+     */
+    const char* what() const noexcept;
+};
+
+} // end NMSP namespace
+
+#ifndef HOSTED_TEST /* Use the custom versions if not hosted. */
+/**
+    Allocates storage on the heap.
+
+    @param n Number of bytes to allocate.
+    @param ptr Location of the memory, for placement new.
+    @return Pointer to the storage, or nullptr on failure.
+ */
+void* operator new(size_t n);
+void* operator new(size_t n, const NMSP::nothrow_t&) noexcept;
+void* operator new(size_t n, void* ptr) noexcept;
+void* operator new[](size_t n);
+void* operator new[](size_t n, const NMSP::nothrow_t&) noexcept;
+void* operator new[](size_t n, void* ptr) noexcept;
+
+/**
+    Deletes storage previously allocated by new.
+
+    @param p Location of storage.
+  */
+void operator delete(void* p);
+void operator delete[](void* p);
+#else /* HOSTED_TEST Use the system versions if hosted. */
+#include <new>
+#endif /* HOSTED_TEST */
+
+#endif /* NEW_H */

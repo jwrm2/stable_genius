@@ -1,0 +1,151 @@
+#ifndef CSTRING_H
+#define CSTRING_H
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+#include <stddef.h>
+
+namespace NMSP {
+
+/**
+    Definition of a null pointer macro.
+ */
+#ifndef NULL
+#define NULL nullptr
+#endif /* NULL */
+
+/**
+    Concatenates null terminated C strings.
+
+    @param dest Destination C string, must be large enough to hold the result.
+    @param src Source C string.
+    @return A null terminated string containing the contents of dest (without
+            the null) followed by the contents of src.
+ */
+char* strcat(char* dest, const char* src);
+
+/**
+    Copies a null terminated C string from src to dest.
+
+    @param dest Destination string, must be large enough to hold the result.
+    @param src Source string.
+    @return A null terminated string containing the contents of src.
+ */
+char* strcpy(char* dest, const char* src);
+
+/**
+    Copies count characters from src to dest. If count is shorter than src, the
+    result will not be null temrinated. If src is shorter than count, dest will
+    be padded with additional null characters.
+
+    @param dest Destination string, must be large enough to hold the result.
+    @param src Source string.
+    @param count Number of characters to copy.
+    @return A C string containing the contents of src.
+ */
+char* strncpy(char* dest, const char* src, size_t count);
+
+/**
+    Gives the length of a null terminated string (not including the termination
+    character).
+
+    @param str String to use.
+    @return The length.
+ */
+extern "C" // libgcc links to this function
+size_t strlen(const char* str);
+
+/**
+    Compares two null terminated C strings lexicographically.
+
+    @param lhs, rhs C strings to compare.
+    @return Less than 0 if lhs < rhs, 0 if lhs == rhs and greater than 0 if
+            lhs > rhs.
+ */
+int strcmp(const char* lhs, const char* rhs);
+
+/**
+    Compares at most the first count characters of two null terminated C strings
+    lexicographically.
+
+    @param lhs, rhs C strings to compare.
+    @param count Maximum number of characters to compare.
+    @return Less than 0 if lhs < rhs, 0 if lhs == rhs and greater than 0 if
+            lhs > rhs.
+ */
+int strncmp(const char* lhs, const char* rhs, size_t count);
+
+/**
+    Gets an implementation defined string corresponding to the error indicated
+    by the parameter. Error numbers are defined in cerrno.h. The standard
+    requires this to return a char*, but forbids the user from changing the
+    contents. Weird. I'll just return a const char* as it's easier.
+
+    @param errnum System error number.
+    @return String describing the error.
+ */
+const char* strerror(int errnum);
+
+/**
+    Finds the first occurrence of the byte value ch in the first count bytes of
+    the sequence beginning at the address provided. Returns NULL if no match is
+    found, including if count is zero. ch and pointers are converted to unsigned
+    chars.
+
+    @param ptr Address to startr searching.
+    @param ch Byte to look for.
+    @param count Maximum number of bytes to search.
+    @return Pointer to the first occurrence of ch, or NULL.
+ */
+const void* memchr(const void* ptr, int ch, size_t count);
+void* memchr(void* ptr, int ch, size_t count);
+
+/**
+    Compares the first count bytes starting from two pointers lexicographically.
+    The bytes are interpreted as unsigned chars. Compares equal if count is 0.
+
+    @param lhs, rhs Locations to compare.
+    @param count Number of bytes to compare.
+    @return Less than 0 if lhs < rhs, 0 if lhs == rhs and greater than 0 if
+            lhs > rhs.
+ */
+int memcmp(const void* lhs, const void* rhs, size_t count);
+
+/**
+    Copies the contents of one buffer to another as raw bytes.
+
+    @param dest Pointer to the start of the destination.
+    @param src Pointer to the start of the source.
+    @param count Number of bytes to copy.
+    @return Pointer to the start of the destination.
+ */
+void* memcpy(void* dest, const void* src, size_t count);
+
+/**
+    Moves the contents of one buffer to another as raw bytes. Behaves correctly
+    if the ranges overlap, by first copying to a temporary array.
+
+    @param dest Pointer to the start of the destination.
+    @param src Pointer to the start of the source.
+    @param count Number of bytes to copy.
+    @return Pointer to the start of the destination.
+ */
+void* memmove(void* dest, const void* src, size_t count);
+
+/**
+    Sets count bytes beginning at dest to value, interpreted as an unsigned
+    char.
+
+    @param dest Pointer to the start of the region to be set.
+    @param value Value to set the bytes to. Converted to an unsigned char.
+    @param count Number of bytes ot set.
+    @return dest.
+ */
+void* memset(void* dest, int value, size_t count);
+
+} // NMSP namespace
+
+#endif /* CSTRING_H */

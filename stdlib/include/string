@@ -1,0 +1,2769 @@
+#ifndef STRING_H
+#define STRING_H
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+#include <stddef.h>
+
+#include "../include/algorithm"
+#include "../include/cstdio"
+#include "../include/cstring"
+#include "../include/cwchar"
+#include "../include/initializer_list"
+#include "../include/iterator"
+#include "../include/istream"
+#include "../include/memory"
+#include "../include/ostream"
+
+#ifdef HOSTED_TEST
+#include <iostream>
+#endif /* HOSTED_TEST */
+
+namespace NMSP {
+
+// Forward declarations
+using streamoff = signed long long;
+template <typename>
+class fpos;
+using streampos = fpos<mbstate_t>;
+
+/**
+    Provides a generic interface for different character types. The
+    unspecialised version should not be used.
+ */
+template <typename CharT>
+class char_traits {};
+
+/**
+    Specialisation of char_traits for char.
+ */
+template <>
+class char_traits<char> {
+public:
+    /**
+        The character type of this specialisation.
+     */
+    using char_type = char;
+    /**
+        An integer that can hold all the possible values of char and EOF.
+     */
+    using int_type = int;
+    /**
+        A type that can represent the maximum possible file size. Used to
+        represent offsets from stream positions.
+     */
+    using off_type = streamoff;
+    /**
+        A type that can represent the absolute position in a stream or file.
+     */
+    using pos_type = streampos;
+    /**
+        A type that can represent the conversion state of a multibyte character.
+     */
+    using state_type = mbstate_t;
+
+    /**
+        Assigns a value to a character or C string.
+
+        @param r Character to assign to.
+        @param a Value to assign.
+        @param p C string to assign to.
+        @param count Number of characters in the string to assign to.
+        @return The C string that was assigned to.
+     */
+    static void assign(char_type& r, const char_type& a);
+    static char_type* assign(char_type* p, size_t count, char_type a);
+
+    /**
+        Tests whether two characters are equal.
+
+        @param a, b Characters to compare.
+        @return True if a and b are equal, false otherwise.
+     */
+    static constexpr bool eq(char_type a, char_type b) noexcept
+    {
+        return a == b;
+    }
+
+    /**
+        Tests whether one character is less than another.
+
+        @param a, b Characters to compare.
+        @return True if a is less than b, false otherwise.
+     */
+    static constexpr bool lt(char_type a, char_type b) noexcept
+    {
+        return a < b;
+    }
+
+    /**
+        Moves count characters from the source to the destination. Behaves
+        correctly if the ranges overlap.
+
+        @param dest Location to move characters to.
+        @param src Location to get charcters from.
+        @param count Number of characters to copy.
+        @return Pointer to the destination.
+     */
+    static char_type* move(char_type* dest, const char_type* src, size_t count);
+
+    /**
+        Copies count characters from the source to the destination. Behaviour is
+        undefined if the ranges overlap.
+
+        @param dest Location to move characters to.
+        @param src Location to get charcters from.
+        @param count Number of characters to copy.
+        @return Pointer to the destination.
+     */
+    static char_type* copy(char_type* dest, const char_type* src, size_t count);
+
+    /**
+        Lexicographically compares the first count characters of two C strings.
+        The C strings may contain null characters and the comparison will
+        continue regardless until count characters have been compared. Returns 0
+        (equal) if count is 0.
+
+        @param s1, s2 C strings to compare.
+        @param count Number of characters to compare.
+        @return Less than 0 if s1 < s2, 0 if s1 == s2 and greater than 0 if
+                s1 > s2.
+     */
+    static int compare(const char_type* s1, const char_type* s2, size_t count);
+
+    /**
+        Finds the length (number of characters) in a null terminated C string.
+        Does not include the termination character.
+
+        @param s A null terminated C string.
+        @return Length of s.
+     */
+    static size_t length(const char_type* s);
+
+    /**
+        Finds the first occurrence of the character ch in the first count
+        characters of the C string p. Returns NULL if the character is not
+        found.
+
+        @param p C string to search.
+        @param count Number of characters to search.
+        @param ch Character to search for.
+        @return Pointer to the first occurrence of ch in s.
+     */
+    static const char_type* find(const char_type* p, size_t count,
+        const char_type& ch);
+
+    /**
+        Converts the given int_type value to a char_type value.
+
+        @param c Value to convert.
+        @return c as a char_type.
+     */
+    static constexpr char_type to_char_type(int_type c) noexcept
+    {
+        return static_cast<char_type>(c);
+    }
+
+    /**
+        Converts the given char_type value to an int_type value.
+
+        @param c Value to convert.
+        @return c as an int_type.
+     */
+    static constexpr int_type to_int_type(char_type c) noexcept
+    {
+        return static_cast<int_type>( static_cast<unsigned char>(c));
+    }
+
+    /**
+        Compares the values of two int_types.
+
+        @param c1, c2 Values to compare.
+        @return True if the values are equal, false otherwise.
+     */
+    static constexpr bool eq_int_type(int_type c1, int_type c2) noexcept
+    {
+        return c1 == c2;
+    }
+
+    /**
+        Gives the EOF (end of file) value. Also interpreted as an int_type
+        value without a corresponding valid char_type value.
+
+        @return EOF value.
+     */
+    static constexpr int_type eof() noexcept
+    {
+        return EOF;
+    }
+
+    /**
+        Checks whether an int_type value is equal to eof().
+
+        @param e Value to check.
+        @return e if e is not eof(), some other non-eof value (0) if e is eof().
+     */
+    static constexpr int_type not_eof(int_type e) noexcept
+    {
+        return (e == eof() ? 0 : e);
+    }
+};
+
+/**
+    Provides a dynamic store for a character sequence.
+
+    @param CharT type of character to use.
+    @param Traits type for the character type.
+    @param Allocator for the character type.
+ */
+template <typename CharT, typename Traits = char_traits<CharT>,
+    typename Allocator = allocator<CharT>>
+class basic_string {
+public:
+    /**
+        The type of the traits class.
+     */
+    using traits_type = Traits;
+    /**
+        Type of the inidividual characters in the sequence.
+     */
+    using value_type = CharT;
+    /**
+        Type of the allocator.
+     */
+    using allocator_type = Allocator;
+    /**
+        An unsigned integer type, provided by the allocator.
+     */
+    using size_type = typename allocator_traits<allocator_type>::size_type;
+    /**
+        A pointer difference type, provided by the allocator.
+     */
+    using difference_type = 
+        typename allocator_traits<allocator_type>::difference_type;
+    /**
+        Type of a reference to a character.
+     */
+    using reference = value_type&;
+    /**
+        Type of a const reference to a character.
+     */
+    using const_reference = const value_type&;
+    /**
+        Type of a pointer to a character, provided by the allocator.
+     */
+    using pointer = typename allocator_traits<allocator_type>::pointer;
+    /**
+        Type of a const pointer to a character, provided by the allocator.
+     */
+    using const_pointer = 
+        typename allocator_traits<allocator_type>::const_pointer;
+    /**
+        Type of an iterator for accessing the elements.
+     */
+    using iterator = helper::normal_iterator<pointer, basic_string>;
+    /**
+        Type of a const iterator for accessing the elements.
+     */
+    using const_iterator = helper::normal_iterator<const_pointer, basic_string>;
+    /**
+        Type of an iterator for accessing the elements in reverse order.
+     */
+    using reverse_iterator = NMSP::reverse_iterator<iterator>;
+    /**
+        Type of a const iterator for accessing the elements in reverse order.
+     */
+    using const_reverse_iterator = NMSP::reverse_iterator<const_iterator>;
+    /**
+        Constant to indicate end of string or an error. Value is equal to the
+        largest possible value of size_type.
+     */
+    static const size_type npos = -1;
+
+protected:
+    // Allocator in use.
+    allocator_type alloc;
+    // Current size.
+    size_type sz;
+    // Current space (includes an extra space for a null termination).
+    size_type space;
+    // Pointer to the start of the actual data.
+    pointer elem;
+    // Default starting space.
+    static constexpr size_type default_space = 8;
+    // Allocator traits type.
+    using a_traits = allocator_traits<allocator_type>;
+    // Values for comparison return.
+    static constexpr int compare_less = -1;
+    static constexpr int compare_equal = 0;
+    static constexpr int compare_greater = 1;
+
+    // Most general comparison operation. Compares this string with the first
+    // count characters of the C string.
+    int compare(const_pointer s, size_type count) const
+    {
+        size_type rlen = min(size(), count);
+        int compare_val = traits_type::compare(data(), s, rlen);
+
+        if (compare_val == 0)
+        {
+            if (size() < count)
+                return compare_less;
+            else if (size() > count)
+                return compare_greater;
+            else
+                return compare_equal;
+        }
+        else
+            return compare_val;
+    }
+
+public:
+    /**
+        Default constructor. Creates an empty string using the default of the
+        allocator type.
+     */
+    basic_string() : basic_string(allocator_type()) {}
+
+    /**
+        Creates an empty string using the provided allocator.
+
+        @param a Allocator to use.
+     */
+    explicit basic_string(const allocator_type& a) :
+        alloc{a},
+        sz{1},
+        space{default_space},
+        elem{a_traits::allocate(alloc, space)}
+    {
+        traits_type::assign(elem[0], '\0');
+    }
+
+    /**
+        Creates a string of the given length, full of the given character.
+
+        @param count Length of the string.
+        @param ch Character to fill the string with.
+        @oaram a Allocator to use.
+     */
+    basic_string(size_type count,
+        value_type ch, const allocator_type& a = allocator_type()) :
+        alloc{a},
+        sz{count + 1}
+    {
+        space = (sz > default_space ? sz : default_space);
+        elem = a_traits::allocate(alloc, space);
+        traits_type::assign(elem, count, ch);
+        traits_type::assign(elem[count], '\0');
+    }
+
+    /**
+        Creates a string from the substring specified by the other string and
+        the length. If the length is greater than the length of the other
+        string, use the whole other string but no more.
+
+        @param other String to copy from.
+        @param pos Offset from the start of other to start copying from.
+        @param count Offset from pos to stop copying from.
+        @param a Allocator to use.
+     */
+    basic_string(const basic_string& other, size_type pos,
+        size_type count = npos, const allocator_type& a = allocator_type()) :
+        alloc{a}
+    {
+        if (count == npos || pos + count > other.size())
+            count = other.size() - pos;
+
+        sz = count + 1;
+        space = (sz > default_space ? sz : default_space);
+        elem = a_traits::allocate(alloc, space);
+
+        traits_type::copy(elem, other.data() + pos, count);
+        traits_type::assign(elem[count], '\0');
+    }
+
+    /**
+        Creates a string of the specified length, copying from the provided
+        C string. The sequence may contain null characters. If the C string is
+        not long enough, the behaviour is undefined.
+
+        @param s C string to copy from.
+        @param count Number of characters to copy.
+        @param a Allocator to use.
+     */
+    basic_string(const_pointer s,
+        size_type count, const allocator_type& a = allocator_type()) :
+        alloc{a},
+        sz{count + 1}
+    {
+        space = (sz > default_space ? sz : default_space);
+        elem = a_traits::allocate(alloc, space);
+
+        traits_type::copy(elem, s, count);
+        traits_type::assign(elem[count], '\0');
+    }
+
+    /**
+        Creates a string as a copy of the provided C string. Copying stops at
+        the first null character.
+
+        @param s C string to copy from.
+        @param a Allocator to use.
+     */
+    basic_string(const_pointer s,
+        const allocator_type& a = allocator_type()) :
+        alloc{a}
+    {
+        sz = traits_type::length(s) + 1;
+        space = (sz > default_space ? sz : default_space);
+        elem = a_traits::allocate(alloc, space);
+
+        traits_type::copy(elem, s, sz - 1);
+        traits_type::assign(elem[sz - 1], '\0');
+    }
+
+    /**
+        Creates a string as a copy of the range specified by the iterators. The
+        iterators must be at least input iterators.
+
+        @param first Beginning of the range to copy.
+        @param last End of the range to copy.
+        @param a Allocator to use.
+     */
+    template <typename Iter, typename = helper::RequireInputIter<Iter>>
+    basic_string(Iter first, Iter last,
+        const allocator_type& a = allocator_type()) :
+        alloc{a}
+    {
+        sz = distance(first, last) + 1;
+        space = (sz > default_space ? sz : default_space);
+        elem = a_traits::allocate(alloc, space);
+
+        for (size_type i = 0; first != last; ++first, ++i)
+            traits_type::assign(elem[i], *first);
+        traits_type::assign(elem[sz - 1], '\0');
+    }
+
+    /**
+        Copy constructor. Creates a string from the contents of another. The
+        behaviour of the allocator copying is set by the allocator's
+        select_on_container_copy_construction() method.
+
+        @param other String to copy.
+     */
+    basic_string(const basic_string& other) :
+        basic_string{other,
+        a_traits::select_on_container_copy_construction(other.get_allocator())}
+    {}
+
+    /**
+        Copy constructor. Creates a string from the contents of another and uses
+        the provided allocator.
+
+        @param other String to copy.
+        @param a Allocator to use.
+     */
+    basic_string(const basic_string& other, const allocator_type& a) : 
+        alloc{a},
+        sz{other.size() + 1},
+        space{other.capacity() + 1},
+        elem{a_traits::allocate(alloc, space)}
+    {
+        traits_type::copy(elem, other.data(), other.size());
+        traits_type::assign(elem[sz - 1], '\0');
+    }
+
+    /**
+        Constructs a string by move construction from another string. The
+        allocator is also moved from the other string.
+
+        @param other String to move from.
+     */
+    basic_string(basic_string&& other) :
+        alloc{move(other.get_allocator())},
+        sz{other.size() + 1},
+        space{other.capacity() + 1},
+        elem{other.elem}
+    {
+        other.alloc = allocator_type{};
+        other.sz = 1;
+        other.space = default_space;
+        other.elem = a_traits::allocate(alloc, space);
+        traits_type::assign(other.elem[0], '\0');
+    }
+
+    /**
+        Constructs a string by move construction from another string. The
+        provided allocator is used.
+
+        @param other String to move from.
+        @param a Allocator to use.
+     */
+    basic_string(basic_string&& other, const allocator_type& a) :
+        alloc{a},
+        sz{other.size() + 1},
+        space{other.capacity() + 1}
+    {
+        if (alloc == other.get_allocator())
+        {
+            elem = other.elem;
+            other.alloc = allocator_type{};
+            other.sz = 1;
+            other.space = default_space;
+            other.elem = a_traits::allocate(alloc, space);
+            traits_type::assign(other.elem[0], '\0');
+        }
+        else
+        {
+            elem = a_traits::allocate(alloc, space);
+            traits_type::copy(elem, other.data(), other.size());
+            traits_type::assign(elem[sz - 1], '\0');
+        }
+    }
+
+    /**
+        Constructs a string with the contents of the initializer list,
+        optionally using the provided allocator.
+
+        @param il List with the contents to copy.
+        @param a Allocator to use.
+     */
+    basic_string(std::initializer_list<value_type> il,
+        const allocator_type& a = allocator_type{}) :
+        basic_string{il.begin(), il.end(), a}
+    {}
+
+    /**
+        Deallocates internal storage and sets the string to empty.
+     */
+    ~basic_string()
+    {
+        clear();
+        a_traits::deallocate(alloc, elem, space);
+    }
+
+    /**
+        Replaces the contents of this string with a copy of that in the
+        provided string.
+
+        @param other String to copy.
+        @return Reference to this string.
+     */
+    basic_string& operator=(const basic_string& other)
+    {
+        if (*this == other)
+            return *this;
+
+        clear();
+
+        if (other.size() > capacity())
+            reserve(other.size());
+
+        sz = other.size() + 1;
+        traits_type::copy(elem, other.data(), other.size() + 1);
+
+        return *this;
+    }
+
+    /**
+        Replaces the contents of this string with those of the other by move
+        assignment. Moving the allocator depends on the value of
+        propagate_on_container_move_assignment for the allocator. If this is
+        false and the allocators are not equal, movement is element wise and
+        memory reallocation may occure
+
+        @param other String to move.
+        @return Reference to this string.
+     */
+    basic_string& operator=(basic_string&& other)
+    {
+        if (*this == other)
+            return *this;
+
+        clear();
+        a_traits::deallocate(alloc, elem, space);
+
+        // Move the allocator, if necessary.
+        bool alloc_move =
+            a_traits::propagate_on_container_move_assignment::value;
+        if (alloc_move)
+            alloc = move(other.alloc);
+
+        // If the allocators are not compatible, do the reallocation and
+        // elementwise move.
+        if (!alloc_move && alloc != other.alloc)
+        {
+            if (other.size() > capacity())
+                reserve(other.size());
+            sz = other.size() + 1;
+            traits_type::copy(elem, other.data(), other.size() + 1);
+        }
+        else
+        {
+            elem = other.elem;
+            sz = other.sz;
+            space = other.space;
+        }
+
+        // Wipe out the other string.
+        other.alloc = allocator_type{};
+        other.sz = 1;
+        other.space = default_space;
+        other.elem = a_traits::allocate(alloc, space);
+        traits_type::assign(other.elem[0], '\0');
+
+        return *this;
+    }
+
+    /**
+        Replaces the contents of this string with a copy of the contents of the
+        provided null terminated C string.
+
+        @param s Null terminated C string to replace with.
+        @return Reference to this string.
+     */
+    basic_string& operator=(const_pointer s)
+    {
+        *this = basic_string(s);
+        return *this;
+    }
+
+    /**
+        Replaces the contents of this string with the single character provided.
+
+        @param ch Character to replace to replace with.
+        @return Reference to this string.
+     */
+    basic_string& operator=(value_type ch)
+    {
+        *this = basic_string(1, ch);
+        return *this;
+    }
+
+    /**
+        Replaces the contents of this string with the provided initialiser list.
+
+        @param il List to replace contents with.
+        @return Reference to this string.
+     */
+    basic_string& operator=(std::initializer_list<value_type> il)
+    {
+        *this = basic_string(il);
+        return *this;
+    }
+
+    /**
+        Replaces the contents of this string with count copies of the provided
+        character.
+
+        @param count Number of copies of ch to use.
+        @param ch Caracter to replace with.
+        @return Reference to this string.
+     */
+    basic_string& assign(size_type count, value_type ch)
+    {
+        *this = basic_string(count, ch);
+        return *this;
+    }
+
+    /**
+        Replaces the contents of this string with a copy of the provided string.
+
+        @param str String to replace contents with a copy of.
+        @return Reference to this string.
+     */
+    basic_string& assign(const basic_string& str)
+    {
+        *this = str;
+        return *this;
+    }
+
+    /**
+        Replaces the contents of this string with a copy of the substring of the
+        provided string beginning at pos and count characters long. Defaults to
+        the end of the string.
+
+        @param str String to replace contents with a copy of a substring of.
+        @param pos Beginning index of the substring.
+        @param count Length of the substring. Defaults to the end of the string.
+        @return Reference to this string.
+     */
+    basic_string& assign(const basic_string& str, size_type pos,
+        size_type count = npos)
+    {
+        *this = str.substr(pos, count);
+        return *this;
+    }
+
+    /**
+        Replaces the contents of this string with the provided string, using
+        move semantics.
+
+        @param str String to replace contents with.
+        @return Reference to this string.
+     */
+    basic_string& assign(basic_string&& str)
+    {
+        *this = move(str);
+        return *this;
+    }
+
+    /**
+        Replaces the contents of this string with a copy of the first count
+        characters of the provided C string, which may contain null characters.
+
+        @param s C string to replace with a copy of.
+        @param count Number of characters from s to use.
+        @return Reference to this string.
+     */
+    basic_string& assign(const_pointer s, size_type count)
+    {
+        *this = basic_string(s, count);
+        return *this;
+    }
+
+    /**
+        Replaces the contents of this string with a copy of the contents of the
+        provided null terminated C string.
+
+        @param s Null terminated C string to replace with a copy of.
+        @return Reference to this string.
+     */
+    basic_string& assign(const_pointer s)
+    {
+        *this = basic_string(s);
+        return *this;
+    }
+
+    /**
+        Replaces the contents of this string with a copy of the contents of the
+        range specified by the provided iterators, which must be at least input
+        iterators.
+
+        @param first, last Iterators specifying the range to copy.
+        @return Reference to this string.
+     */
+    template <typename Iter, typename = helper::RequireInputIter<Iter>>
+    basic_string& assign(Iter first, Iter last)
+    {
+        *this = basic_string(first, last);
+        return *this;
+    }
+
+    /**
+        Replaces the contents of this string with a copy of the contents of the
+        provided initialiser list.
+
+        @param il List to copy the contents of.
+        @return Reference to this string.
+     */
+    basic_string& assign(std::initializer_list<value_type> il)
+    {
+        *this = basic_string(il);
+        return *this;
+    }
+
+    /**
+        Gives a copy of the allocator associated with this string.
+
+        @return Copy of this string's allocator.
+     */
+    allocator_type get_allocator() const { return alloc; }
+
+    /**
+        Gets the character at the specified index with bounds checking. Throws
+        an out_of_range exception if the index is out of range.
+
+        @param n Index of the character to get.
+        @return Reference to the character at the specified index.
+     */
+/*
+    reference at(size_type pos)
+    {
+        if (pos >= size)
+            throw out_of_range{"basic_string::at Index out of range"};
+        
+        return elem[pos];
+    }
+    const_reference at(size_type pos) const
+    {
+        if (pos >= size)
+            throw out_of_range{"basic_string::at Index out of range"};
+        
+        return elem[pos];
+    }
+ */
+
+    /**
+        Gets the character at the specified index without bounds checking.
+
+        @param n Index of the character to get.
+        @return Reference to the character at the specified index.
+     */
+    reference operator[](size_type pos)
+    {
+        return elem[pos];
+    }
+    const_reference operator[](size_type pos) const
+    {
+        return elem[pos];
+    }
+
+    /**
+        Gets the first character in the string.
+
+        @return Reference to the first character in the string.
+     */
+    reference front()
+    {
+        return elem[0];
+    }
+    const_reference front() const
+    {
+        return elem[0];
+    }
+
+    /**
+        Gets the last character in the string.
+
+        @return Reference to the last character in the string.
+     */
+    reference back()
+    {
+        return elem[sz - 2];
+    }
+    const_reference back() const
+    {
+        return elem[sz - 2];
+    }
+
+    /**
+        Returns a pointer to the underlying data, which will be a null
+        terminated C string.
+
+        @return Const pointer to the start of the underlying C string.
+     */
+    const_pointer data() const
+    {
+        return elem;
+    }
+
+    /**
+        Returns a pointer to the underlying data, which will be a null
+        terminated C string.
+
+        @return Const pointer to the start of the underlying C string.
+     */
+    const_pointer c_str() const
+    {
+        return elem;
+    }
+
+    /**
+        Gets an iterator to the beginning of the string.
+
+        @return Iterator pointing to the beginning of the string.
+     */
+    iterator begin() noexcept
+    {
+        return (empty() ? iterator{nullptr} : iterator{elem});
+    }
+    const_iterator begin() const noexcept
+    {
+        return (empty() ? const_iterator{nullptr} : const_iterator{elem});
+    }
+    const_iterator cbegin() const noexcept
+    {
+        return (empty() ? const_iterator{nullptr} : const_iterator{elem});
+    }
+
+    /**
+        Gets an iterator to one past the end of the string (which will generally
+        point at the null character, but dereferencing the iterator is udefined.
+
+        @return Iterator pointing to one past the end of the string.
+     */
+    iterator end() noexcept
+    {
+        return (empty() ? iterator{nullptr} : iterator{&elem[sz - 1]});
+    }
+    const_iterator end() const noexcept
+    {
+        return (empty() ? const_iterator{nullptr} : const_iterator{&elem[sz - 1]});
+    }
+    const_iterator cend() const noexcept
+    {
+        return (empty() ? const_iterator{nullptr} : const_iterator{&elem[sz - 1]});
+    }
+
+    /**
+        Gives a reverse iterator, pointing at the last character, but the first
+        in the reverse string.
+
+        @return Reverse iterator to the last element.
+     */
+    reverse_iterator rbegin() noexcept
+    {
+        return reverse_iterator{end()};
+    }
+    const_reverse_iterator rbegin() const noexcept
+    {
+        return const_reverse_iterator{end()};
+    }
+    const_reverse_iterator crbegin() const noexcept
+    {
+        return const_reverse_iterator{end()};
+    }
+
+    /**
+        Gives a reverse iterator, pointing at the first character, but one past
+        the last in the reverse sequence.
+
+        @return Reverse iterator to the last element.
+     */
+    reverse_iterator rend() noexcept
+    {
+        return reverse_iterator{begin()};
+    }
+    const_reverse_iterator rend() const noexcept
+    {
+        return const_reverse_iterator{begin()};
+    }
+    const_reverse_iterator crend() const noexcept
+    {
+        return const_reverse_iterator{begin()};
+    }
+
+    /**
+        Tests if the string is empty, that is if it is of zero length,
+        regardless of whether any memory is allocated for it.
+
+        @return Whether the string is empty.
+     */
+    bool empty() const noexcept
+    {
+        return (sz == 1);
+    }
+
+    /**
+        Gives the number of characters in the string (not including the null
+        termination character.
+
+        @return Length of the string.
+     */
+    size_type size() const noexcept
+    {
+        return distance(begin(), end());
+    }
+    size_type length() const
+    {
+        return size();
+    }
+
+    /**
+        A theoretical maximum length of the string. Provided by the
+        allocator. May not bear any resemblance to reality.
+
+        @return Maximum possible length.
+     */
+    size_type max_size() const noexcept
+    {
+        return a_traits::max_size(alloc);
+    }
+
+    /**
+        Increases capacity by allocating new space and moves data to the new
+        space. Does nothing if the requested capacity is not larger than the
+        existing capacity.
+
+        @param new_cap New capacity of the container.
+     */
+    void reserve(size_type new_cap)
+    {
+        if (new_cap + 1 <= space)
+            return;
+
+        pointer old_elem = elem;
+        size_type old_space = space;
+
+        // Allow one extra for the null terminator.
+        space = new_cap + 1;
+        elem = a_traits::allocate(alloc, space);
+
+        traits_type::copy(elem, old_elem, sz);
+        a_traits::deallocate(alloc, old_elem, old_space);
+    }
+
+    /**
+        Gives the size of the currently allocated memory space (not including
+        space for a null terminating character).
+    
+        @return Size of the currently allocated memory space.
+     */
+    size_type capacity() const noexcept
+    {
+        return (space - 1);
+    }
+
+    /**
+        Reduces the current memory allocation to exactly fit the current string.
+        This will always be one greater than the apparent length of the string
+        due to the null terminating character.
+     */
+    void shrink_to_fit()
+    {
+        if (space == sz)
+            return;
+
+        pointer old_elem = elem;
+        size_type old_space = space;
+
+        space = sz;
+        elem = a_traits::allocate(alloc, space);
+
+        traits_type::copy(elem, old_elem, sz);
+        a_traits::deallocate(alloc, old_elem, old_space);
+    }
+
+    /**
+        Clears the contents of the string, but doesn't deallocate space.
+     */
+    void clear()
+    {
+        if (elem == pointer{})
+            return;
+
+        // Destroying the objects seems a bit unnecessary for basic types, but
+        // who knows what crazy character types we might come up with in the
+        // future.
+        for (value_type& v : *this)
+            a_traits::destroy(alloc, &v);
+        sz = 1;
+        traits_type::assign(elem[0], '\0');
+    }
+
+    /**
+        Inserts count copies of the provided character at the specified index.
+
+        @param index Position to insert at.
+        @param count Number of copies to insert.
+        @param ch Character ot insert.
+        @return Reference to this string.
+     */
+    basic_string& insert(size_type index, size_type count, value_type ch)
+    {
+        // Bail if index is out of range.
+        if (index > size())
+            return *this;
+
+        // Bail if there are no characters to add.
+        if (count == 0)
+            return *this;
+
+        // Increase capacity if necessary.
+        if (size() + count > capacity())
+            reserve(size() + count);
+
+        traits_type::move(&elem[index + count], &elem[index], sz - index);
+        sz += count;
+        for (auto p = begin() + index; p != begin() + index + count; ++p)
+            traits_type::assign(*p, ch);
+
+        return *this;
+    }
+
+    /**
+        Inserts the given null terminated C string at the provided index.
+
+        @param index Position to insert at.
+        @param s Null temrinated C string
+        @return Reference to this string.
+     */
+    basic_string& insert(size_type index, const_pointer s)
+    {
+        size_type count = traits_type::length(s);
+        return insert(index, s, count);
+    }
+
+    /**
+        Inserts count characters from the given string. Behaviour is
+        undefined if count is larger than the length of the string.
+
+        @param index Position to insert at.
+        @param s C stirng to insert form.
+        @param count Number of characters to insert.
+        @return Reference to this string.
+     */
+    basic_string& insert(size_type index, const_pointer s, size_type count)
+    {
+        // Bail if index is out of range.
+        if (index > size())
+            return *this;
+
+        // Bail if there are no characters to add.
+        if (count == 0)
+            return *this;
+
+        // Increase capacity if necessary.
+        if (size() + count > capacity())
+            reserve(size() + count);
+
+        traits_type::move(&elem[index + count], &elem[index], sz - index);
+        sz += count;
+        traits_type::copy(&elem[index], s, count);
+
+        return *this;
+    }
+
+    /**
+        Inserts the given string at the index.
+
+        @param index Position to insert at.
+        @param str basic_string to insert from.
+        @return Reference to this string.
+     */
+    basic_string& insert(size_type index, const basic_string& str)
+    {
+        return insert(index, str.data(), str.size());
+    }
+
+    /**
+        Inserts the substring of the given string starting at at index_str and
+        of length count, at the index.
+
+        @param index Position to insert at.
+        @param str basic_string to insert from.
+        @param index_str Position to start the substring at.
+        @param count Length of the substring, defaults to the rest of the
+                string. 
+        @return Reference to this string.
+     */
+    basic_string& insert(size_type index, const basic_string& str,
+        size_type index_str, size_type count = npos)
+    {
+        return insert(index, str.substr(index_str, count));
+    }
+
+    /**
+        Inserts the character before the character pointed to by the iterator.
+
+        @param pos Position to insert before.
+        @param ch Character to insert.
+        @return Iterator pointing to the inserted character.
+     */
+    iterator insert(const_iterator pos, value_type ch)
+    {
+        return insert(pos, 1, ch);
+    }
+
+    /**
+        Inserts count copies of the character before the character pointed to by
+        the iterator.
+
+        @param pos Position to insert before.
+        @param count Number of copies to insert.
+        @param ch Character to insert.
+        @return Iterator pointing to the inserted character.
+     */
+    iterator insert(const_iterator pos, size_type count, value_type ch)
+    {
+        size_type index = distance(cbegin(), pos);
+        insert(index, count, ch);
+        return begin() + index;
+    }
+
+    /**
+        Inserts the characters in the range first to last at the position
+        specified by pos. The iterators must be at leats input iterators.
+
+        @param pos Position to insert before.
+        @param first Iterator to the first character to insert.
+        @param last Iterator to one past the last character to insert.
+        @return Iterator pointing to the first inserted character.
+     */
+    template <typename Iter, typename = helper::RequireInputIter<Iter>>
+    iterator insert(const_iterator pos, Iter first, Iter last)
+    {
+        size_type index = distance(cbegin(), pos);
+        size_type count = distance(first, last);
+        insert(index, &(*first), count);
+        return begin() + index;
+    }
+
+    /**
+        Inserts the characters in the initialiser list at the position specified
+        by pos.
+
+        @param pos Position to insert at.
+        @param il Initialiser list to copy characters from.
+        @return Iterator pointing to the first inserted character.
+     */
+    iterator insert(const_iterator pos, std::initializer_list<value_type> il)
+    {
+        return insert(pos, il.begin(), il.end());
+    }
+
+    /**
+        Erases count characters, beginning at index. End position will become
+        the end of the string if count is too long. npos indicates using the end
+        of the string.
+
+        @param index Position to start erasing. Defaults to the start of the
+               string.
+        @param count Number of characters to erase. Defaults to the end of the
+               string.
+        @return This string.
+     */
+    basic_string& erase(size_type index = 0, size_type count = npos)
+    {
+        count = min(count, size() - index);
+        traits_type::move(&elem[index], &elem[index + count],
+            size() - index - count);
+        sz -= count;
+        traits_type::assign(elem[sz - 1], '\0');
+        return *this;
+    }
+
+    /**
+        Erases the character at the given position.
+
+        @param pos Iterator pointing to the character to remove.
+        @return Iterator pointing to the character after the one removed.
+     */
+    iterator erase(const_iterator pos)
+    {
+        size_type index = distance(cbegin(), pos);
+        erase(index, 1);
+        return begin() + index;
+    }
+
+    /**
+        Erases characters in the range from first to last.
+
+        @param first Iterator pointing to the first character to remove.
+        @param last Iterator pointing to one past the last character to remove.
+        @return Iterator pointing to the character after the last one removed.
+     */
+    iterator erase(const_iterator first, const_iterator last)
+    {
+        size_type index = distance(cbegin(), first);
+        size_type count = distance(first, last);
+        erase(index, count);
+        return begin() + index;
+    }
+
+    /**
+        Appends the given character to the end of the string.
+
+        @param ch Character to add.
+     */
+    void push_back(value_type ch)
+    {
+        insert(end(), ch);
+    }
+
+    /**
+        Erases the last character from the string.
+     */
+    void pop_back()
+    {
+        erase(end() - 1);
+    }
+
+    /**
+        Adds count copies of the given character to the end of the string.
+
+        @param count Number of copies to append.
+        @param ch Character to append.
+        @return This string.
+     */
+    basic_string& append(size_type count, value_type ch)
+    {
+        return insert(size(), count, ch);
+    }
+
+    /**
+        Adds the given string to the end of the string.
+
+        @param str String to append.
+        @return This string.
+     */
+    basic_string& append(const basic_string& str)
+    {
+        return insert(size(), str);
+    }
+
+    /**
+        Adds the substring of the given string starting at pos and count
+        characters long, to the end of the string.
+
+        @param str String to append a substring of.
+        @param pos Position of str to start the substring.
+        @param count Number of characters in the substring. Defaults to the end
+               of str.
+        @return This string.
+     */
+    basic_string& append(const basic_string& str, size_type pos,
+        size_type count = npos)
+    {
+        return insert(size(), str, pos, count);
+    }
+
+    /**
+        Adds count characters from the given C string to the end of the string.
+
+        @param s C string to append from.
+        @param count Number of characters to append.
+        @return This string.
+     */
+    basic_string& append(const_pointer s, size_type count)
+    {
+        return insert(size(), s, count);
+    }
+
+    /**
+        Adds characters from the given C string up to the first null character
+        to the end of the string.
+
+        @param s C string to append from.
+        @return This string.
+     */
+    basic_string& append(const_pointer s)
+    {
+        return insert(size(), s);
+    }
+
+    /**
+        Adds characters from the range first to last to the end of the string.
+        first and last must be at least input iterators.
+
+        @param first Iterator pointing to the start of the range to append.
+        @param last Iterator pointing to one past the end of the range.
+        @return This string.
+     */
+    template <typename Iter, typename = helper::RequireInputIter<Iter>>
+    basic_string& append(Iter first, Iter last)
+    {
+        insert(end(), first, last);
+        return *this;
+    }
+
+    /**
+        Adds characters from the initialiser list to the end of the string.
+
+        @param il Initialiser list with the characters to insert.
+        @return This string.
+     */
+    basic_string& append(std::initializer_list<value_type> il)
+    {
+        insert(end(), il.begin(), il.end());
+        return *this;
+    }
+
+    /**
+        Adds the given string to the end of the string.
+
+        @param str String to append.
+        @return This string.
+     */
+    basic_string& operator+=(const basic_string& str)
+    {
+        return insert(size(), str);
+    }
+
+    /**
+        Adds count copies of the given character to the end of the string.
+
+        @param count Number of copies to append.
+        @param ch Character to append.
+        @return This string.
+     */
+    basic_string& operator+=(value_type ch)
+    {
+        return insert(size(), 1, ch);
+    }
+
+    /**
+        Adds characters from the given C string up to the first null character
+        to the end of the string.
+
+        @param s C string to append from.
+        @return This string.
+     */
+    basic_string& operator+=(const_pointer s)
+    {
+        return insert(size(), s);
+    }
+
+    /**
+        Adds characters from the initialiser list to the end of the string.
+
+        @param il Initialiser list with the characters to insert.
+        @return This string.
+     */
+    basic_string& operator+=(std::initializer_list<value_type> il)
+    {
+        insert(end(), il.begin(), il.end());
+        return *this;
+    }
+
+    /**
+        Performs a lexicographical comparison of this string with the provided
+        string. The comparison is provided by the char traits type.
+
+        @param str String to compare with.
+        @return Less than 0 is this string is less than str, 0 if the strings
+                are equal and greater than 0 if this string is greater than str.
+     */
+    int compare(const basic_string& str) const
+    {
+        return compare(str.data());
+    }
+
+    /**
+        Performs a lexicographical comparison of the substring of this string
+        starting at pos and count characters long, with the provided string.
+
+        @param pos Start of the substring of this string.
+        @param count Number of characters in the substring.
+        @param str String to compare with.
+        @return Less than 0 is the substring is less than str, 0 if the strings
+                are equal and greater than 0 if the substring is greater than
+                str.
+     */
+    int compare(size_type pos, size_type count, const basic_string& str) const
+    {
+        return substr(pos, count).compare(str);
+    }
+
+    /**
+        Performs a lexicographical comparison of the substring of this string
+        starting at pos1 and count1 characters long, with the substring of the
+        provided string starting at pos2 and count2 characters long.
+
+        @param pos1 Start of the substring of this string.
+        @param count1 Number of characters in the substring of this string.
+        @param str String to compare with.
+        @param pos2 Number of characters in the substring of str.
+        @param count2 Number of characters in the substring of str.
+        @return Less than 0 is the substring is less than str, 0 if the strings
+                are equal and greater than 0 if the substring is greater than
+                str.
+     */
+    int compare(size_type pos1, size_type count1, const basic_string& str,
+        size_type pos2, size_type count2 = npos) const
+    {
+        return substr(pos1, count1).compare(str.substr(pos2, count2));
+    }
+
+    /**
+        Performs a lexicographical comparison of this string with the provided
+        null terminated C string.
+
+        @param s Null temrinated C string.
+        @return Less than 0 is this string is less than s, 0 if the strings are
+                equal and greater than 0 if this string is greater than s.
+     */
+    int compare(const_pointer s) const
+    {
+        return compare(s, traits_type::length(s));
+    }
+
+    /**
+        Performs a lexicographical comparison of the substring of this string
+        beginning at pos and count characters long with the provided null
+        terminated C string.
+
+        @param pos Start of the substring of this string.
+        @param count Number of characters in the substring of this string.
+        @param s Null temrinated C string.
+        @return Less than 0 is the substring is less than s, 0 if the strings
+                are equal and greater than 0 if the substring is greater than s.
+     */
+    int compare(size_type pos, size_type count, const_pointer s) const
+    {
+        return substr(pos, count).compare(s);
+    }
+
+    /**
+        Performs a lexicographical comparison of the substring of this string
+        beginning at pos1 and count1 characters long with the first count2
+        characters of the provided C string, which may contain null characters.
+
+        @param pos1 Start of the substring of this string.
+        @param count1 Number of characters in the substring of this string.
+        @param s Null temrinated C string.
+        @param count2 Number of characters from s to compare with.
+        @return Less than 0 is the substring is less than s, 0 if the strings
+                are equal and greater than 0 if the substring is greater than s.
+     */
+    int compare(size_type pos, size_type count, const_pointer s,
+        size_type count2) const
+    {
+        return substr(pos, count).compare(s, count2);
+    }
+
+    /**
+        Replaces the substring starting at pos and count characters long with
+        that contained in str.
+
+        @param pos Start of substring to replace.
+        @param count Number of characters to replace.
+        @param str String to replace with.
+        @return This string.
+     */
+    basic_string& replace(size_type pos, size_type count,
+        const basic_string& str)
+    {
+        return replace(pos, count, str.data(), str.size());
+    }
+
+    /**
+        Replaces the substring specified by the range first to last with that
+        contained in str.
+
+        @param first Iterator pointing to the start of the range to replace.
+        @param last Iterator pointing one past the end of the range to replace.
+        @param str String to replace with.
+        @return This string.
+     */
+    basic_string& replace(const_iterator first, const_iterator last,
+        const basic_string& str)
+    {
+        size_type pos = distance(cbegin(), first);
+        size_type count = distance(first, last);
+        return replace(pos, count, str);
+    }
+
+    /**
+        Replaces the substring starting at pos1 and count1 characters long with
+        the substring of str beginning at pos2 and count2 chracters long.
+
+        @param pos1 Start of substring to replace.
+        @param count1 Number of characters to replace.
+        @param str String to replace with.
+        @param pos2 Start of substring to replace with.
+        @param count2 Number of characters to replace with. Defaults to the rest
+               of the string.
+        @return This string.
+     */
+    basic_string& replace(size_type pos1, size_type count1,
+        const basic_string& str, size_type pos2, size_type count2 = npos)
+    {
+        return replace(pos1, count1, str.substr(pos2, count2));
+    }
+
+    /**
+        Replaces the substring specified by the range first1 to last1 with that
+        specified by the range first2 to last2. first2 and last2 must be at
+        least input iterators.
+
+        @param first1 Iterator pointing to the start of the range to replace.
+        @param last1 Iterator pointing one past the end of the range to replace.
+        @param first2 Iterator pointing to the start of the range to replace
+               with.
+        @param last2 Iterator pointing one past the end of the range to replace
+               with.
+        @return This string.
+     */
+    template <typename Iter, typename = helper::RequireInputIter<Iter>>
+    basic_string& replace(const_iterator first1, const_iterator last1,
+        Iter first2, Iter last2)
+    {
+        first1 = erase(first1, last1);
+        insert(first1, first2, last2);
+        return *this;
+    }
+
+    /**
+        Replaces the substring starting at pos1 and count1 characters long with
+        the first count2 characters of that contained in the provided C string.
+
+        @param pos1 Start of substring to replace.
+        @param count1 Number of characters to replace.
+        @param s C string to replace with. May contain null characters.
+        @param count2 Number of characters from s to replace with.
+        @return This string.
+     */
+    basic_string& replace(size_type pos1, size_type count1, const_pointer s,
+        size_type count2)
+    {
+        erase(pos1, count1);
+        return insert(pos1, s, count2);
+    }
+
+    /**
+        Replaces the substring specified by the range first to last with the
+        first count2 characters of that contained in the provided C string.
+
+        @param first Iterator pointing to the start of the range to replace.
+        @param last Iterator pointing one past the end of the range to replace.
+        @param s C string to replace with. May contain null characters.
+        @param count2 Number of characters from s to replace with.
+        @return This string.
+     */
+    basic_string& replace(const_iterator first, const_iterator last,
+        const_pointer s, size_type count2)
+    {
+        size_type pos1 = distance(cbegin(), first);
+        size_type count1 = distance(first, last);
+        return replace(pos1, count1, s, count2);
+    }
+
+    /**
+        Replaces the substring starting at pos and count characters long with
+        the contents of the provided null terminated C string.
+
+        @param pos Start of substring to replace.
+        @param count Number of characters to replace.
+        @param s Null terminated C string to replace with.
+        @return This string.
+     */
+    basic_string& replace(size_type pos, size_type count, const_pointer s)
+    {
+        return replace(pos, count, s, traits_type::length(s));
+    }
+
+    /**
+        Replaces the substring specified by the range first to last with the
+        contents of the provided null terminated C string.
+
+        @param first Iterator pointing to the start of the range to replace.
+        @param last Iterator pointing one past the end of the range to replace.
+        @param s Null terminated C string to replace with.
+        @return This string.
+     */
+    basic_string& replace(const_iterator first, const_iterator last,
+        const_pointer s)
+    {
+        size_type pos1 = distance(cbegin(), first);
+        size_type count1 = distance(first, last);
+        return replace(pos1, count1, s, traits_type::length(s));
+    }
+
+    /**
+        Replaces the substring starting at pos1 and count1 characters long with
+        count2 copies of the character ch.
+
+        @param pos1 Start of substring to replace.
+        @param count1 Number of characters to replace.
+        @param count2 Number of copies of ch to replace with.
+        @param ch Character to use for replacement.
+        @return This string.
+     */
+    basic_string& replace(size_type pos1, size_type count1, size_type count2,
+        value_type ch)
+    {
+        erase(pos1, count1);
+        return insert(pos1, count2, ch);
+    }
+
+    /**
+        Replaces the substring specified by the range first to last with count2
+        copies of the character ch.
+
+        @param first Iterator pointing to the start of the range to replace.
+        @param last Iterator pointing one past the end of the range to replace.
+        @param count2 Number of copies of ch to replace with.
+        @param ch Character to use for replacement.
+        @return This string.
+     */
+    basic_string& replace(const_iterator first, const_iterator last,
+        size_type count2, value_type ch)
+    {
+        size_type pos1 = distance(cbegin(), first);
+        size_type count1 = distance(first, last);
+        return replace(pos1, count1, count2, ch);
+    }
+
+    /**
+        Replaces the substring specified by the range first to last with the
+        contents of the provided initialiser list.
+
+        @param first Iterator pointing to the start of the range to replace.
+        @param last Iterator pointing one past the end of the range to replace.
+        @param il Initialiser list to replace with the contents of.
+        @return This string.
+     */
+    basic_string& replace(const_iterator first, const_iterator last,
+        std::initializer_list<value_type> il)
+    {
+        return replace(first, last, il.begin(), il.end());
+    }
+
+    /**
+        Constructs the substring beginning at pos and count characters long. If
+        count exceeds the length of the string, stops at the end of the string.
+        The allocator of the substring is default constructed, not a copy of
+        this strings allocator.
+
+        @param pos Start of the substring. Defaults to the beginning.
+        @param count Length of the substring. Defaults to the end.
+     */
+    basic_string substr(size_type pos = 0, size_type count = npos) const
+    {
+        count = min(count, size() - pos);
+        return basic_string(data() + pos, count);
+    }
+
+    /**
+        Copies count characters starting at pos into the destination C string,
+        which will not become null terminated. If count exceeds the length of
+        the string, stops at the end of the string.
+
+        @param dest Location to copy characters to.
+        @param count Number of characters to copy.
+        @param pos Index to begin copying at. Defaults to the beginning.
+        @return The number of characters copied.
+     */
+    size_type copy(pointer dest, size_type count, size_type pos = 0) const
+    {
+        count = min(count, size() - pos);
+        traits_type::copy(dest, data() + pos, count);
+        return count;
+    }
+
+    /**
+        Resizes the string to the given size. If the current size is greater,
+        delete characters from the end. If the current size is less, append
+        default constructed characters.
+
+        @param count New size for the string.
+     */
+    void resize(size_type count)
+    {
+        resize(count, value_type{});
+    }
+
+    /**
+        Resizes the string to the given size. If the current size is greater,
+        delete characters from the end. If the current size is less, append
+        copies of the provided character.
+
+        @param count New size for the string.
+        @param ch Character to fill to the end with.
+     */
+    void resize(size_type count, value_type ch)
+    {
+        if (count < size())
+            erase(count);
+        else if (count > size())
+            append(count - size(), ch);
+    }
+
+    /**
+        Swaps the contents of this string with the other. No element-wise moves,
+        copies or swaps are carried out. The allocator behaviour depends on
+        its value of propagate_on_container_swap.
+
+        @param other The string to swap with.
+     */
+    void swap(basic_string& other)
+    {
+        if (a_traits::propagate_on_container_swap::value)
+            NMSP::swap(alloc, other.alloc);
+
+        NMSP::swap(elem, other.elem);
+        NMSP::swap(sz, other.sz);
+        NMSP::swap(space, other.space);
+    }
+
+    /**
+        Finds the first occurrence in the string of the string provided, after
+        position pos.
+
+        @param str String to look for.
+        @param pos Position to start looking, defaults to the start.
+        @return Index of the start of the match if found, otherwise npos.
+     */
+    size_type find(const basic_string& str, size_type pos = 0) const
+    {
+        return find(str.data(), pos, str.size());
+    }
+
+    /**
+        Finds the first occurrence in the string of the first count characters
+        of the string provided, after position pos.
+
+        @param s String to look for.
+        @param pos Position to start looking.
+        @param count Number of characters in s to look for.
+        @return Index of the start of the match if found, otherwise npos.
+     */
+    size_type find(const_pointer s, size_type pos, size_type count) const
+    {
+        if (size() == 0 || pos + count >= size())
+            return npos;
+
+        if (count == 0)
+            return pos;
+
+        for (; pos <= size() - count; ++pos)
+        {
+            if (compare(pos, count, s, count) == 0)
+                return pos;
+        }
+
+        return npos;
+    }
+
+    /**
+        Finds the first occurrence in the string of the null terminated C string
+        provided, after position pos.
+
+        @param s C string to look for.
+        @param pos Position to start looking, defaults to the start.
+        @return Index of the start of the match if found, otherwise npos.
+     */
+    size_type find(const_pointer s, size_type pos = 0) const
+    {
+        return find(s, pos, traits_type::length(s));
+    }
+
+    /**
+        Finds the first occurrence in the string of the character provided,
+        after position pos.
+
+        @param ch Character to look for.
+        @param pos Position to start looking, defaults to the start.
+        @return Index of the start of the match if found, otherwise npos.
+     */
+    size_type find(value_type ch, size_type pos = 0) const
+    {
+
+        return find(basic_string(1, ch), pos);
+    }
+
+    /**
+        Finds the last occurrence in the string of the string provided, before
+        position pos.
+
+        @param str String to look for.
+        @param pos Position to start looking, defaults to the end.
+        @return Index of the start of the match if found, otherwise npos.
+     */
+    size_type rfind(const basic_string& str, size_type pos = npos) const
+    {
+        return rfind(str.data(), pos, str.size());
+    }
+
+    /**
+        Finds the last occurrence in the string of the first count characters
+        of the string provided, before position pos.
+
+        @param s String to look for.
+        @param pos Position to start looking.
+        @param count Number of characters in s to look for.
+        @return Index of the start of the match if found, otherwise npos.
+     */
+    size_type rfind(const_pointer s, size_type pos, size_type count) const
+    {
+        pos = min(size() - 1, pos);
+
+        if (size() == 0)
+            return npos;
+
+        else if (count == 0 && pos <= size())
+            return pos;
+
+        else if (count == 0 && pos > size())
+            return size();
+
+        else if (count > size())
+            return npos;
+
+        for (; pos != npos; --pos)
+        {
+            if (compare(pos, count, s, count) == 0)
+                return pos;
+        }
+
+        return npos;
+    }
+
+    /**
+        Finds the last occurrence in the string of the null terminated C string
+        provided, before position pos.
+
+        @param s C string to look for.
+        @param pos Position to start looking, defaults to the end.
+        @return Index of the start of the match if found, otherwise npos.
+     */
+    size_type rfind(const_pointer s, size_type pos = npos) const
+    {
+        return rfind(s, pos, traits_type::length(s));
+    }
+
+    /**
+        Finds the last occurrence in the string of the character provided,
+        before position pos.
+
+        @param ch Character to look for.
+        @param pos Position to start looking, defaults to the end.
+        @return Index of the start of the match if found, otherwise npos.
+     */
+    size_type rfind(value_type ch, size_type pos = npos) const
+    {
+
+        return rfind(basic_string(1, ch), pos);
+    }
+
+    /**
+        Finds the first character at or after position pos equal to any of the
+        characters in the provided string, or npos if no match was found.
+
+        @param str String containing the characters to look for.
+        @param pos Position to start searching, defaults to the start.
+        @return Position of the first match, or npos if no matches were found.
+     */
+    size_type find_first_of(const basic_string& str, size_type pos = 0) const
+    {
+        return find_first_of(str.data(), pos, str.size());
+    }
+
+    /**
+        Finds the first character at or after position pos equal to any of the
+        first count characters in the provided C string, or npos if no match was
+        found.
+
+        @param s C string containing the characters to look for.
+        @param pos Position to start searching.
+        @param count Number of characters from s to look for.
+        @return Position of the first match, or npos if no matches were found.
+     */
+    size_type find_first_of(const_pointer s, size_type pos, size_type count)
+        const
+    {
+        if (count == 0 || pos >= size() || size() == 0)
+            return npos;
+
+        for (; pos < size(); ++pos)
+        {
+            for (size_type spos = 0; spos < count; ++spos)
+            {
+                if (traits_type::eq(elem[pos], s[spos]))
+                    return pos;
+            }
+        }
+
+        return npos;
+    }
+
+    /**
+        Finds the first character at or after position pos equal to any of the
+        characters in the provided null terminated C string, or npos if no match
+        was found.
+
+        @param s C string containing the characters to look for.
+        @param pos Position to start searching, defaults to the start.
+        @return Position of the first match, or npos if no matches were found.
+     */
+    size_type find_first_of(const_pointer s, size_type pos = 0)
+        const
+    {
+        return find_first_of(s, pos, traits_type::length(s));
+    }
+
+    /**
+        Finds the first occurrence of ch in the string at or after position pos,
+        or npos if no match was found.
+
+        @param ch Character to look for.
+        @param pos Position to start searching, defaults to the start.
+        @return Position of the first match, or npos if no matches were found.
+     */
+    size_type find_first_of(value_type ch, size_type pos = 0)
+        const
+    {
+        return find_first_of(basic_string(1, ch), pos);
+    }
+
+    /**
+        Finds the first character at or after position pos not equal to any of
+        the characters in the provided string, or npos if no match was found.
+
+        @param str String containing the characters to not look for.
+        @param pos Position to start searching, defaults to the start.
+        @return Position of the first match, or npos if no matches were found.
+     */
+    size_type find_first_not_of(const basic_string& str, size_type pos = 0)
+        const
+    {
+        return find_first_not_of(str.data(), pos, str.size());
+    }
+
+    /**
+        Finds the first character at or after position pos not equal to any of
+        the first count characters in the provided C string, or npos if no match
+        was found.
+
+        @param s C string containing the characters to not look for.
+        @param pos Position to start searching.
+        @param count Number of characters from s to not look for.
+        @return Position of the first match, or npos if no matches were found.
+     */
+    size_type find_first_not_of(const_pointer s, size_type pos, size_type count)
+        const
+    {
+        if (pos >= size() || size() == 0)
+            return npos;
+
+        else if (count == 0)
+            return 0;
+
+        for (; pos < size(); ++pos)
+        {
+            for (size_type spos = 0; spos < count; ++spos)
+            {
+                if (traits_type::eq(elem[pos], s[spos]))
+                    break;
+                else if (spos == count - 1)
+                    return pos;
+            }
+        }
+
+        return npos;
+    }
+
+    /**
+        Finds the first character at or after position pos not equal to any of
+        the characters in the provided null terminated C string, or npos if no
+        match was found.
+
+        @param s C string containing the characters to not look for.
+        @param pos Position to start searching, defaults to the start.
+        @return Position of the first match, or npos if no matches were found.
+     */
+    size_type find_first_not_of(const_pointer s, size_type pos = 0)
+        const
+    {
+        return find_first_not_of(s, pos, traits_type::length(s));
+    }
+
+    /**
+        Finds the first character at or after position pos not equal to ch, or
+        npos if no match was found.
+
+        @param ch Character to not look for.
+        @param pos Position to start searching, defaults to the start.
+        @return Position of the first match, or npos if no matches were found.
+     */
+    size_type find_first_not_of(value_type ch, size_type pos = 0)
+        const
+    {
+        return find_first_not_of(basic_string(1, ch), pos);
+    }
+
+    /**
+        Finds the last character at or before position pos equal to any of the
+        characters in the provided string, or npos if no match was found.
+
+        @param str String containing the characters to look for.
+        @param pos Position to start searching, defaults to the end.
+        @return Position of the first match, or npos if no matches were found.
+     */
+    size_type find_last_of(const basic_string& str, size_type pos = npos) const
+    {
+        return find_last_of(str.data(), pos, str.size());
+    }
+
+    /**
+        Finds the last character at or before position pos equal to any of the
+        first count characters in the provided C string, or npos if no match was
+        found.
+
+        @param s C string containing the characters to look for.
+        @param pos Position to start searching.
+        @param count Number of characters from s to look for.
+        @return Position of the first match, or npos if no matches were found.
+     */
+    size_type find_last_of(const_pointer s, size_type pos, size_type count)
+        const
+    {
+        pos = min(pos, size() - 1);
+
+        if (count == 0 || size() == 0)
+            return npos;
+
+        for (; pos != npos; --pos)
+        {
+            for (size_type spos = 0; spos < count; ++spos)
+            {
+                if (traits_type::eq(elem[pos], s[spos]))
+                    return pos;
+            }
+        }
+
+        return npos;
+    }
+
+    /**
+        Finds the last character at or before position pos equal to any of the
+        characters in the provided null terminated C string, or npos if no match
+        was found.
+
+        @param s C string containing the characters to look for.
+        @param pos Position to start searching, defaults to the end.
+        @return Position of the first match, or npos if no matches were found.
+     */
+    size_type find_last_of(const_pointer s, size_type pos = npos)
+        const
+    {
+        return find_last_of(s, pos, traits_type::length(s));
+    }
+
+    /**
+        Finds the last occurrence of ch in the string at or before position pos,
+        or npos if no match was found.
+
+        @param ch Character to look for.
+        @param pos Position to start searching, defaults to the end.
+        @return Position of the first match, or npos if no matches were found.
+     */
+    size_type find_last_of(value_type ch, size_type pos = npos)
+        const
+    {
+        return find_last_of(basic_string(1, ch), pos);
+    }
+
+    /**
+        Finds the last character at or before position pos not equal to any of
+        the characters in the provided string, or npos if no match was found.
+
+        @param str String containing the characters to not look for.
+        @param pos Position to start searching, defaults to the end.
+        @return Position of the first match, or npos if no matches were found.
+     */
+    size_type find_last_not_of(const basic_string& str, size_type pos = npos)
+        const
+    {
+        return find_last_not_of(str.data(), pos, str.size());
+    }
+
+    /**
+        Finds the last character at or before position pos not equal to any of
+        the first count characters in the provided C string, or npos if no match
+        was found.
+
+        @param s C string containing the characters to not look for.
+        @param pos Position to start searching.
+        @param count Number of characters from s to not look for.
+        @return Position of the first match, or npos if no matches were found.
+     */
+    size_type find_last_not_of(const_pointer s, size_type pos, size_type count)
+        const
+    {
+        pos = min(pos, size() - 1);
+
+        if (size() == 0)
+            return npos;
+
+        else if (count == 0)
+            return size() - 1;
+
+        for (; pos != npos; --pos)
+        {
+            for (size_type spos = 0; spos < count; ++spos)
+            {
+                if (traits_type::eq(elem[pos], s[spos]))
+                    break;
+                else if (spos == count - 1)
+                    return pos;
+            }
+        }
+
+        return npos;
+    }
+
+    /**
+        Finds the last character at or before position pos not equal to any of
+        the characters in the provided null terminated C string, or npos if no
+        match was found.
+
+        @param s C string containing the characters to not look for.
+        @param pos Position to start searching, defaults to the end.
+        @return Position of the first match, or npos if no matches were found.
+     */
+    size_type find_last_not_of(const_pointer s, size_type pos = npos)
+        const
+    {
+        return find_last_not_of(s, pos, traits_type::length(s));
+    }
+
+    /**
+        Finds the last character at or after position pos not equal to ch, or
+        npos if no match was found.
+
+        @param ch Character to not look for.
+        @param pos Position to start searching, defaults to the end.
+        @return Position of the first match, or npos if no matches were found.
+     */
+    size_type find_last_not_of(value_type ch, size_type pos = npos)
+        const
+    {
+        return find_last_not_of(basic_string(1, ch), pos);
+    }
+};
+
+/**
+    Concatenates strings and returns a new string.
+
+    @param lhs String to add to. May be a basic_string, null temrinated C string
+           or a single character type.
+    @param rhs String to be added. May be a basic_string, null temrinated C
+           string or a single character type.
+    @return A new string containing a concatenation of the contents of lhs and
+            rhs.
+ */
+template <typename CharT, typename Traits, typename Alloc>
+basic_string<CharT, Traits, Alloc> operator+(
+    const basic_string<CharT, Traits, Alloc>& lhs,
+    const basic_string<CharT, Traits, Alloc>& rhs)
+{
+    return basic_string<CharT, Traits, Alloc>(lhs).append(rhs);
+}
+
+template <typename CharT, typename Traits, typename Alloc>
+basic_string<CharT, Traits, Alloc> operator+(
+    const CharT* lhs, const basic_string<CharT, Traits, Alloc>& rhs)
+{
+    return basic_string<CharT, Traits, Alloc>(lhs) + rhs;
+}
+
+template <typename CharT, typename Traits, typename Alloc>
+basic_string<CharT, Traits, Alloc> operator+(
+    CharT lhs, const basic_string<CharT, Traits, Alloc>& rhs)
+{
+    return basic_string<CharT, Traits, Alloc>(1, lhs) + rhs;
+}
+
+template <typename CharT, typename Traits, typename Alloc>
+basic_string<CharT, Traits, Alloc> operator+(
+    const basic_string<CharT, Traits, Alloc>& lhs, const CharT* rhs)
+{
+    return lhs + basic_string<CharT, Traits, Alloc>(rhs);
+}
+
+template <typename CharT, typename Traits, typename Alloc>
+basic_string<CharT, Traits, Alloc> operator+(
+    const basic_string<CharT, Traits, Alloc>& lhs, CharT rhs)
+{
+    return lhs + basic_string<CharT, Traits, Alloc>(1, rhs);
+}
+
+template <typename CharT, typename Traits, typename Alloc>
+basic_string<CharT, Traits, Alloc> operator+(
+    basic_string<CharT, Traits, Alloc>&& lhs,
+    const basic_string<CharT, Traits, Alloc>& rhs)
+{
+    return move(lhs.append(rhs));
+}
+
+template <typename CharT, typename Traits, typename Alloc>
+basic_string<CharT, Traits, Alloc> operator+(
+    const basic_string<CharT, Traits, Alloc>& lhs,
+    basic_string<CharT, Traits, Alloc>&& rhs)
+{
+    return move(rhs.insert(0, lhs));
+}
+
+template <typename CharT, typename Traits, typename Alloc>
+basic_string<CharT, Traits, Alloc> operator+(
+    basic_string<CharT, Traits, Alloc>&& lhs,
+    basic_string<CharT, Traits, Alloc>&& rhs)
+{
+    return move(lhs.append(rhs));
+}
+
+template <typename CharT, typename Traits, typename Alloc>
+basic_string<CharT, Traits, Alloc> operator+(
+    const CharT* lhs, basic_string<CharT, Traits, Alloc>&& rhs)
+{
+    return move(rhs.insert(0, lhs));
+}
+
+template <typename CharT, typename Traits, typename Alloc>
+basic_string<CharT, Traits, Alloc> operator+(
+    CharT lhs, basic_string<CharT, Traits, Alloc>&& rhs)
+{
+    return move(rhs.insert(0, 1, lhs));
+}
+
+template <typename CharT, typename Traits, typename Alloc>
+basic_string<CharT, Traits, Alloc> operator+(
+    basic_string<CharT, Traits, Alloc>&& lhs, const CharT* rhs)
+{
+    return move(lhs.append(rhs));
+}
+
+template <typename CharT, typename Traits, typename Alloc>
+basic_string<CharT, Traits, Alloc> operator+(
+    basic_string<CharT, Traits, Alloc>&& lhs, CharT rhs)
+{
+    return move(lhs.append(1, rhs));
+}
+
+/**
+    Tests whether two strings or a string and a null terminated C string contain
+    the same characters and are of the same length.
+
+    @param lhs String or null temrinated C string.
+    @param rhs String or null terminated C string.
+    @return True if lhs and rhs are equal, false otherwise.
+ */
+template <typename CharT, typename Traits, typename Alloc>
+bool operator==(const basic_string<CharT, Traits, Alloc>& lhs,
+    const basic_string<CharT, Traits, Alloc>& rhs) noexcept
+{
+    return (lhs.compare(rhs) == 0);
+}
+
+template <typename CharT, typename Traits, typename Alloc>
+bool operator==(const CharT* lhs,
+    const basic_string<CharT, Traits, Alloc>& rhs)
+{
+    return (rhs.compare(lhs) == 0);
+}
+
+template <typename CharT, typename Traits, typename Alloc>
+bool operator==(const basic_string<CharT, Traits, Alloc>& lhs,
+    const CharT* rhs)
+{
+    return (lhs.compare(rhs) == 0);
+}
+
+/**
+    Tests whether two strings or a string and a null terminated C string contain
+    the different characters or are of different length.
+
+    @param lhs String or null temrinated C string.
+    @param rhs String or null terminated C string.
+    @return True if lhs and rhs are not equal, false otherwise.
+ */
+template <typename CharT, typename Traits, typename Alloc>
+bool operator!=(const basic_string<CharT, Traits, Alloc>& lhs,
+    const basic_string<CharT, Traits, Alloc>& rhs) noexcept
+{
+    return !(lhs == rhs);
+}
+
+template <typename CharT, typename Traits, typename Alloc>
+bool operator!=(const CharT* lhs,
+    const basic_string<CharT, Traits, Alloc>& rhs)
+{
+    return !(lhs == rhs);
+}
+
+template <typename CharT, typename Traits, typename Alloc>
+bool operator!=(const basic_string<CharT, Traits, Alloc>& lhs,
+    const CharT* rhs)
+{
+    return !(lhs == rhs);
+}
+
+/**
+    Tests whether a string or a null terminated C string compares
+    lexicographically less than another.
+
+    @param lhs String or null temrinated C string.
+    @param rhs String or null terminated C string.
+    @return True if lhs is lexicographically less than rhs, false otherwise.
+ */
+template <typename CharT, typename Traits, typename Alloc>
+bool operator<(const basic_string<CharT, Traits, Alloc>& lhs,
+    const basic_string<CharT, Traits, Alloc>& rhs) noexcept
+{
+    return (lhs.compare(rhs) < 0);
+}
+
+template <typename CharT, typename Traits, typename Alloc>
+bool operator<(const CharT* lhs,
+    const basic_string<CharT, Traits, Alloc>& rhs)
+{
+    return (rhs.compare(lhs) > 0);
+}
+
+template <typename CharT, typename Traits, typename Alloc>
+bool operator<(const basic_string<CharT, Traits, Alloc>& lhs,
+    const CharT* rhs)
+{
+    return (lhs.compare(rhs) < 0);
+}
+
+/**
+    Tests whether a string or a null terminated C string compares
+    lexicographically greater than another.
+
+    @param lhs String or null temrinated C string.
+    @param rhs String or null terminated C string.
+    @return True if lhs is lexicographically greater than rhs, false otherwise.
+ */
+template <typename CharT, typename Traits, typename Alloc>
+bool operator>(const basic_string<CharT, Traits, Alloc>& lhs,
+    const basic_string<CharT, Traits, Alloc>& rhs) noexcept
+{
+    return (rhs < lhs);
+}
+
+template <typename CharT, typename Traits, typename Alloc>
+bool operator>(const CharT* lhs,
+    const basic_string<CharT, Traits, Alloc>& rhs)
+{
+    return (rhs < lhs);
+}
+
+template <typename CharT, typename Traits, typename Alloc>
+bool operator>(const basic_string<CharT, Traits, Alloc>& lhs,
+    const CharT* rhs)
+{
+    return (rhs < lhs);
+}
+
+/**
+    Tests whether a string or a null terminated C string compares
+    lexicographically less than or equal to another.
+
+    @param lhs String or null temrinated C string.
+    @param rhs String or null terminated C string.
+    @return True if lhs is lexicographically less than or equal to rhs, false
+            otherwise.
+ */
+template <typename CharT, typename Traits, typename Alloc>
+bool operator<=(const basic_string<CharT, Traits, Alloc>& lhs,
+    const basic_string<CharT, Traits, Alloc>& rhs) noexcept
+{
+    return !(lhs > rhs);
+}
+
+template <typename CharT, typename Traits, typename Alloc>
+bool operator<=(const CharT* lhs,
+    const basic_string<CharT, Traits, Alloc>& rhs)
+{
+    return !(lhs > rhs);
+}
+
+template <typename CharT, typename Traits, typename Alloc>
+bool operator<=(const basic_string<CharT, Traits, Alloc>& lhs,
+    const CharT* rhs)
+{
+    return !(lhs > rhs);
+}
+
+/**
+    Tests whether a string or a null terminated C string compares
+    lexicographically greater than or equal to another.
+
+    @param lhs String or null temrinated C string.
+    @param rhs String or null terminated C string.
+    @return True if lhs is lexicographically greater than or equal to rhs, false
+            otherwise.
+ */
+template <typename CharT, typename Traits, typename Alloc>
+bool operator>=(const basic_string<CharT, Traits, Alloc>& lhs,
+    const basic_string<CharT, Traits, Alloc>& rhs) noexcept
+{
+    return !(lhs < rhs);
+}
+
+template <typename CharT, typename Traits, typename Alloc>
+bool operator>=(const CharT* lhs,
+    const basic_string<CharT, Traits, Alloc>& rhs)
+{
+    return !(lhs < rhs);
+}
+
+template <typename CharT, typename Traits, typename Alloc>
+bool operator>=(const basic_string<CharT, Traits, Alloc>& lhs,
+    const CharT* rhs)
+{
+    return !(lhs < rhs);
+}
+
+/**
+    Swaps the contents of two strings.
+
+    @param lhs, rhs Strings to swap.
+ */
+template <typename CharT, typename Traits, typename Alloc>
+void swap(const basic_string<CharT, Traits, Alloc>& lhs,
+    const basic_string<CharT, Traits, Alloc>& rhs)
+{
+    lhs.swap(rhs);
+}
+
+/**
+    Aliases of basic_string for simple character types.
+ */
+using string = basic_string<char>;
+
+/**
+    Reads characters from an input stream into a string.
+
+    @param is Stream to read from.
+    @param str String to read into.
+    @return is after the operation.
+ */
+template <typename CharT, typename Traits, typename Alloc>
+basic_istream<CharT, Traits>& operator>>(basic_istream<CharT, Traits>& is,
+    basic_string<CharT, Traits, Alloc>& str)
+{
+    // Number of extracted characters.
+    int extracted = 0;
+
+    // Construct the sentry.
+    basic_istream<char, char_traits<char>>::sentry sen {is};
+
+    // Carry on if the sentry is ok
+    if (sen)
+    {
+        // Erase the current contents of the stirng.
+        str.erase();
+
+        while (true)
+        {
+            // Read a character.
+            char_traits<char>::int_type c = is.rdbuf()->sbumpc();
+
+            // Check for eof
+            if (char_traits<char>::eq_int_type(c, char_traits<char>::eof()))
+            {
+                try {
+                    is.setstate(ios_base::eofbit);
+                }
+                catch (...) {}
+                break;
+            }
+
+            // Check for space
+            if (isspace(c))
+            {
+                // Character should not be extracted.
+                is.unget();
+                break;
+            }
+
+            ++extracted;
+            str.push_back(c);
+
+            // Check for width exceeded.
+            if (is.width() > 0 && extracted >= is.width())
+                break;
+        }
+    }
+
+    if (extracted == 0)
+        is.setstate(ios_base::failbit);
+
+    // Allow exceptions for eof to be thrown.
+    if (is.eof() && (is.exceptions() & ios_base::eofbit) != 0)
+        throw ios_base::failure("EoF in operator>> (basic_string)");
+
+    // Cancel effects of setting width.
+    is.width(0);
+
+    return is;
+}
+
+/**
+    Writes characters from a string into an output stream.
+
+    @param os Stream to output to.
+    @param str String to read from.
+    @return os after the operation.
+ */
+template <typename CharT, typename Traits, typename Alloc>
+basic_ostream<CharT, Traits>& operator<<(basic_ostream<CharT, Traits>& os,
+    const basic_string<CharT, Traits, Alloc>& str)
+{
+    // Constuct sentry
+    basic_ostream<char, char_traits<char>>::sentry sen {os};
+
+    // Carry on if the sentry is fine
+    if (sen)
+    {
+        // Make a string representation copy.
+        string res {str};
+
+        // Pad the string.
+        helper::pad_char(res, os);
+
+        // Do the actual output.
+        helper::do_output(res, os);
+    }
+
+    // Cancel effects of setting width.
+    os.width(0);
+
+    return os;
+}
+
+/**
+    Reads characters from an input stream into a string until the delimiter
+    character, by default a newline, is reached.
+
+    @param input The input stream to read from.
+    @param str The string to write to.
+    @param delim The character to stop reading at.
+    @return input.
+ */
+template <typename CharT, typename Traits, typename Alloc>
+basic_istream<CharT, Traits>& getline(basic_istream<CharT, Traits>&& input,
+    basic_string<CharT, Traits, Alloc>& str)
+{
+    return getline(input, str, '\n');
+}
+
+template <typename CharT, typename Traits, typename Alloc>
+basic_istream<CharT, Traits>& getline(basic_istream<CharT, Traits>& input,
+    basic_string<CharT, Traits, Alloc>& str)
+{
+    return getline(input, str, '\n');
+}
+
+template <typename CharT, typename Traits, typename Alloc>
+basic_istream<CharT, Traits>& getline(basic_istream<CharT, Traits>&& input,
+    basic_string<CharT, Traits, Alloc>& str, CharT delim)
+{
+    return getline(input, str, '\n');
+}
+
+template <typename CharT, typename Traits, typename Alloc>
+basic_istream<CharT, Traits>& getline(basic_istream<CharT, Traits>& input,
+    basic_string<CharT, Traits, Alloc>& str, CharT delim)
+{
+    // Whether we've extracted any characters.
+    bool extracted = false;
+
+    // Construct the sentry.
+    basic_istream<char, char_traits<char>>::sentry sen {input, true};
+
+    // Carry on if the sentry is ok
+    if (sen)
+    {
+        // Erase the current contents of the stirng.
+        str.erase();
+
+        while (true)
+        {
+            // Read a character.
+            char_traits<char>::int_type c = input.rdbuf()->sbumpc();
+
+            // Check for eof
+            if (char_traits<char>::eq_int_type(c, char_traits<char>::eof()))
+            {
+                try {
+                    input.setstate(ios_base::eofbit);
+                }
+                catch (...) {}
+                break;
+            }
+
+            extracted = true;
+
+            // Delimiter character. Extracted, but not stored.
+            if (char_traits<char>::eq(c, delim))
+                break;
+            // Valid character.
+            else
+                str.push_back(c);
+
+            // Check capacity.
+            if (str.size() == str.max_size())
+                break;
+        }
+    }
+
+    if (!extracted)
+        input.setstate(ios_base::failbit);
+
+    // Allow exceptions for eof to be thrown.
+    if (input.eof() && (input.exceptions() & ios_base::eofbit) != 0)
+        throw ios_base::failure("EoF in getline");
+
+    return input;
+}
+
+/**
+    Performs a conversion of the character sequence in str to a numeric type.
+    Leading whitesapce is ignored. The conversion procedes as far as possible
+    through the string.
+
+    @param str String to convert.
+    @param pos If not the nullptr, becomes a pointer to the number of characters
+           converted. Defaults to the nullptr.
+    @param base Radix to use for conversion. Defaults to 10. If 0, use 8 if the
+           prefix of the number is 0, 16 if the prefix if 0x or 0X, and 10
+           otherwise.
+    @return str converted to a numeric value.
+ */
+int stoi(const string& str, size_t* pos = nullptr, int base = 10);
+
+long stol(const string& str, size_t* pos = nullptr, int base = 10);
+
+long long stoll(const string& str, size_t* pos = nullptr, int base = 10);
+
+unsigned int stoui(const string& str, size_t* pos = nullptr, int base = 10);
+
+unsigned long stoul(const string& str, size_t* pos = nullptr, int base = 10);
+
+unsigned long long stoull(const string& str, size_t* pos = nullptr,
+    int base = 10);
+
+float stof(const string& str, size_t* pos = nullptr);
+
+double stod(const string& str, size_t* pos = nullptr);
+
+long double stold(const string& str, size_t* pos = nullptr);
+
+/**
+    Converts the provided numeric value into a string.
+
+    @param value Numeric value to convert.
+    @return value converted into a string.
+ */
+string to_string(char value);
+string to_string(signed char value);
+string to_string(int value);
+string to_string(long value);
+string to_string(long long value);
+string to_string(unsigned char value);
+string to_string(unsigned int value);
+string to_string(unsigned long value);
+string to_string(unsigned long long value);
+string to_string(float value);
+string to_string(double value);
+string to_string(long double value);
+
+/**
+    Converts a string literal (const char*) with suffix s to a string.
+
+    @param str String literal to convert.
+    @return str as a string.
+ */
+/* Omitted due to compiler warnings about no underscore prefix. I'm unlikely to
+   be using it anway.
+inline namespace literals {
+inline namespace string_literals {
+    NMSP::basic_string<char> operator""s(const char* str, size_t len);
+} // string_literals namespace
+} // literals namespace
+*/
+
+/**
+    Outputs the contents of the string to an output stream. Useful for printing
+    in hosted testing.
+
+    @param os Output stream.
+    @param str String to output.
+    @return os After addition of str.
+ */
+#ifdef HOSTED_TEST
+std::ostream& operator<<(std::ostream& os, const string& str); 
+#endif /* HOSTED_TEST */
+
+} // NMSP namespace
+
+#endif /* STRING_H */

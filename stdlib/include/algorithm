@@ -1,0 +1,380 @@
+#ifndef ALGORITHM_H
+#define ALGORITHM_H
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+#include "../include/iterator"
+#include "../include/type_traits"
+#include "../include/utility"
+
+namespace NMSP {
+
+/**
+    Returns the maximum of the given values, compared with operator<, or the
+    first value if equal.
+    If a comparison is given, it is used to compare values instead of operator<.
+
+    @param a,b Values to compare.
+    @param comp A binary function taking two values of type T (which shall not
+                be modified) and returning a value convertible to a bool. Can
+                be a function object or function pointer.
+    @return The largest of a and b.
+ */
+template <class T>
+const T& max(const T& a, const T& b)
+{
+    return (a < b) ? b : a;
+}
+
+template <class T, class Compare>
+const T& max(const T& a, const T& b, Compare comp)
+{
+    return comp(a, b) ? b : a;
+}
+
+/**
+    Returns the minimum of the given values, compared with operator<, or the
+    first value if equal.
+    If a comparison is given, it is used to compare values instead of operator<.
+
+    @param a,b Values to compare.
+    @param comp A binary function taking two values of type T (which shall not
+                be modified) and returning a value convertible to a bool. Can
+                be a function object or function pointer.
+    @return The smallest of a and b.
+ */
+template <class T>
+const T& min(const T& a, const T& b)
+{
+    return !(b < a) ? a : b;
+}
+
+template <class T, class Compare>
+const T& min(const T& a, const T& b, Compare comp)
+{
+    return !comp(b, a) ? a : b;
+}
+
+/**
+    Finds the number of increments needed to got from iterator first to
+    iterator last. They must be at least input iterators. If they are also
+    random access iterators, the - operator is used. If they are not, repeated
+    ++ operators are used.
+
+    @param first, last Iterators spanning a range.
+    @return Distance from first to last.
+ */
+namespace helper {
+    // We've already checked whether the iterator is an input iterator. Now see
+    // whether it's also random access.
+
+    // Positive case
+    template <typename Iter, typename = helper::RequireRandomAccessIter<Iter>>
+    typename iterator_traits<Iter>::difference_type
+        distance_helper(Iter first, Iter last, int)
+    {
+        return (last - first);
+    }
+
+    // Negative case
+    template <typename Iter>
+    typename iterator_traits<Iter>::difference_type
+        distance_helper(Iter first, Iter last, ...)
+    {
+        typename iterator_traits<Iter>::difference_type dist = 0;
+        for (; first != last; ++first, ++dist) ;
+
+        return dist;
+    }
+} // helper namespace
+
+template <typename Iter, typename = helper::RequireInputIter<Iter>>
+typename iterator_traits<Iter>::difference_type
+        distance(Iter first, Iter last)
+{
+    return helper::distance_helper<Iter>(first, last, 0);
+}
+
+/**
+    Tests whether the contents of two iterator ranges are equal. If two full
+    ranges are provided, the length of the ranges must be equal. The length of
+    the second range can be assumed from the length of the first. A comparison
+    function object can be provided; if one is not, the == operator is used.
+
+    @param first1 Start of first range.
+    @param last1 End of first range.
+    @param first2 Start of second range.
+    @param last2 End of second range.
+    @param pred Comparison operator.
+    @return Whether the ranges are equal.
+ */
+namespace helper {
+    // Keep the InputIter tests hidden from the user.
+    template <typename InputIt1, typename InputIt2,
+        typename = RequireInputIter<InputIt1>,
+        typename = RequireInputIter<InputIt2>>
+    bool equal_helper(InputIt1 first1, InputIt1 last1, InputIt2 first2)
+    {
+        for (; first1 != last1; ++first1, ++first2)
+            if (!(*first1 == *first2))
+                return false;
+
+        return true;
+    }
+
+    template <typename InputIt1, typename InputIt2, typename BinaryPredicate,
+        typename = RequireInputIter<InputIt1>,
+        typename = RequireInputIter<InputIt2>>
+    bool equal_helper(InputIt1 first1, InputIt1 last1, InputIt2 first2,
+        BinaryPredicate p)
+    {
+        for (; first1 != last1; ++first1, ++first2)
+            if (!p(*first1, *first2))
+                return false;
+
+        return true;
+    }
+
+    template <typename InputIt1, typename InputIt2,
+        typename = RequireInputIter<InputIt1>,
+        typename = RequireInputIter<InputIt2>>
+    bool equal_helper(InputIt1 first1, InputIt1 last1,
+        InputIt2 first2, InputIt2 last2)
+    {
+        if (distance(first1, last1) != distance(first2, last2))
+            return false;
+
+        return equal(first1, last1, first2);
+    }
+
+    template <typename InputIt1, typename InputIt2, typename BinaryPredicate,
+        typename = RequireInputIter<InputIt1>,
+        typename = RequireInputIter<InputIt2>>
+    bool equal_helper(InputIt1 first1, InputIt1 last1,
+        InputIt2 first2, InputIt2 last2, BinaryPredicate p)
+    {
+        if (distance(first1, last1) != distance(first2, last2))
+            return false;
+
+        return equal(first1, last1, first2, p);
+    }
+} // helper namespace
+
+template <typename Iter1, typename Iter2>
+bool equal(Iter1 first1, Iter1 last1, Iter2 first2)
+{
+    return helper::equal_helper(first1, last1, first2);
+}
+
+template <typename Iter1, typename Iter2>
+bool equal(Iter1 first1, Iter1 last1, Iter2 first2, Iter2 last2)
+{
+    return helper::equal_helper(first1, last1, first2, last2);
+}
+
+template <typename Iter1, typename Iter2, typename BinaryPredicate>
+bool equal(Iter1 first1, Iter1 last1, Iter2 first2, BinaryPredicate comp)
+{
+    return helper::equal_helper(first1, last1, first2, comp);
+}
+
+template <typename Iter1, typename Iter2, typename BinaryPredicate>
+bool equal(Iter1 first1, Iter1 last1, Iter2 first2, Iter2 last2, BinaryPredicate comp)
+{
+    return helper::equal_helper(first1, last1, first2, last2, comp);
+}
+
+/**
+    Tests whether the contents of one sequence is less than another. The
+    sequence are compared element wise. The first non-identical element
+    determines the whole result. An optional function object is used to make the
+    elementwise comparison. If none is provided, the < operator is used. If one
+    sequence is the prefix of the other, the first is less than. An empty
+    sequence is less than a non-empty one. Two empty sequence are equal. The
+    iterators must be at least input iterators.
+
+    @param first1, last1 Iterators bounding the first sequence.
+    @param first2, last2 Iterators bounding the second sequence.
+    @param comp Function object for the comparison.
+    @return Whether the first sequence compares less than the second.
+ */
+namespace helper {
+    // Keep the InputIter tests hidden from the user.
+    template <typename Iter1, typename Iter2,
+        typename = helper::RequireInputIter<Iter1>,
+        typename = helper::RequireInputIter<Iter1>>
+    bool lexicographical_compare_helper(Iter1 first1, Iter1 last1, Iter2 first2,
+        Iter2 last2)
+    {
+        for (; (first1 != last1) && (first2 != last2); ++first1, ++first2)
+        {
+            if (*first1 < *first2)
+                return true;
+            if (*first2 < *first1)
+                return false;
+        }
+        return (first1 == last1) && (first2 != last2);
+    }
+
+    template <typename Iter1, typename Iter2, typename Compare,
+        typename = helper::RequireInputIter<Iter1>,
+        typename = helper::RequireInputIter<Iter1>>
+    bool lexicographical_compare_helper(Iter1 first1, Iter1 last1, Iter2 first2,
+        Iter2 last2, Compare comp)
+    {
+        for (; (first1 != last1) && (first2 != last2); ++first1, ++first2)
+        {
+            if (comp(*first1, *first2))
+                return true;
+            if (comp(*first2, *first1))
+                return false;
+        }
+        return (first1 == last1) && (first2 != last2);
+    }
+} // helper namespace
+
+template <typename Iter1, typename Iter2>
+bool lexicographical_compare(Iter1 first1, Iter1 last1, Iter2 first2,
+    Iter2 last2)
+{
+    return helper::lexicographical_compare_helper(first1, last1, first2, last2);
+}
+
+template <typename Iter1, typename Iter2, typename Compare>
+bool lexicographical_compare(Iter1 first1, Iter1 last1, Iter2 first2,
+    Iter2 last2, Compare comp)
+{
+    return helper::lexicographical_compare_helper(first1, last1, first2, last2,
+        comp);
+}
+
+/**
+    Swaps the values the given iterators (whihc must be at least forward
+    iterators) are pointing to.
+
+    @param a, b Iterators to the elements to swap.
+ */
+namespace helper {
+    // Keep the iterator tests hidden from the user.
+    template <typename Iter1, typename Iter2,
+        typename = helper::RequireForwardIter<Iter1>,
+        typename = helper::RequireForwardIter<Iter2>>
+    void iter_swap_helper(Iter1 a, Iter2 b)
+    {
+        swap(*a, *b);
+    }
+}
+
+template <typename Iter1, typename Iter2>
+void iter_swap(Iter1 a, Iter2 b)
+{
+    helper::iter_swap_helper(a, b);
+}
+
+/**
+    Reverses the order of the elements in the range first to last. The iterators
+    must be at least bidirectional.
+
+    @param first, last Range to reverse.
+ */
+namespace helper {
+    // Keep the iterator tests hidden from the user.
+    template <typename Iter, typename = helper::RequireBidirectionalIter<Iter>>
+    void reverse_helper(Iter first, Iter last)
+    {
+        while ((first != last) && (first != --last))
+            iter_swap(first++, last);
+    }
+}
+
+template <typename Iter>
+void reverse(Iter first, Iter last)
+{
+    helper::reverse_helper(first, last);
+}
+
+/**
+    Assigns the given value to the first count elements of the range beginning
+    at first. Does nothing if count is not greater than zero.
+
+    @param first Iterator to the start of the range. Must be at least an
+           output iterator.
+    @param count The number of elements to assign.
+    @param value The value to set the elements to.
+    @return Iterator to one past the last element assigned. first if no
+            assignment took place.
+ */
+template <typename It, typename Size, typename T>
+It fill_n(It first, Size count, const T& value)
+{
+    for (Size i = 0; i < count; ++i)
+        *first++ = value;
+
+    return first;
+}
+
+/**
+    Swaps elements from the range first1 to last1 with the range of the same
+    length starting at first2.
+
+    @param It1, It2, types of iterators for the ranges. Must be at least foward
+           iterators and teir dereferences types must be swappable.
+    @param first1, last1 Iterators specifying the first range.
+    @param first2 Iterator to the start of the second range.
+    @return Iterator to one past the last element swapped in the second range.
+ */
+template <typename It1, typename It2>
+It2 swap_ranges(It1 first1, It1 last1, It2 first2)
+{
+    while (first1 != last1)
+        iter_swap(first1++, first2++);
+    return first2;
+}
+
+/**
+    Applies an operation to each element in the specified range and stores the
+    resault beginning at the second specified range.
+
+    @param InputIt An input iterator.
+    @param OutputIt An output iterator.
+    @param UnaryOp A unary operation.
+    @param first, last Specifies the range to apply to operation to.
+    @param first_out The start of the range to store the output to.
+    @param op The operation to perform.
+    @return Iterator to one past the last transformed element, that is
+            first_out + distance(first, last).
+ */
+template <typename InputIt, typename OutputIt, typename UnaryOp>
+OutputIt transform(InputIt first, InputIt last, OutputIt first_out, UnaryOp op)
+{
+    for (; first != last; ++first, ++first_out)
+        *first_out = op(*first);
+
+    return first_out;
+}
+
+/**
+    Searches the provided range for a value that matches the provided one. By
+    default, the comparison is done by the == operator.
+
+    @param first, last Iterators specifying the range to search.
+    @param v value to look for.
+    @return Iterator to the first matching value, or last if not found.
+ */
+template<class InputIt, class T>
+constexpr InputIt find(InputIt first, InputIt last, const T& v)
+{
+    for (; first != last; ++first) {
+        if (*first == v) {
+            return first;
+        }
+    }
+    return last;
+}
+
+} // NMSP namespace
+
+#endif /* ALGORITHM_H */

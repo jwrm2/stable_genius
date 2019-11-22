@@ -1,0 +1,102 @@
+#ifndef EXCEPTION_H
+#define EXCEPTION_H
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+namespace NMSP {
+
+/**
+    Base class for all standard library exceptions.
+ */
+class exception
+{
+public:
+    /**
+        Default constructor. Does nothing.
+     */
+    exception() noexcept {}
+
+    /**
+        Virtual destructor.
+     */
+    virtual ~exception() noexcept;
+
+    /**
+        Returns a C-style null terminated string with a message describing the
+        cause of the error.
+
+        @return Error description string.
+     */
+    virtual const char* what() const noexcept;
+};
+
+/**
+    Type for a terminate exception handler.
+ */
+using terminate_handler = void (*)();
+
+/**
+    Set the terminate handler.
+
+    @param new_handler The function to set as the terminate handler.
+    @return The old handler.
+ */
+terminate_handler set_terminate(terminate_handler new_handler) noexcept;
+
+/**
+    Gets the current terminate handler.
+
+    @return The current terminate handler.
+ */
+terminate_handler get_terminate() noexcept;
+
+/**
+    Type for an unexpected exception handler.
+ */
+using unexpected_handler = void (*)();
+
+/**
+    Set the unexpected handler.
+
+    @param new_handler The function to set as the unexpected handler.
+    @return The old handler.
+ */
+unexpected_handler set_unexpected(unexpected_handler new_handler) noexcept;
+
+/**
+    Gets the current unexpected handler.
+
+    @return The current unexpected handler.
+ */
+unexpected_handler get_unexpected() noexcept;
+
+/**
+    This function is called when a function throws an expection that violates
+    its noexcept specification. It calls the current unexpected handler.
+ */
+void unexpected() noexcept;
+
+/**
+    Checks whether there is currently an exception that has not been caught, ie.
+    if stack unwinding is currently in progress.
+
+    @return True if stack unwinding is in progress, false otherwise.
+ */
+bool uncaught_exception() noexcept;
+
+} // end NMSP namesapce
+
+namespace std {
+/**
+    This function is called when a variety of things go wrong with exception
+    handling. It calls the current terminate handler. It needs to be in std for
+    compiler magic.
+ */
+void terminate() noexcept;
+
+} // end std namespace
+
+#endif /* EXCEPTION_H */

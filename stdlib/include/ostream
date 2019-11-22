@@ -1,0 +1,849 @@
+#ifndef OSTREAM_H
+#define OSTREAM_H
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+#include "../include/cstring"
+#include "../include/exception"
+#include "../include/ios"
+#include "../include/vector"
+
+namespace NMSP {
+
+// Forward declarations
+template <typename, typename> class basic_ostream;
+template <typename, typename> class basic_iostream;
+
+namespace helper {
+
+/**
+    A set of functions that convert a numerical value into characters, for
+    output. TODO: These only work for chars and are not locale specific, so they
+    aren't very general, but good enough for the kernel for now.
+
+    @param val Value to convert.
+    @param ostr Stream object into which to write the output.
+    @return True on success, false on reaching end of file.
+ */
+bool do_insert(short val, basic_ostream<char, char_traits<char>>& ostr);
+
+bool do_insert(int val, basic_ostream<char, char_traits<char>>& ostr);
+
+bool do_insert(long val, basic_ostream<char, char_traits<char>>& ostr);
+
+bool do_insert(long long val, basic_ostream<char, char_traits<char>>& ostr);
+
+bool do_insert(unsigned long long val,
+    basic_ostream<char, char_traits<char>>& ostr);
+
+bool do_insert(long double val, basic_ostream<char, char_traits<char>>& ostr);
+
+bool do_insert(bool val, basic_ostream<char, char_traits<char>>& ostr);
+
+bool do_insert(basic_streambuf<char, char_traits<char>>* val,
+    basic_ostream<char, char_traits<char>>& ostr);
+
+bool do_insert(const void* val, basic_ostream<char, char_traits<char>>& ostr);
+
+} // end helper namespace
+
+/**
+    This class, the parent of all output streams, provides high level formatted
+    and unformatted character output to an object with a streambuf interface.
+ */
+template <typename CharT, typename Traits = char_traits<CharT>>
+class basic_ostream : virtual public basic_ios<CharT, Traits> {
+protected:
+    /** The type of the parent basic_ios, for convenience. */
+    using ios_type = basic_ios<CharT, Traits>;
+public:
+    /** Type of the character. */
+    using char_type = CharT;
+    /** Type of the traits. traits_type::char_type must equal char_type. */
+    using traits_type = Traits;
+    /** Type of an int that can represent the char. */
+    using int_type = typename ios_type::int_type;
+    /** Type that can represent a position in a stream. */
+    using pos_type = typename ios_type::pos_type;
+    /** Type of an int that can represent an offset in a stream. */
+    using off_type = typename ios_type::off_type;
+
+    /**
+        Constructor. Sets the associated stream buffer by calling init().
+
+        @param sb The associated stream buffer.
+     */
+    explicit basic_ostream(basic_streambuf<CharT, Traits>* sb) : ios_type {}
+    {
+        ios_type::init(sb);
+    }
+
+    /**
+        Destructor. Doesn't do anything, the destruction of the associated
+        buffer is left to derived classes.
+     */
+    virtual ~basic_ostream() {}
+
+    /**
+        An object of the sentry type is constructed at the start of all the
+        standard output operations. It checks that the stream is in a good state
+        and flushes the tied stream. The success of these operations can be
+        checked by calling the sentry's operator bool(). When the sentry is
+        destructed, either at the end of the output or when an exception is
+        thrown, the output stream is flushed if necessary and the success
+        checked.
+     */
+    class sentry {
+    public:
+        /**
+            Checks whether the stream is good. If it is, flush the tied stream.
+            If the stream is still good, set the sentry state to good. If any of
+            this fails, set the sentry state to bad.
+
+            @param os Associated output stream.
+         */
+        explicit sentry(basic_ostream& os) : ok {false}, str {os}
+        {
+            if (str.good() && str.tie() != nullptr)
+                str.tie()->flush();
+
+            if (str.good())
+                ok = true;
+            else
+            {
+                try {
+                    str.setstate(ios_base::failbit);
+                }
+                catch (...)
+                {
+                    throw ios_base::failure
+                        {"fail in ostream sentry constructor"};
+                }
+            }
+        }
+
+        /**
+            Copy assignment is deleted.
+
+            @param other Sentry to (not) copy.
+            @return This sentry.
+         */
+        sentry& operator=(const sentry& other) = delete;
+
+        /**
+            Move assignment is deleted.
+
+            @param other Sentry to (not) pirate.
+            @return This sentry.
+         */
+        sentry& operator=(sentry&& other) = delete;
+
+        /**
+            Destructor. Performs cleanup operations, specifically flushing the
+            associated stream if required.
+         */
+        ~sentry()
+        {
+            // Check whether we need to flush. We don't flush is an exception
+            // has been thrown.
+            if ((str.flags() & ios_base::unitbuf) != 0 && !uncaught_exception())
+                // Call the flush, as long as the stream exists. Test for
+                // success.
+                if (str.rdbuf() != nullptr && str.rdbuf()->pubsync() == -1)
+                    str.setstate(ios_base::badbit);
+        }
+
+        /**
+            Checks whether the sentry constructor operations were successfully
+            completed.
+
+            @return Whether the associated stream is ready to use.
+         */
+        explicit operator bool() const { return ok; }
+
+    private:
+        /** Stored the results of the initialisation checks performed by the
+            constructor. */
+        bool ok;
+        /** Reference to the associated basic_ostream. */
+        basic_ostream& str;
+    };
+
+    /**
+        These overloads of the output operator are used for I/O manipulators,
+        to allow constructs such as 'cout << endl'.
+
+        @param func An I/O manipulator function.
+        @return This stream after calling func(*this).
+     */
+    basic_ostream& operator<<(ios_base& (*func)(ios_base&))
+    {
+        func(*this);
+        return *this;
+    }
+
+    basic_ostream& operator<<(ios_type& (*func)(ios_type&))
+    {
+        func(*this);
+        return *this;
+    }
+
+    basic_ostream& operator<<(basic_ostream& (*func)(basic_ostream&))
+    {
+        func(*this);
+        return *this;
+    }
+
+    /**
+        Formatted output functions. Constructs the sentry object, then attempts
+        to insert characters into the associated output stream.
+        TODO: Conversion of numbers to characters should be performed by the
+        num_put::put() function, but we're not doing locales here.
+
+        @param val Value to insert.
+        @return This stream after insertion.
+     */
+    basic_ostream& operator<<(short val)
+    {
+        helper::do_insert(val, *this);
+        return *this;
+    }
+
+    basic_ostream& operator<<(unsigned short val)
+    {
+        helper::do_insert(static_cast<unsigned long long>(val), *this);
+        return *this;
+    }
+
+    basic_ostream& operator<<(int val)
+    {
+        helper::do_insert(val, *this);
+        return *this;
+    }
+
+    basic_ostream& operator<<(unsigned int val)
+    {
+        helper::do_insert(static_cast<unsigned long long>(val), *this);
+        return *this;
+    }
+
+    basic_ostream& operator<<(long val)
+    {
+        helper::do_insert(val, *this);
+        return *this;
+    }
+
+    basic_ostream& operator<<(unsigned long val)
+    {
+        helper::do_insert(static_cast<unsigned long long>(val), *this);
+        return *this;
+    }
+
+    basic_ostream& operator<<(long long val)
+    {
+        helper::do_insert(val, *this);
+        return *this;
+    }
+
+    basic_ostream& operator<<(unsigned long long val)
+    {
+        helper::do_insert(val, *this);
+        return *this;
+    }
+
+    basic_ostream& operator<<(float val)
+    {
+        helper::do_insert(static_cast<long double>(val), *this);
+        return *this;
+    }
+
+    basic_ostream& operator<<(double val)
+    {
+        helper::do_insert(static_cast<long double>(val), *this);
+        return *this;
+    }
+
+    basic_ostream& operator<<(long double val)
+    {
+        helper::do_insert(val, *this);
+        return *this;
+    }
+
+    basic_ostream& operator<<(bool val)
+    {
+        helper::do_insert(val, *this);
+        return *this;
+    }
+
+    basic_ostream& operator<<(const void* val)
+    {
+        helper::do_insert(val, *this);
+        return *this;
+    }
+
+    basic_ostream& operator<<(basic_streambuf<CharT, Traits>* val)
+    {
+        helper::do_insert(val, *this);
+        return *this;
+    }
+
+    /**
+        Unformatted output. Outputs a single character.
+
+        @param ch Character to output.
+        @return This stream.
+     */
+    basic_ostream& put(char_type ch)
+    {
+        // Constuct sentry
+        basic_ostream::sentry sen {*this};
+
+        // Carry on if the sentry is fine
+        if (sen)
+        {
+            // Do the actual output.
+            int e = ios_type::rdbuf()->sputc(ch);
+
+            if (e == traits_type::eof())
+            {
+                try {
+                    ios_type::setstate(ios_base::badbit);
+                }
+                catch (...) {
+                    throw ios_base::failure
+                        {"basic_ostream::put returned end of file"};
+                }
+            }
+        }
+
+        return *this;
+    }
+
+    /**
+        Unformatted output. Outputs a sequence of characters.
+
+        @param s Pointer to the start of the character sequence.
+        @param count Number of characters to write.
+        @return This stream.
+     */
+    basic_ostream& write(const char_type* s, streamsize count)
+    {
+        // Constuct sentry
+        basic_ostream::sentry sen {*this};
+
+        // Carry on if the sentry is fine
+        if (sen)
+        {
+            // Do the actual output.
+            streamsize e = ios_type::rdbuf()->
+                sputn(s, count);
+
+            if (e != count)
+            {
+                try {
+                    ios_type::setstate(ios_base::badbit);
+                }
+                catch (...) {
+                    throw ios_base::failure
+                        {"basic_ostream::write writing stopped before all "
+                        "characters were written"};
+                }
+            }
+        }
+
+        return *this;
+    }
+
+    /**
+        Returns the ouptut position indicator of the associated stream, or -1
+        if the current state is fail.
+
+        @return Current output position indicator.
+     */
+    pos_type tellp()
+    {
+        pos_type ret_val {-1};
+
+        // Constuct sentry
+        basic_ostream::sentry sen {*this};
+
+        // Carry on if the sentry is fine
+        if (sen)
+        {
+            ret_val = ios_type::rdbuf()->
+                pubseekoff(0, ios_base::cur, ios_base::out);
+
+            if (ret_val == pos_type {-1})
+                try {
+                    ios_type::setstate(ios_base::badbit);
+                }
+                catch (...) {}
+        }
+
+        return ret_val;
+    }
+
+    /**
+        Sets the ouptut position indicator of the associated stream.
+
+        @param pos Absolute position to set the output position to.
+        @param off Relative position to set the output position to.
+        @param dir Base for specifying a relative position.
+        @return This basic_ostream.
+     */
+    basic_ostream& seekp(pos_type pos)
+    {
+        // Constuct sentry
+        basic_ostream::sentry sen {*this};
+
+        // Carry on if the sentry is fine
+        if (sen)
+        {
+            pos_type ret_val = ios_type::rdbuf()->
+                pubseekpos(pos, ios_base::out);
+
+            if (ret_val == pos_type {-1})
+            {
+                try {
+                    ios_type::setstate(ios_base::badbit);
+                }
+                catch (...) {
+                    throw ios_base::failure {"basic_ostream::seekp failed"};
+                }
+            }
+        }
+
+        return *this;
+    }
+
+    basic_ostream& seekp(off_type off, ios_base::seekdir dir)
+    {
+        // Constuct sentry
+        basic_ostream::sentry sen {*this};
+
+        // Carry on if the sentry is fine
+        if (sen)
+        {
+            pos_type ret_val = ios_type::rdbuf()->
+                pubseekoff(off, dir, ios_base::out);
+
+            if (ret_val == pos_type {-1})
+            {
+                try {
+                    ios_type::setstate(ios_base::badbit);
+                }
+                catch (...) {
+                    throw ios_base::failure {"basic_ostream::seekp failed"};
+                }
+            }
+        }
+
+        return *this;
+    }
+
+    /**
+        Commits any changes due in the assocated stream buffer.
+
+        @return This basic_ostream.
+     */
+    basic_ostream& flush()
+    {
+        // Constuct sentry
+        basic_ostream::sentry sen {*this};
+
+        // Carry on if the sentry is fine
+        if (sen)
+        {
+            int ret_val = ios_type::rdbuf()->pubsync();
+
+            if (ret_val == -1)
+            {
+                try {
+                    ios_type::setstate(ios_base::badbit);
+                }
+                catch (...) {
+                    throw ios_base::failure
+                        {"basic_ostream::flush failed"};
+                }
+            }
+        }
+
+        return *this;
+    }
+
+protected:
+    /**
+        This non-standard constructor is called from the move constructor of
+        basic_iostream, which inherits from both basic_istream and
+        basic_ostream. The stream state and buffer is already moved by the
+        basic_istream move constructor, so we require a basic_ostream
+        constructor that does nothing.
+
+        @param self A derived basic_iostrream object, to signal that's what
+               we're up to.
+     */
+    explicit basic_ostream(const basic_iostream<CharT, Traits>&) {}
+
+    /**
+        Copy construction is deleted.
+
+        @param other basic_ostream to (not) copy.
+     */
+    basic_ostream(const basic_ostream& other) = delete;
+
+    /**
+        Copy assignemnt is deleted.
+
+        @param other basic_ostream to (not) copy.
+        @return This basic_ostream.
+     */
+    basic_ostream& operator=(const basic_ostream& other) = delete;
+
+    /**
+        Move construction. Pirate the state of another ostream. Calls the move()
+        method inherited from basic_ios, which moves everything except the
+        associated buffer. The buffer move is left to derived classes.
+
+        @param other ostream to pirate from.
+     */
+    basic_ostream(basic_ostream&& other) : ios_type {}
+    {
+        ios_type::move(other);
+    }
+
+    /**
+        Move assignment. Swaps the states of this and the other basic_ostream,
+        by calling the swap() method inherited from basic_ios. Does not change
+        the associated buffer, that is left to derived classes.
+
+        @param other ostream to swap with.
+        @return This basic_ostream.
+     */
+    basic_ostream& operator=(basic_ostream&& other)
+    {
+        ios_type::swap(other);
+        return *this;
+    }
+
+    /**
+        Overrides the basic_ios swap function, to swap all members of except the
+        associated stream buffer, which is left to derived classes.
+
+        @param other Other basic_ostream to swap with.
+     */
+    void swap(basic_ostream& other)
+    {
+        // Since basic_ostream doesn't add any members, we just need to call the
+        // parent fuction.
+        ios_type::swap(other);
+    }
+};
+
+namespace helper {
+
+/**
+    Helper function that outputs a string into a char specialised output stream.
+    Used by most of the operator<< implementations.
+
+    @param output String to output.
+    @param ostr Stream to put output into.
+ */
+void do_output(const string& output,
+    basic_ostream<char, char_traits<char>>& ostr);
+
+/**
+    Helper function that performs the padding for a string. Used by output
+    operators for chars.
+
+    @param rep String representation of the character(s) to output.
+    @param os Stream with the fill, adjustfield and width values to use.
+ */
+void pad_char(string& rep, const basic_ostream<char, char_traits<char>>& os);
+
+} // end helper namespace
+
+/**
+    Overloads of the output operator for characters.
+    TODO the templated versions will need some attention if locales are ever
+         implemented.
+
+    @param os A stream to output to.
+    @param ch A single character to output.
+    @param s A null terminated C-string to output.
+    @param value Some value of a type for which os << value is defined.
+    @return The output stream after the operation.
+ */
+template <typename CharT, typename Traits>
+basic_ostream<CharT, Traits>& operator<<(basic_ostream<CharT, Traits>& os,
+    char ch)
+{
+    // Constuct sentry
+    typename basic_ostream<CharT, Traits>::sentry sen {os};
+
+    // Carry on if the sentry is fine
+    if (sen)
+    {
+        // Make a string representation.
+        string res {ch};
+
+        // Pad the string.
+        helper::pad_char(res, os);
+
+        // Do the actual output.
+        helper::do_output(res, os);
+    }
+
+    return os;
+}
+
+template <typename Traits>
+basic_ostream<char, Traits>& operator<<(basic_ostream<char, Traits>& os,
+    char ch)
+{
+    // Constuct sentry
+    typename basic_ostream<char, Traits>::sentry sen {os};
+
+    // Carry on if the sentry is fine
+    if (sen)
+    {
+        // Make a string representation.
+        string res {ch};
+
+        // Pad the string.
+        helper::pad_char(res, os);
+
+        // Do the actual output.
+        helper::do_output(res, os);
+    }
+
+    return os;
+}
+
+template <typename Traits>
+basic_ostream<char, Traits>& operator<<(basic_ostream<char, Traits>& os,
+    signed char ch)
+{
+    // Constuct sentry
+    typename basic_ostream<char, Traits>::sentry sen {os};
+
+    // Carry on if the sentry is fine
+    if (sen)
+    {
+        // Make a string representation.
+        string res {ch};
+
+        // Pad the string.
+        helper::pad_char(res, os);
+
+        // Do the actual output.
+        helper::do_output(res, os);
+    }
+
+    return os;
+}
+
+template <typename Traits>
+basic_ostream<char, Traits>& operator<<(basic_ostream<char, Traits>& os,
+    unsigned char ch)
+{
+    // Constuct sentry
+    typename basic_ostream<char, Traits>::sentry sen {os};
+
+    // Carry on if the sentry is fine
+    if (sen)
+    {
+        // Make a string representation.
+        string res {static_cast<char>(ch)};
+
+        // Pad the string.
+        helper::pad_char(res, os);
+
+        // Do the actual output.
+        helper::do_output(res, os);
+    }
+
+    return os;
+}
+
+template <typename CharT, typename Traits>
+basic_ostream<CharT, Traits>& operator<<(basic_ostream<CharT, Traits>& os,
+    const CharT* s)
+{
+    // Constuct sentry
+    typename basic_ostream<CharT, Traits>::sentry sen {os};
+
+    // Carry on if the sentry is fine
+    if (sen)
+    {
+        // Make a string representation.
+        string res {s};
+
+        // Pad the string.
+        helper::pad_char(res, os);
+
+        // Do the actual output.
+        helper::do_output(res, os);
+    }
+
+    return os;
+}
+
+template <typename CharT, typename Traits>
+basic_ostream<CharT, Traits>& operator<<(basic_ostream<CharT, Traits>& os,
+    const char* s)
+{
+    // Constuct sentry
+    typename basic_ostream<CharT, Traits>::sentry sen {os};
+
+    // Carry on if the sentry is fine
+    if (sen)
+    {
+        // Make a string representation.
+        string res {s};
+
+        // Pad the string.
+        helper::pad_char(res, os);
+
+        // Do the actual output.
+        helper::do_output(res, os);
+    }
+
+    return os;
+}
+
+template <typename Traits>
+basic_ostream<char, Traits>& operator<<(basic_ostream<char, Traits>& os,
+    const char* s)
+{
+    // Constuct sentry
+    typename basic_ostream<char, Traits>::sentry sen {os};
+
+    // Carry on if the sentry is fine
+    if (sen)
+    {
+        // Make a string representation.
+        string res {s};
+
+        // Pad the string.
+        helper::pad_char(res, os);
+
+        // Do the actual output.
+        helper::do_output(res, os);
+    }
+
+    return os;
+}
+
+template <typename Traits>
+basic_ostream<char, Traits>& operator<<(basic_ostream<char, Traits>& os,
+    const signed char* s)
+{
+    // Constuct sentry
+    typename basic_ostream<char, Traits>::sentry sen {os};
+
+    // Carry on if the sentry is fine
+    if (sen)
+    {
+        // Make a string representation. Can't convert from signed char* to
+        // char*.
+        vector<char> vect;
+        for ( ; *s != '\0'; ++s)
+            vect.push_back(*s); 
+        string res {vect.begin(), vect.end()};
+
+        // Pad the string.
+        helper::pad_char(res, os);
+
+        // Do the actual output.
+        helper::do_output(res, os);
+    }
+
+    return os;
+}
+
+template <typename Traits>
+basic_ostream<char, Traits>& operator<<(basic_ostream<char, Traits>& os,
+    const unsigned char* s)
+{
+    // Constuct sentry
+    typename basic_ostream<char, Traits>::sentry sen {os};
+
+    // Carry on if the sentry is fine
+    if (sen)
+    {
+        // Make a string representation.
+        string res {s};
+
+        // Pad the string.
+        helper::pad_char(res, os);
+
+        // Do the actual output.
+        helper::do_output(res, os);
+    }
+
+    return os;
+}
+
+template <typename CharT, typename Traits, typename T>
+basic_ostream<CharT, Traits>& operator<<(basic_ostream<CharT, Traits>&& os,
+    const T& value)
+{
+    // Invoke the overload for T.
+    return (os << value);
+}
+
+/**
+    An I/O manipulator that inserts a null character (eg. '\0' for char, but
+    more generally CharT {}) into the output stream, but does not flush the
+    stream.
+
+    @param os Output stream to put a null character into.
+    @return os after the operation.
+ */
+template <typename CharT, typename Traits>
+basic_ostream<CharT, Traits>& ends(basic_ostream<CharT, Traits>& os)
+{
+    os.put(CharT {});
+    return os;
+}
+
+/**
+    An I/O manipulator that forces a flush of the output stream.
+
+    @param os Output stream to flush.
+    @return os after the operation.
+ */
+template <typename CharT, typename Traits>
+basic_ostream<CharT, Traits>& flush(basic_ostream<CharT, Traits>& os)
+{
+    os.flush();
+    return os;
+}
+
+/**
+    An I/O manipulator that adds a newline character then flushes the output
+    stream.
+    TODO The newline character should be locale dependent.
+
+    @param os Output stream to line terminate and flush.
+    @return os after the operation.
+ */
+template <typename CharT, typename Traits>
+basic_ostream<CharT, Traits>& endl(basic_ostream<CharT, Traits>& os)
+{
+    os.put('\n');
+    os.flush();
+    return os;
+}
+
+/**
+    Specialisation of basic_ostream for normal characters.
+ */
+using ostream = basic_ostream<char>;
+
+} // end NMSP namesapce
+
+#endif /* OSTREAM_H */

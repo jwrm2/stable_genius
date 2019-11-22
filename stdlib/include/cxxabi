@@ -1,0 +1,1371 @@
+#ifdef HOSTED_TEST /* The compiler takes care of this for hosted systems. */
+#include <cxxabi.h>
+
+// The system provides only a forward declaration of __cxa_eh_globals.
+namespace __cxxabiv1 {
+struct __cxa_eh_globals {
+    // Pointer to the most recent caught exception. Less recent ones can be
+    // accessed through the nextException field of the most recent one.
+    __cxa_exception* caughtExceptions;
+    // Number of exceptions thrown but not yet caught.
+    unsigned int uncaughtExceptions;
+};
+} // end __cxxabiv1 namespace
+
+#else /* not HOSTED_TEST */
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+#ifndef CXXABIV1_H
+#define CXXABIV1_H
+
+#include <stddef.h>
+#include <stdint.h>
+#include <unwind.h>
+
+#include "../include/cstdio"
+#include "../include/exception"
+#include "../include/typeinfo"
+
+namespace __cxxabiv1 {
+
+/**
+    Necessary as a dummy function to get linked for pure virtual functions.
+    Should never actually be called.
+ */
+extern "C"
+void __cxa_pure_virtual();
+
+/**
+    Stuff to deal with initialisation of local static variables.
+ */
+
+/**
+    Type of a guard varibale. Apprently the abi specifies this must be 64 bit.
+ */
+using __guard = int64_t;
+
+/**
+    This should test-and-set the guard variable. Since we don't actually care
+    about the possibility of multiple threads at this point, it just tests it.
+ */
+extern "C"
+int __cxa_guard_acquire(__guard* g);
+
+/**
+    This should release the thread lock and set the variable to initialised.
+    Since we don't actually care about the possibility of multiple threads at
+    this point, it just sets it to initialised.
+ */
+extern "C"
+void __cxa_guard_release(__guard* g);
+
+/**
+    This should be called if a variable termination was interrupted or failed
+    somehow. It should release the lock, but not set the variable to
+    initialised. Since we don't actually care about the possibility of multiple
+    threads at this point, it doesn't need to do anything.
+ */
+extern "C"
+void __cxa_guard_abort(__guard* g);
+
+/**
+    Class to store the entries in the at exit destructor table.
+ */
+struct AtExitFuncEntry {
+    /**
+        Function pointer to the object destructor. This takes the object to be
+        destoryed as its argument.
+     */
+    void (*destructor_func)(void*);
+
+    /**
+        Pointer to the object to be destroyed.
+     */
+    void* obj_ptr;
+
+    /**
+        Something to do with shared libraries. I don't care at this point.
+     */
+    void* dso_handle;
+};
+
+/**
+    Registers an object to be destroyed by __cxa_finalize. Code to call this
+    after every global and local static constructor call should be generated
+    by the compiler.
+
+    @param destructor_func Pointer to the destructor.
+    @param obj_ptr Pointer to the object.
+    @param dso_handle Dynamic Shared Object handle.
+    @return 0 for success, -1 for failure.
+ */
+extern "C"
+int __cxa_atexit(void (*destructor_func)(void*), void* obj_ptr,
+    void* dso_handle);
+
+/**
+    Calls the destructor provided on the appropriate function, or all registered
+    destructors if nullptr.
+
+    @param destructor_func Destructor to call, or nullptr for all destructors.
+ */
+extern "C"
+void __cxa_finalize(void* destructor_func);
+
+/**
+    Something to do with Dynamic Shared Objects, which I'm not using.
+ */
+#ifndef HOSTED_TEST
+extern "C"
+void* __dso_handle;
+#endif /* HOSTED_TEST */
+
+/**
+    Stuff for RTTI support.
+ */
+
+/**
+    Type information for fundamental types, including void and nullptr.
+ */
+class __fundamental_type_info : public std::type_info {
+public:
+    /**
+        Constructor. Just needs the name of the fundamental type.
+
+        @param name Name of the type.
+     */
+    explicit __fundamental_type_info(const char* name) : std::type_info {name}
+    {}
+
+    /**
+        Virtual destructor. Does nothing.
+     */
+    virtual ~__fundamental_type_info();
+};
+
+/**
+    Helper class for class type information.
+ */
+class __base_class_type_info {
+public:
+    /**
+        Base class type.
+     */
+    const __class_type_info* base_type;
+
+    /**
+        Offset flags.
+     */
+    long offset_flags;
+
+    /**
+        Something to do with virtual inheritance.
+     */
+    enum offset_flag_masks {
+        virtual_mask = 0x1,
+        public_mask = 0x2,
+        hwm_bit = 0x2,
+        offset_shift = 0x8
+    };
+
+    /**
+        Checks the virtual bit.
+
+        @return True if the virtual bit is set in the offset flags, false
+                otherwise.
+     */
+    bool is_virtual() const { return offset_flags & virtual_mask; }
+
+    /**
+        Checks the public bit.
+
+        @return True if the public bit is set in the offset flags, false
+                otherwise.
+     */
+    bool is_public() const { return offset_flags & public_mask; }
+
+    /**
+        Shift the offset.
+
+        @return Shifted offset.
+     */
+    ptrdiff_t offset() const
+    {
+        return static_cast<ptrdiff_t>(offset_flags) >> offset_shift;
+    }
+};
+
+/**
+    Type information for a class.
+ */
+class __class_type_info : public std::type_info {
+public:
+    /**
+        Construct from a string representing the type name.
+
+        @param name Name of the type.
+     */
+    explicit __class_type_info(const char* name) : std::type_info{name} {}
+
+    /**
+        Virtual destructor.
+     */
+    virtual ~__class_type_info();
+
+    /**
+        Type that gives information about how a base object is contained within
+        a derived object.
+     */
+    enum sub_kind {
+        // No idea.
+        unknown = 0,
+        // Not contained (or not publicly contained).
+        not_contained,
+        // Contained ambiguously.
+        contained_ambig,
+        // Via a virtual path.
+        contained_virtual_mask = __base_class_type_info::virtual_mask,
+        // Via a public path.
+        contained_public_mask = __base_class_type_info::public_mask,
+        // Contained within the derived object.
+        contained_mask = 1 << __base_class_type_info::hwm_bit,
+        // Contained privately within the derived object.
+        contained_private = contained_mask,
+        // Contained publicly within the derived object.
+        contained_public = contained_mask | contained_public_mask
+    };
+
+    // Forward declarations.
+    /** Type for returning the result of an upcast. */
+    struct upcast_result;
+
+    /**
+        Type for returning the result of a dynamic cast.
+     */
+    struct dyncast_result;
+
+    /**
+        Performs an upcast.
+
+        @param dest_type Type we want to convert to.
+        @param obj Pointer to the object to cast.
+        @param result Gets the result of the cast.
+        @return True on success, false otherwise.
+     */
+    virtual bool __do_upcast(const __class_type_info* dest_type,
+        const void* obj, upcast_result& result) const;
+
+    /**
+        Determine in what manner a base type is contained within this derived
+        type. For dynamic downcasting.
+
+        @param src2dest Indication of how the object might be contained.
+        @param obj_ptr An object of this type within the derived type.
+        @param src_type Type of the base.
+        @param src_ptr An object of the base type.
+        @return The type of containment.
+     */
+    sub_kind find_public_src(ptrdiff_t src2dest, const void* obj_ptr,
+        const __class_type_info* src_type, const void* src_ptr) const;
+
+    /**
+        Helper for find_public_src().
+
+        @param src2dest Indication of how the object might be contained.
+        @param obj_ptr An object of this type within the derived type.
+        @param src_type Type of the base.
+        @param src_ptr An object of the base type.
+        @return The type of containment.
+     */
+    virtual sub_kind do_find_public_src(ptrdiff_t src2dest, const void* obj_ptr,
+        const __class_type_info* src_type, const void* src_ptr) const;
+
+    /**
+        Performs a dynamic downcast.
+
+        @param src2dest Indication of how the base object might be contained.
+        @param access_path Access from the most derived object to the base.
+        @param dest_type Derived type to convert to.
+        @param obj_ptr An object of this type within the derived type.
+        @param src_type Type we started from.
+        @param src_ptr An object of the base type.
+        @param result Gets the result of the cast.
+        @return True if we have an ambiguous result.
+     */
+    virtual bool do_dyncast(ptrdiff_t src2dest, sub_kind access_path,
+        const __class_type_info* dest_type, const void* obj_ptr,
+        const __class_type_info* src_type, const void* src_ptr,
+        dyncast_result& result) const;
+
+protected:
+    // Performs an upcast.
+    virtual bool __do_upcast(const __class_type_info* dest_type, void** obj_ptr)
+        const override;
+
+    // Performs a catch.
+    #ifndef HOSTED_TEST /* custom type_info defines this. */
+    virtual bool __do_catch(const std::type_info* throw_type, void** throw_obj,
+        size_t outer) const override;
+    #else /* HOSTED_TEST system type_info does not define this. */
+    virtual bool __do_catch(const std::type_info* throw_type, void** throw_obj,
+        size_t outer) const;
+    #endif /* HOSTED_TEST */
+};
+
+/**
+    Type information for a class with a single non-virtual base.
+ */
+class __si_class_type_info : public __class_type_info
+{
+public:
+    /**
+        Pointer to the base type.
+     */
+    const __class_type_info* base_type;
+
+    /**
+        Construct from a type name and the base type.
+
+        @param name Name of the type.
+        @param base The base type.
+     */
+    __si_class_type_info(const char* name, const __class_type_info* base) :
+        __class_type_info {name}, base_type {base}
+    {}
+
+    /**
+        Virtual destructor.
+     */
+    virtual ~__si_class_type_info();
+
+protected:
+    /**
+        Copy constructor.
+
+        @param other Other type to copy from.
+     */
+    __si_class_type_info(const __si_class_type_info& other);
+
+    /**
+        Copy assigment.
+
+        @param other Other type to copy from.
+        @return This type.
+     */
+    __si_class_type_info& operator=(const __si_class_type_info& other);
+
+    /**
+        Performs an upcast.
+
+        @param dest_type Type we want to convert to.
+        @param obj Pointer to the object to cast.
+        @param result Gets the result of the cast.
+        @return True on success, false otherwise.
+     */
+    virtual bool __do_upcast(const __class_type_info* dest_type,
+        const void* obj, upcast_result& result) const override;
+
+    /**
+        Helper for find_public_src().
+
+        @param src2dest Indication of how the object might be contained.
+        @param obj_ptr An object of this type within the derived type.
+        @param src_type Type of the base.
+        @param src_ptr An object of the base type.
+        @return The type of containment.
+     */
+    virtual sub_kind do_find_public_src(ptrdiff_t src2dest, const void* obj_ptr,
+        const __class_type_info* src_type, const void* src_ptr) const override;
+
+    /**
+        Performs a dynamic downcast.
+
+        @param src2dest Indication of how the base object might be contained.
+        @param access_path Access from the most derived object to the base.
+        @param dest_type Derived type to convert to.
+        @param obj_ptr An object of this type within the derived type.
+        @param src_type Type we started from.
+        @param src_ptr An object of the base type.
+        @param result Gets the result of the cast.
+        @return True if we have an ambiguous result.
+     */
+    virtual bool do_dyncast(ptrdiff_t src2dest, sub_kind access_path,
+        const __class_type_info* dest_type, const void* obj_ptr,
+        const __class_type_info* src_type, const void* src_ptr,
+        dyncast_result& result) const override;
+};
+
+/**
+    Type information for a class with a multiple or virtual bases.
+ */
+class __vmi_class_type_info : public __class_type_info
+{
+public:
+    /**
+        Details about the class hierarchy.
+     */
+    unsigned int flags;
+    /**
+        Number of direct bases.
+     */
+    unsigned int base_count;
+
+    /**
+        Array of bases type information. This uses the 'trailing array idiom'
+        and so is dodgy as fuck. The class cannot be normally constructed, but
+        compiler magic takes care of it.
+     */
+    __base_class_type_info base_info[1];
+
+    /**
+        Constructor. Takes the name and flags. Sets the base count to zero, so
+        the base array is empty.
+
+        @param n Name of the class.
+        @param fl Inheritance flags.
+     */
+    __vmi_class_type_info(const char* n, int fl) :
+        __class_type_info {n},
+        flags {static_cast<unsigned int>(fl)},
+        base_count {0}
+    {}
+
+    /**
+        Virtual destructor.
+     */
+    virtual ~__vmi_class_type_info();
+
+    /**
+        Types of virtual inheritance nightmares.
+     */
+    enum flags_masks {
+        /** Repeated bases are multiply present. */
+        non_diamond_repeat_mask = 0x1,
+        /** Diamond shaped multiple inheritance. */
+        diamond_shape_mask = 0x2,
+        /** Unknown. */
+        flags_unknown_mask = 0x10
+    };
+
+protected:
+    /**
+        Performs an upcast.
+
+        @param dest_type Type we want to convert to.
+        @param obj Pointer to the object to cast.
+        @param result Gets the result of the cast.
+        @return True on success, false otherwise.
+     */
+    virtual bool __do_upcast(const __class_type_info* dest_type,
+        const void* obj, upcast_result& result) const override;
+
+    /**
+        Helper for find_public_src().
+
+        @param src2dest Indication of how the object might be contained.
+        @param obj_ptr An object of this type within the derived type.
+        @param src_type Type of the base.
+        @param src_ptr An object of the base type.
+        @return The type of containment.
+     */
+    virtual sub_kind do_find_public_src(ptrdiff_t src2dest, const void* obj_ptr,
+        const __class_type_info* src_type, const void* src_ptr) const override;
+
+    /**
+        Performs a dynamic downcast.
+
+        @param src2dest Indication of how the base object might be contained.
+        @param access_path Access from the most derived object to the base.
+        @param dest_type Derived type to convert to.
+        @param obj_ptr An object of this type within the derived type.
+        @param src_type Type we started from.
+        @param src_ptr An object of the base type.
+        @param result Gets the result of the cast.
+        @return True if we have an ambiguous result.
+     */
+    virtual bool do_dyncast(ptrdiff_t src2dest, sub_kind access_path,
+        const __class_type_info* dest_type, const void* obj_ptr,
+        const __class_type_info* src_type, const void* src_ptr,
+        dyncast_result& result) const override;
+};
+
+/**
+    Base type information for different types of pointers.
+ */
+class __pbase_type_info : public std::type_info {
+public:
+    /**
+        FLags indication qualifies (const etc.) of the pointed to object.
+     */
+    unsigned int flags;
+    /**
+        Type information of the pointed to object.
+     */
+    const std::type_info* pointee;
+
+    /**
+        Constructor.
+
+        @param name Name of the type.
+        @param fl Flags indicating qualifiers of the pointed to object.
+        @param type Type information of the pointed to object.
+     */
+    __pbase_type_info(const char* name, unsigned int fl,
+        const std::type_info* type) :
+        std::type_info {name}, flags {fl}, pointee{type}
+    {}
+
+    /**
+        Virtual destructor. Does nothing.
+     */
+    ~__pbase_type_info();
+
+    /**
+        Masks for the flags field.
+     */
+    enum masks {
+        /** const qualifier */
+        const_mask = 0x1,
+        /** volatile qualifier */
+        volatile_mask = 0x2,
+        /** restrict qualifier */
+        restrict_mask = 0x4,
+        /** Incomplete type */
+        incomplete_mask = 0x8,
+        /** Incomplete class type */
+        incomplete_class_mask = 0x10,
+        /** Transaction safe type */
+        transaction_safe_mask = 0x20,
+        /** noexcept specifier */
+        noexcept_mask = 0x40
+    };
+
+protected:
+    // Copy constructor.
+    __pbase_type_info(const __pbase_type_info&);
+    // Copy assignment.
+    __pbase_type_info& operator=(const __pbase_type_info&);
+
+    #ifndef HOSTED_TEST /* custom type_info defines this. */
+    virtual bool __do_catch(const std::type_info* throw_type, void** throw_obj,
+        size_t outer) const override;
+    #else /* HOSTED_TEST system type_info oes not define this. */
+    virtual bool __do_catch(const std::type_info* throw_type, void** throw_obj,
+        size_t outer) const;
+    #endif /* HOSTED_TEST */
+
+    // Send on to the pointee type info, but increase outer to indicate
+    // dereferencing.
+    virtual bool pointer_catch(const __pbase_type_info* throw_type,
+        void** throw_obj, unsigned int outer) const;
+};
+
+/**
+    Type information for simple pointer types.
+ */
+class __pointer_type_info : public __pbase_type_info {
+public:
+    /**
+        Constructor. Forwards everything to the pointer base type.
+
+        @param name Name of the type.
+        @param fl Flags indicating qualifiers of the pointed to object.
+        @param type Type information of the pointed to object.
+     */
+    __pointer_type_info(const char* name, unsigned int fl,
+        const std::type_info* type) :
+        __pbase_type_info {name, fl, type}
+    {}
+
+    /**
+        Virtual destructor. Does nothing.
+     */
+    ~__pointer_type_info();
+
+protected:
+    // Tests whether the type is a pointer. Always true.
+    virtual bool __is_pointer_p() const override;
+
+    // Send on to the pointee type info, but increase outer to indicate
+    // dereferencing.
+    virtual bool pointer_catch(const __pbase_type_info* throw_type,
+        void** throw_obj, unsigned int outer) const override;
+};
+
+/**
+    Type information for pointer to member types.
+ */
+class __pointer_to_member_type_info : public __pbase_type_info {
+public:
+    /** Type info for the class to which the member belongs. */
+    __class_type_info* context;
+
+    /**
+        Constructor. Pass most things to the pointer base type.
+
+        @param name Name of the type.
+        @param fl Flags indicating qualifiers of the pointed to object.
+        @param type Type information of the pointed to object.
+        @param cl Type information for the class to which this member belongs.
+     */
+    __pointer_to_member_type_info(const char* name, unsigned int fl,
+        const std::type_info* type, __class_type_info* cl) :
+        __pbase_type_info {name, fl, type}, context {cl}
+    {}
+
+    /**
+        Virtual destructor. Does nothing.
+     */
+    ~__pointer_to_member_type_info();
+
+protected:
+    // Copy constructor.
+    __pointer_to_member_type_info(const __pointer_to_member_type_info&);
+    // Copy assignment.
+    __pointer_to_member_type_info& operator=(
+        const __pointer_to_member_type_info&);
+
+    // Send on to the pointee type info, but increase outer to indicate
+    // dereferencing.
+    virtual bool pointer_catch(const __pbase_type_info* throw_type,
+        void** throw_obj, unsigned int outer) const override;
+};
+
+/**
+    Type for returning the result of an upcast.
+ */
+struct __class_type_info::upcast_result {
+    /** Pointer to caught object. */
+    const void* dest_ptr;
+    /** Path from current base to target. */
+    sub_kind part2dest;
+    /** Hints about the source type hierarchy. */
+    int src_details;
+    /** Where we found the target. */
+    const __class_type_info* base_type;
+
+    /**
+        Construct from a hint about source type hierarchy. Pointers are
+        set to nullptr and paths to unknown.
+
+        @param d Source type hierearchy hint.
+     */
+    upcast_result(int d) :
+        dest_ptr {nullptr},
+        part2dest{unknown},
+        src_details{d},
+        base_type{nullptr}
+    {}
+};
+
+/**
+    Type for returning the result of a dynamic cast.
+ */
+struct __class_type_info::dyncast_result {
+    /** Pointer to the target object. */
+    const void* dest_ptr;
+    /** Path from the most derived object to the target. */
+    sub_kind whole2dest;
+    /** Path from the most derived object to the source. */
+    sub_kind whole2src;
+    /** Path from the target to the source. */
+    sub_kind dest2src;
+    /** Details of the whole class hierarchy. */
+    int whole_details;
+
+    /**
+        Construct with information about the class hierarchy. Pointers are
+        set to nullptr and paths to unknown.
+
+        @param d Details of the class hierarchy. Defualts to unknown.
+     */
+    dyncast_result(int d = __vmi_class_type_info::flags_unknown_mask) :
+        dest_ptr{nullptr},
+        whole2dest{unknown},
+        whole2src{unknown},
+        dest2src{unknown},
+        whole_details{d}
+    {}
+
+    protected:
+        // Copy contructor.
+        dyncast_result(const dyncast_result&);
+        // Copy assignment.
+        dyncast_result& operator=(const dyncast_result&);
+};
+
+/**
+    This method performs a dynamic cast, including runtime checks for whether
+    the cast is valid.
+
+    @param src_ptr Starting object.
+    @param src_type Type of the starting object.
+    @param dest_type Target type of the cast.
+    @param src2dest How src and dest are related.
+           If >-1: src_type is a unique public non-virtual base of dest_type and
+           src_ptr == dest_ptr + src2dest.
+           If -1: the relationship is unspecified.
+           If -2: src_type is not a public base of dest_type.
+           If -3: src_type is a multiple public non-virtual base of dest_type.
+    @return Pointer to the destination object, or nullptr if the cast failed.
+ */
+extern "C"
+void* __dynamic_cast(const void* src_ptr, const __class_type_info* src_type,
+    const __class_type_info* dest_type, ptrdiff_t src2dest);
+
+/**
+    This method is called when a nullptr is given to typeid. It throws a
+    bad_typeid exception.
+ */
+extern "C"
+void __cxa_bad_typeid();
+
+/**
+    This method is called when a dyanamic cast for a reference type fails its
+    checks. It throws a bad_cast exception.
+ */
+extern "C"
+void __cxa_bad_cast();
+
+/**
+    This method is called when a dynamic array is created with negative size,
+    the total size of the new array is larger than the system maximum, or
+    there are more initialisers than elements. It throws a
+    bad_array_new_length exception.
+ */
+extern "C"
+void __cxa_throw_bad_array_new_length();
+
+namespace helper {
+
+/** Pointer indicating a nonvirtual base type. */
+static const __class_type_info* const nonvirtual_base_type =
+    static_cast<const __class_type_info*>(0) + 1;
+
+/**
+    Helper to fiddle with pointer. Returns a pointer to the address pointed to
+    by the base + offset. Ignores the size of the object and treats everything
+    as a char pointer.
+
+    @param T type of pointer to return.
+    @param base Base pointer.
+    @param offset Offset to apply.
+    @return base + offset interpreted in bytes.
+ */
+template <typename T>
+const T* adjust_pointer(const void* base, ptrdiff_t offset)
+{
+    return reinterpret_cast<const T*>( reinterpret_cast<const char*>(base) +
+        offset);
+}
+
+/**
+    Converts a pointer to an object to a pointer to its base.
+
+    @param addr Pointer to an object.
+    @param is_virtual True for a virtual base.
+    @param offset Offset to the start of the base object.
+    @return Pointer to the base object.
+ */
+const void* convert_to_base(const void* addr, bool is_virtual,
+    ptrdiff_t offset);
+
+/**
+    Tests whether the access path indicates public containment.
+
+    @param access_path Access path to test.
+    @return True if the access path indicates public containment, false
+            otherwise.
+ */
+bool contained_public_p(__class_type_info::sub_kind access_path);
+
+/**
+    Tests whether the access path indicates public.
+
+    @param access_path Access path to test.
+    @return True if the access path indicates public, false
+            otherwise.
+ */
+bool public_p(__class_type_info::sub_kind access_path);
+
+/**
+    Tests whether the access path indicates non-virtual containment.
+
+    @param access_path Access path to test.
+    @return True if the access path indicates non-virtual containment, false
+            otherwise.
+ */
+bool contained_nonvirtual_p(__class_type_info::sub_kind access_path);
+
+/**
+    Tests whether the access path indicates any sort of containment.
+
+    @param access_path Access path to test.
+    @return True if the access path indicates any sort of containment, false
+            otherwise.
+ */
+bool contained_p(__class_type_info::sub_kind access_path);
+
+/**
+    Tests whether the access path indicates virtual containment.
+
+    @param access_path Access path to test.
+    @return True if the access path indicates virtual containment, false
+            otherwise.
+ */
+bool virtual_p(__class_type_info::sub_kind access_path);
+
+/**
+    The structure corresponds to the first part of a class's vtable. It is
+    compiler dependent.
+ */
+struct vtable_prefix {
+    // Offset to the most derived object.
+    ptrdiff_t whole_object;
+
+    // Pointer to the most derived type_info.
+    const __class_type_info* whole_type;
+
+    // Where the class's vptr points to.
+    const void* origin;
+};
+
+} // end helper namespace
+
+/**
+    Stuff for exception handling. We have to provide the two functions inserted
+    at each throw, the cleanup function, the functions wrapping each catch and
+    the personality function for stack introspection. The stack unwinding itself
+    is performed by compiler generated code, linked in with -lgcc. The interface
+    for the unwinding code is in unwind.h.
+ */
+
+/**
+    libgcc function for registering the location of the eh_frame section.
+
+    @param Pointer to the start of the eh_frame section.
+ */
+extern "C"
+void __register_frame(void*);
+
+/**
+    Allocates a thrown exception to the exception buffer.
+
+    @param thrown_size The size in bytes of the exception object.
+    @return Address of the start of the exception object.
+ */
+extern "C"
+void* __cxa_allocate_exception(size_t thrown_size) noexcept;
+
+/**
+    Frees the memory for a previously thrown exception.
+
+    @param thrown_exception Address of the exception.
+ */
+extern "C"
+void __cxa_free_exception(void* thrown_exception) noexcept;
+
+/**
+    Throws an exception. Starts the stack unwinding procedure.
+
+    @param thrown_exception Address of the exception.
+    @param tinfo Type information for the exception.
+    @param dest Pointer to the exception destructor.
+ */
+extern "C"
+void __cxa_throw(void* thrown_exception, std::type_info* tinfo,
+    void (*dest)(void*));
+
+/**
+    Rethrows the exception currently being handled.
+ */
+extern "C"
+void __cx_rethrow();
+
+/**
+    Gets the pointer to the exception object from the internal header. Goes via
+    the adjustedPtr field of the ABI header, to take account of possible
+    multiple inheritance.
+
+    @param uexp Pointer to the internal exception header.
+    @return Pointer to the exception object.
+ */
+extern "C"
+void* __cxa_get_exception_ptr(void* uexp);
+
+/**
+    Called at the start of a catch.
+
+    @param uexp Pointer to the internal exception header.
+    @return Pointer to the exception object.
+ */
+extern "C"
+void* __cxa_begin_catch(void* uexp);
+
+/**
+    Called at the end of a catch.
+ */
+extern "C"
+void __cxa_end_catch();
+
+/**
+    The personality function. This is passed the current stack frame and the
+    exception information. It decides whether or not this stack frame can
+    handle the exception.
+
+    @param version Exception handling ABI version.
+    @param actions What the personality function needs to do.
+    @param exception_class Compiler specific information.
+    @param unwind_exception Information on the thrown exception object.
+    @param context Information on the current stack frame.
+    @return Depends on what action was requested.
+ */
+extern "C"
+_Unwind_Reason_Code __gxx_personality_v0(int version, _Unwind_Action actions,
+    uint64_t exception_class, _Unwind_Exception* ue, _Unwind_Context* context);
+
+namespace helper {
+/**
+    Reads a signed LEB128 record.
+
+    @param p Address of the start of the record.
+    @param off If provided, will be set to the number of bytes used for the
+           record.
+    @return Value at the record.
+ */
+int read_SLEB128(const uint8_t* p);
+int read_SLEB128(const uint8_t* p, size_t& off);
+
+/**
+    Reads an unsigned LEB128 record.
+
+    @param p Address of the start of the record.
+    @param off If provided, will be set to the number of bytes used for the
+           record.
+    @return Value at the record.
+ */
+size_t read_ULEB128(const uint8_t* p);
+size_t read_ULEB128(const uint8_t* p, size_t& off);
+
+} // end helper namespace
+
+/**
+    This is the under-the-hood exception object. It consists of a header with
+    unwinding information including C++ specific information on catches,
+    followded by the exeption object.
+ */
+struct __cxa_exception {
+    // Type info for the exception object.
+    std::type_info* exceptionType;
+
+    // Destructor for the exception object.
+    void (*exceptionDestructor)(void*);
+
+    // Handler for an unexpected exception.
+    NMSP::unexpected_handler unexpextedHandler;
+    // Handler for a terminating exception.
+    NMSP::terminate_handler terminateHandler;
+
+    // Pointer to the next exception.
+    __cxa_exception* nextException;
+
+    // Number of nested handlers that have caught the exception. Negative
+    // indicates rethrown.
+    int handlerCount;
+
+    int HandlerSwitchValue;
+    const char* actionRecord;
+    const char* languageSpecificData;
+    _Unwind_Ptr catchTemp;
+
+    // Pointer to the exception object, of the type specified by the catch.
+    void* adjustedPtr;
+
+    // Generic exception header. Must come last.
+    _Unwind_Exception unwindHeader;
+};
+
+/**
+    This struct is available to each thread, meaning the kernel initialisation
+    and each process need their own copy. It stores the list of thrown and
+    caught exception, and the number of thrown but not caught exceptions.
+ */
+struct __cxa_eh_globals {
+    // Pointer to the most recent caught exception. Less recent ones can be
+    // accessed through the nextException field of the most recent one.
+    __cxa_exception* caughtExceptions;
+    // Number of exceptions thrown but not yet caught.
+    unsigned int uncaughtExceptions;
+};
+
+/**:q
+    Access the __cxa_eh_globals struct for this thread, initialising if
+    necessary. Must be implemented in the kernel.
+
+    @return Current __cxa_eh_globals.
+ */
+__cxa_eh_globals* __cxa_get_globals();
+
+/**
+    Access the __cxa_eh_globals struct for this thread, assuming it is already
+    initialised. Muste be implemented in the kernel.
+
+    @return Current __cxa_eh_globals.
+ */
+__cxa_eh_globals* __cxa_get_globals_fast();
+
+/**
+    An entry in the action table.
+ */
+class LsdaActionEntry {
+public:
+    /**
+        Constructor. Populates the data by reading from the specified location.
+
+        @param p Pointer to the start of the entry.
+        @param t Pointer to the end of the type table.
+     */
+    explicit LsdaActionEntry(const uint8_t* p, const std::type_info* const* t) :
+        type_index {p[0]},
+        next_offset {helper::read_SLEB128(p + 1)},
+        ti {*(t - type_index)},
+        val {true}
+    {
+//        NMSP::printf("LsdaActionEntry: p = %p, p[0] = %X, p[1] = %X, p[2] = %X, t = %p\n", p, p[0], p[1], p[2], t);
+//        if (type_index == 0)
+//            NMSP::printf("LsdaActionEntry: type_index = %X, next_offset = %d\n", type_index, next_offset);
+//        else
+//            NMSP::printf("LsdaActionEntry: type_index = %X, next_offset = %d, type = %s\n", type_index, next_offset, ti->name());
+    }
+
+    /**
+        Default constructor. Creates an invalid reference.
+     */
+    LsdaActionEntry() : type_index{0}, next_offset{0}, ti{nullptr}, val{false}
+    {}
+
+    /**
+        Returns the offset of the next action, relative to the original address
+        of the offset value.
+
+        @return Offset to next action.
+     */
+    size_t get_next_offset() const { return next_offset; }
+
+    /**
+        Return the type index for this action.
+
+        @return The type index.
+     */
+    size_t get_type_index() const { return type_index; }
+
+    /**
+        Return the type information for this action.
+
+        @return The type information.
+     */
+    const std::type_info* get_type_info() const { return ti; }
+
+    /**
+        Checks whether this entry is valid.
+
+        @return True if a valid entry, false otherwise.
+     */
+    bool valid() const { return val; }
+
+private:
+    /** Index of the type in the types table. */
+    size_t type_index;
+    /** Offset to the next action, relative to the original address of this
+        offset. */
+    int next_offset;
+    /** Type info for the exception described by this action. nullptr indicates
+        all types. */
+    const std::type_info* ti;
+    /** Whether this entry is valid. Allows returning invalid references. */
+    bool val;
+};
+
+/**
+    An entry in the call site table. Stores the information on the catching
+    block and landing pad.
+ */
+class LsdaCsEntry {
+public:
+    /**
+        Constructor. Populates the data by reading from the specified location.
+
+        @param p Pointer to the start of the entry. 
+        @param fs Address of the start of the function in this stack frame.
+        @param at_start Pointer to the start of the action table.
+        @param t Pointer to the end of the types table.
+     */
+    LsdaCsEntry(const uint8_t* p, uintptr_t fs, const uint8_t* at_start,
+        const std::type_info* const* t) :
+        val {true},
+        ac {},
+        func_start {fs},
+        tt_end {t}
+    {
+        length = 0;
+        size_t off;
+
+//        NMSP::printf("LsdaCsEntry: p[0] == %X, p[1] == %X, p[2] == %X\n", p[0], p[1], p[2]);
+
+        // Read the data from the table.
+        start = helper::read_ULEB128(p, off);
+        length += off;
+
+        len = helper::read_ULEB128(p + length, off);
+        length += off;
+
+        lp = helper::read_ULEB128(p + length, off);
+        length += off;
+
+        action = helper::read_ULEB128(p + length, off);
+        length += off;
+
+        // Calculate action entry address.
+        next_ac = (action == 0 ? nullptr : at_start + action - 1);
+
+//        NMSP::printf("LsdaCsEntry: p = %X, fs = %p, st = %X, len = %X, lp = %X, action = %X\n", p, func_start, start, len, lp, action);
+    }
+
+    /**
+        Default constructor. Creates an invalid entry.
+     */
+    LsdaCsEntry () :
+        val {false}
+    {}
+
+    /**
+        Checks whether a given instruction pointer lies in the space spanned by
+        the try block this entry is for.
+
+        @param ip Pointer to the instruction that caused the exception.
+        @return True if ip lies within the try block for this entry, false
+                otherwise.
+     */
+    bool contains_ip(uintptr_t ip) const
+    {
+        return (ip >= func_start + start && ip <= func_start + start + len);
+    }
+
+    /**
+        Gets the next entry in the action table for this entry.
+
+        @return Reference to the next action table entry, or an invalid entry if
+                we've already had them all.
+     */
+    LsdaActionEntry& get_next_action ()
+    {
+        if (next_ac == nullptr)
+            ac = LsdaActionEntry {};
+        else
+        {
+            ac = LsdaActionEntry {next_ac, tt_end};
+            // The next action is the offset given by the current action's
+            // next_offset value, from the current action's next_offset address.
+            // The next_offset address is the address of the current action + 1.
+            // If the next_offset is zero, the current one is the last.
+            if (ac.get_next_offset() == 0)
+                next_ac = nullptr;
+            else
+                next_ac = next_ac + 1 + ac.get_next_offset();
+        }
+
+        return ac;
+    }
+
+    /**
+        Gets the length of this data in the table, in bytes. Variable due to
+        LEB128 encoding.
+
+        @return Length of the data, taking into account LEB128 encoding.
+     */
+    uintptr_t get_length() const { return length; }
+
+    /**
+        Gets the absolute address of the landing pad.
+
+        @return Address of the landing pad.
+     */
+    uintptr_t get_lp() const { return func_start + lp; }
+
+    /**
+        Checks whether there are any more actions associated with this entry.
+
+        @return True if there are more actions, false otherwise.
+     */
+    bool has_action() const { return (next_ac != nullptr); }
+
+    /**
+        Checks whether this entry describes a landing pad. lp being set to zero
+        indicates no landing pad, as it can't be at the actual start of the
+        function.
+
+        @return True if the landing pad is valid, false otherwise. False if the
+                whole entry is invalid.
+     */
+    bool has_landing_pad() const { return (lp != 0); }
+
+    /**
+        Checks whether this entry is valid.
+
+        @return True if a valid entry, false otherwise.
+     */
+    bool valid() const { return val; }
+
+private:
+    /** Whether this is a valid entry. Allows for returning invalid references.
+     */
+    bool val;
+
+    /** Processed action table entry. */
+    LsdaActionEntry ac;
+    /** Address of the start of the function for this stack frame. */
+    uintptr_t func_start;
+    /** Address of the end of the types table. */
+    const std::type_info* const* tt_end;
+    /** Pointer to the next entry in the action table. */
+    const uint8_t* next_ac;
+    /** Length of the data in bytes. */
+    uintptr_t length;
+
+    // This data is read directly from the table.
+    /** Offset into function of the try block. */
+    size_t start;
+    /** Length of the try block. */
+    size_t len;
+    /** Landing pad (relative to the function start). */
+    size_t lp;
+    /** Entry in the action table (+1, so that 0 means no action). */
+    size_t action;
+};
+
+/**
+    This stores information on the language specific data area (LSDA) added to
+    the function by the compiler. We are ignoring the full complexities of DWARF
+    encoding values as different types and assuming most are LEBS.
+ */
+class LsdaHeaderInfo {
+public:
+    /**
+        Constructor. Populates the data by reading from the specified location.
+
+        @param lsda Pointer to the start of the header.
+        @param fs Pointer to the start of the curretn stack frame function.
+     */
+    LsdaHeaderInfo(const uint8_t* lsda, uintptr_t fs) :
+        cs{},
+        func_start{fs},
+        start_encoding {lsda[0]},
+        ttype_encoding {lsda[1]}
+    {
+        size_t off = 0;
+
+        // TODO we don't deal with cases where the LPStart is encoded, since I
+        // haven't seen a case yet.
+        if (start_encoding != 0xFF)
+            NMSP::printf("ERROR: LsdaHeaderInfo LPStart is present\n");
+
+        // There are three encoding values.
+        cs_start = lsda + 3;
+
+        // A value of 0xFF for the encoding value means the next field is not
+        // present.
+
+        // Read types table end.
+        ttype = 0;
+        if (ttype_encoding != 0xFF)
+        {
+            // ttype gives the offset to the end of the types table from the end
+            // of ttype.
+            ttype = helper::read_ULEB128(lsda + 2, off);
+            tt_end = reinterpret_cast<const std::type_info* const*>(lsda + 2 +
+                off + ttype);
+            cs_start += off;
+        }
+        else
+            tt_end = nullptr;
+
+        // Read Call Site length.
+        call_site_encoding = lsda[2 + off];
+
+        if (call_site_encoding != 0xFF)
+        {
+            call_site_length = helper::read_ULEB128(lsda + 3 + off, off);
+            cs_start += off;
+        }
+        else
+            call_site_length = 0;
+
+        // Calculate other data.
+        cs_end = cs_start + call_site_length;
+        at_start = cs_end;
+        next_cs = cs_start;
+
+//        NMSP::printf("LsdaHeaderInfo: cs_start = %p, at_start = %p, tt_end = %p\n", cs_start, at_start, tt_end);
+    }
+
+    /**
+        Returns the next entry in the call site table, or an invalid entry if
+        past the end.
+
+        @return Reference to the next CS table entry, or to an invalid entry.
+     */
+    LsdaCsEntry& next_cs_entry()
+    {
+        if (next_cs < cs_end)
+        {
+            cs = LsdaCsEntry {next_cs, func_start, at_start, tt_end};
+            next_cs += cs.get_length();
+        }
+        else
+            cs = LsdaCsEntry {};
+
+        return cs;
+    }
+
+private:
+    /** Processed CS table entry. */
+    LsdaCsEntry cs;
+    /** Pointer to the start of this stack frame function. */
+    uintptr_t func_start;
+
+    // This data is read directly from the table.
+    /** Encoding of the start. 0xFF means LPStart not present. */
+    uint8_t start_encoding;
+    /** Encoding of the types table. 0xFF means types table not present. */
+    uint8_t ttype_encoding;
+    /** Offset to the types table. */
+    uintptr_t ttype;
+    /** Encoding type of the call table. 0xFF means call site table not
+        present. */
+    uint8_t call_site_encoding;
+    /** Length of the call table. */
+    uintptr_t call_site_length;
+
+    // This data is interpreted from the data.
+    /** Pointer to the start of the call site table. */
+    const uint8_t* cs_start;
+    /** Pointer to the end of the call site table. */
+    const uint8_t* cs_end;
+    /** Pointer to the start of the action table. */
+    const uint8_t* at_start;
+    /** Pointer to the end of the types table. */
+    const std::type_info* const* tt_end;
+    /** Stores the pointer to the start of the next CS table entry to be
+        returned by next_cs_entry(). */
+    const uint8_t* next_cs;
+};
+
+} // end __cxxabiv1 namespace
+
+#endif /* CXXABIV1_H */
+
+#endif /* HOSTED_TEST */

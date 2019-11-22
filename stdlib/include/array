@@ -1,0 +1,432 @@
+#ifndef ARRAY_H
+#define ARRAY_H
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+#include <stddef.h>
+
+#include "../include/algorithm"
+#include "../include/iterator"
+#include "../include/type_traits"
+#include "../include/utility"
+
+namespace NMSP {
+
+namespace helper {
+
+/**
+    Traits type for array. The main purpose is the specialisation for the empty
+    array.
+
+    @param T Type of the array elements.
+    @param N Number of elements.
+ */
+template <typename T, size_t N>
+class array_traits
+{
+public:
+    /** Type of the plain data. */
+    using type = T[N];
+
+    /**
+        Returns a reference to a given element. The const cast removes confusion
+        with const qualifiers.
+
+        @param t Array to access.
+        @param n Index of element to access.
+     */
+    static constexpr T& ref(const type& t, size_t n) noexcept
+    {
+        return const_cast<T&>(t[n]);
+    }
+
+    /**
+        Returns a pointer to the start of the array.
+
+        @param t Array to access.
+     */
+    static constexpr T* ptr(const type& t) noexcept
+    {
+        return const_cast<T*>(t);
+    }
+};
+
+template <typename T>
+class array_traits<T, 0>
+{
+public:
+    /** Dummy type for empty array. */
+    struct type {
+        /**
+            Conversion to T* to support begin() and end() for empty arrays.
+         */
+        operator T*() { return nullptr; }
+        operator const T*() const { return nullptr; }
+    };
+
+    /**
+        Returns a reference to a nullptr. Trying to element access an empty
+        array should create bad behaviour.
+     */
+    static constexpr T& ref(const type&, size_t) noexcept
+    {
+        return *static_cast<T*>(nullptr);
+    }
+
+    /**
+        Returns a null pointer, since the array doesn't really exist.
+     */
+    static constexpr T* ptr(const type&) noexcept { return nullptr; }
+};
+
+} // helper namespace
+
+/**
+    An array with a fixed size set at compile time. To be used instead of
+    a C-style [].
+
+    @param T Type of the array elements.
+    @param N Number of elements.
+ */
+template <typename T, size_t N>
+class array {
+public:
+    /** Type of elements. */
+    using value_type = T;
+    /** Type to use for sizes. */
+    using size_type = size_t;
+    /** Type to use for offsets between elements. */
+    using difference_type = ptrdiff_t;
+    /** Type of a reference to an element. */
+    using reference = value_type&;
+    /** Type of a const reference to an element. */
+    using const_reference = const value_type&;
+    /** Type of a pointer to an element. */
+    using pointer = value_type*;
+    /** Type of a const pointer to an element. */
+    using const_pointer = const value_type*;
+    /** Type of an iterator for this container. */
+    using iterator = helper::normal_iterator<pointer, array>;
+    /** Type of a const iterator for this container. */
+    using const_iterator = helper::normal_iterator<const_pointer, array>;
+    /** Type of a reverse iterator for this container. */
+    using reverse_iterator = NMSP::reverse_iterator<iterator>;
+    /** Type of a const reverse iterator for this container. */
+    using const_reverse_iterator = NMSP::reverse_iterator<const_iterator>;
+
+protected:
+    // Traits type. Use this for element access, to deal with empty arrays.
+    using traits = helper::array_traits<value_type, N>;
+
+public:
+    // Actual data. Use array traits specialisation to deal with empty arrays.
+    // Must be public to get the aggregate initialisation constructor.
+    typename traits::type elem;
+
+    /**
+        Element access with bounds checking. Raises an out_of_range exception if
+        out of bounds. Disabled for now as we don't have any exceptions.
+        TODO enable this when exceptions are usable.
+
+        @param pos Index of element to access.
+        @return Reference to the element at pos.
+     */
+/*    reference at(size_type pos)
+    {
+        if (pos >= N)
+            throw out_of_range("array::at: array index out of bounds");
+        return traits::ref(elem, pos);
+    }
+
+    constexpr const_reference at(size_type pos) const
+    {
+        if (pos >= N)
+            throw out_of_range("array::at: array index out of bounds");
+        return traits::ref(elem, pos);
+    }
+ */
+
+    /**
+        Element access with no bounds checking.
+
+        @param pos Index of element to access.
+        @return Reference to the element at pos.
+     */
+    reference operator[](size_type pos) { return elem[pos]; }
+
+    constexpr const_reference operator[](size_type pos) const
+    {
+        return elem[pos];
+    }
+
+    /**
+        Accesses the first element in the array. Undefined if the array is
+        empty.
+
+        @return Reference to the element at the beginning.
+     */
+    reference front() { return traits::ref(elem, 0); }
+
+    constexpr const_reference front() const { return traits::ref(elem, 0); }
+
+    /**
+        Accesses the last element in the array. Undefined if the array is
+        empty.
+
+        @return Reference to the element at the end.
+     */
+    reference back() { return traits::ref(elem, N - 1); }
+
+    constexpr const_reference back() const { return traits::ref(elem, N - 1); }
+
+    /**
+        Gets a pointer to the underlying data.
+
+        @return A pointer to the underlying data.
+     */
+    pointer data() noexcept { return traits::ptr(elem); }
+    const_pointer data() const noexcept { return traits::ptr(elem); }
+
+    /**
+        Get an iterator to the start of the container.
+
+        @return Iterator to the first element.
+     */
+    iterator begin() noexcept { return iterator{elem}; }
+    const_iterator begin() const noexcept { return const_iterator{elem}; }
+    const_iterator cbegin() const noexcept { return const_iterator{elem}; }
+
+    /**
+        Get an iterator to one past the last element of the container.
+
+        @return Iterator to the one past the last element.
+     */
+    iterator end() noexcept { return iterator{elem + N}; }
+    const_iterator end() const noexcept { return const_iterator{elem + N}; }
+    const_iterator cend() const noexcept { return const_iterator{elem + N}; }
+
+    /**
+        Get a reverse iterator to the last element of the container.
+
+        @return Reverse iterator to the last element.
+     */
+    reverse_iterator rbegin() noexcept { return reverse_iterator{end()}; }
+    const_reverse_iterator rbegin() const noexcept
+    {
+        return const_reverse_iterator{end()};
+    }
+    const_reverse_iterator crbegin() const noexcept
+    {
+        return const_reverse_iterator{end()};
+    }
+
+    /**
+        Get a reverse iterator to one before the first element of the container.
+
+        @return Reverse iterator to one before the first element.
+     */
+    reverse_iterator rend() noexcept { return reverse_iterator(begin()); }
+    const_reverse_iterator rend() const noexcept
+    {
+        return const_reverse_iterator{begin()};
+    }
+    const_reverse_iterator crend() const noexcept
+    {
+        return const_reverse_iterator{begin()};
+    }
+
+    /**
+        Check whether the array is empty.
+
+        @return True if the array is empty, false otherwise.
+     */
+    constexpr bool empty() const noexcept { return (N == 0); }
+
+    /**
+        Get the size of the array.
+
+        @return The size of the array.
+     */
+    constexpr size_type size() const noexcept { return N; }
+
+    /**
+        Get the maximum size of the array. Since the array size is set at
+        compile time, this is the same as the array size.
+
+        @return The maximum size of the array.
+     */
+    constexpr size_type max_size() const noexcept { return N; }
+
+    /**
+        Assigns a value to all elements in the array.
+
+        @param value Value to fill with.
+     */
+    void fill(const value_type& value)
+    {
+        fill_n(begin(), N, value);
+    }
+
+    /**
+        Swaps the contents of two arrays.
+
+        @param other Other array to swap with.
+     */
+    void swap(array& other)
+    {
+        swap_ranges(begin(), end(), other.begin());
+    }
+};
+
+/**
+    Tests whether two arrays have all elements in equivalent positions equal.
+    Only arrays of the same size may be compared.
+
+    @param lhs, rhs arrays to compare.
+    @return Whether lhs and rhs are equal.
+ */
+template <typename T, size_t N>
+bool operator==(const array<T, N>& lhs, const array<T, N>& rhs)
+{
+    return (equal(lhs.begin(), lhs.end(), rhs.begin()));
+}
+
+/**
+    Tests whether two arrays have some elements in equivalent positions
+    different. Only arrays of the same size may be compared.
+
+    @param lhs, rhs arrays to compare.
+    @return Whether lhs and rhs are different.
+ */
+template <typename T, size_t N>
+bool operator!=(const array<T, N>& lhs, const array<T, N>& rhs)
+{
+    return !(lhs == rhs);
+}
+
+/**
+    Tests whether one array is lexocographically less than another. Only
+    arrays of the same size may be compared.
+
+    @param lhs, rhs vectors to compare.
+    @return Whether lhs is lexocographically less than rhs.
+ */
+template <typename T, size_t N>
+bool operator<(const array<T, N>& lhs, const array<T, N>& rhs)
+{
+    return lexicographical_compare(lhs.begin(), lhs.end(),
+        rhs.begin(), rhs.end());
+}
+
+/**
+    Tests whether one array is lexocographically greater than another. Only
+    arrays of the same size may be compared.
+
+    @param lhs, rhs vectors to compare.
+    @return Whether lhs is lexocographically greater than rhs.
+ */
+template <typename T, size_t N>
+bool operator>(const array<T, N>& lhs, const array<T, N>& rhs)
+{
+    return (rhs < lhs);
+}
+
+/**
+    Tests whether one array is equal to or lexocographically less than another.
+    Only arrays of the same size may be compared.
+
+    @param lhs, rhs vectors to compare.
+    @return Whether lhs is equal to or lexocographically less than rhs.
+ */
+template <typename T, size_t N>
+bool operator<=(const array<T, N>& lhs, const array<T, N>& rhs)
+{
+    return !(rhs < lhs);
+}
+
+/**
+    Tests whether one array is equal to or lexocographically greater than
+    another. Only arrays of the same size may be compared.
+
+    @param lhs, rhs vectors to compare.
+    @return Whether lhs is equal to or lexocographically greater than rhs.
+ */
+template <typename T, size_t N>
+bool operator>=(const array<T, N>& lhs, const array<T, N>& rhs)
+{
+    return !(lhs < rhs);
+}
+
+/**
+    Gets the specified element of the given array. Will not compile if the index
+    is out of bounds.
+
+    @param I Index of the element to get.
+    @param T Type of the array elements.
+    @param N Number of elements.
+    @param a Array to extract the value from.
+    @return Ith element of the array a.
+ */
+template <size_t I, typename T, size_t N>
+constexpr T& get(array<T, N>& a) noexcept
+{
+    static_assert(I < N, "array index out of bounds");
+    return helper::array_traits<T, N>::ref(a.elem, I);
+}
+
+template <size_t I, typename T, size_t N>
+constexpr T&& get(array<T, N>&& a) noexcept
+{
+    static_assert(I < N, "array index out of bounds");
+    return move(get<I>(a));
+}
+
+template <size_t I, typename T, size_t N>
+constexpr const T& get(const array<T, N>& a) noexcept
+{
+    static_assert(I < N, "array index out of bounds");
+    return helper::array_traits<T, N>::ref(a.elem, I);
+}
+
+/**
+    Swaps the contents of two arrays, by calling the swap member method. Only
+    arrays with the same type and size may be swapped.
+
+    @param lhs, rhs Arrays to swap.
+ */
+template <typename T, size_t N>
+void swap(array<T, N>& lhs, array<T, N>& rhs)
+{
+    lhs.swap(rhs);
+}
+
+/**
+    Gets the size of an array. Specialises tuple_size.
+
+    @param T Type of the array elements.
+    @param N Number of elements.
+    @return An integral_constant of type size_t and a value matching the size of
+            the array.
+ */
+template <typename T, size_t N>
+struct tuple_size<array<T, N>> : public integral_constant<size_t, N> {};
+
+/**
+    Gets the type of elements of the array.
+
+    @param I Index of element to get the type of.
+    @param T Type of the array elements.
+    @param N Number of elements.
+ */
+template <size_t I, typename T, size_t N>
+struct tuple_element<I, array<T, N>>
+{
+    using type = T;
+};
+
+} // NMSP namespace
+
+#endif /* ARRAY_H */

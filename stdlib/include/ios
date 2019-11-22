@@ -1,0 +1,1273 @@
+#ifndef IOS_H
+#define IOS_H
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+#include "../include/cwchar"
+#include "../include/new"
+#include "../include/system_error"
+#include "../include/type_traits"
+#include "../include/utility"
+#include "../include/vector"
+
+namespace NMSP {
+
+// Forward declarations.
+template <typename> class allocator;
+template <typename, typename, typename> class basic_string;
+template <typename> class char_traits;
+using string = basic_string<char, char_traits<char>, allocator<char>>;
+template <typename, typename> class basic_streambuf;
+template <typename, typename> class basic_ostream;
+
+/**
+    Provide overloads for enums so we can use them as typesafe bitmasks.
+ */
+template<typename Enum>
+struct BitmaskEnable : public false_type {};
+
+template<typename Enum>
+constexpr typename enable_if<helper::meta_and<is_enum<Enum>,
+    BitmaskEnable<Enum>>::value, Enum>::type
+operator|(Enum lhs, Enum rhs)
+{
+    using ul = typename underlying_type<Enum>::type;
+    return static_cast<Enum>(static_cast<ul>(lhs) | static_cast<ul>(rhs));
+}
+
+template<typename Enum>
+constexpr typename enable_if<helper::meta_and<is_enum<Enum>,
+    BitmaskEnable<Enum>>::value, Enum>::type
+operator&(Enum lhs, Enum rhs)
+{
+    using ul = typename underlying_type<Enum>::type;
+    return static_cast<Enum>(static_cast<ul>(lhs) & static_cast<ul>(rhs));
+}
+
+template<typename Enum>
+typename enable_if<helper::meta_and<is_enum<Enum>, BitmaskEnable<Enum>>::value,
+    Enum>::type
+operator^(Enum lhs, Enum rhs)
+{
+    using ul = typename underlying_type<Enum>::type;
+    return static_cast<Enum>(static_cast<ul>(lhs) ^ static_cast<ul>(rhs));
+}
+
+template<typename Enum>
+constexpr typename enable_if<helper::meta_and<is_enum<Enum>,
+    BitmaskEnable<Enum>>::value, Enum>::type
+operator~(Enum val)
+{
+    using ul = typename underlying_type<Enum>::type;
+    return static_cast<Enum>(~static_cast<ul>(val));
+}
+
+template<typename Enum>
+typename enable_if<helper::meta_and<is_enum<Enum>, BitmaskEnable<Enum>>::value,
+    Enum&>::type
+operator|=(Enum& lhs, Enum rhs)
+{
+    using ul = typename underlying_type<Enum>::type;
+    lhs = static_cast<Enum>(static_cast<ul>(lhs) | static_cast<ul>(rhs));
+    return lhs;
+}
+
+template<typename Enum>
+typename enable_if<helper::meta_and<is_enum<Enum>, BitmaskEnable<Enum>>::value,
+    Enum&>::type
+operator&=(Enum& lhs, Enum rhs)
+{
+    using ul = typename underlying_type<Enum>::type;
+    lhs = static_cast<Enum>(static_cast<ul>(lhs) & static_cast<ul>(rhs));
+    return lhs;
+}
+
+template<typename Enum>
+typename enable_if<helper::meta_and<is_enum<Enum>, BitmaskEnable<Enum>>::value,
+    Enum&>::type
+operator^=(Enum& lhs, Enum rhs)
+{
+    using ul = typename underlying_type<Enum>::type;
+    lhs = static_cast<Enum>(static_cast<ul>(lhs) ^ static_cast<ul>(rhs));
+    return lhs;
+}
+
+/**
+    A signed integral type large enough to store the maximum possible file size.
+ */
+using streamoff = signed long long;
+
+/**
+    A signed integral type that represents the number of characters transferred
+    in an I/O operation, or the size of a stream. Negative values are only used
+    in the constructor of strstreambuf.
+ */
+using streamsize = signed long long;
+
+/**
+    Type to store the current absolute position in a stream, as well as the
+    current shift state.
+
+    @param State Type to store the current shift state.
+ */
+template <typename State>
+class fpos {
+protected:
+    streamoff pos;
+    State curr_state;
+
+public:
+    /**
+        Creates an fpos object at the given position.
+
+        @param p Position to set.
+     */
+    fpos(int p) : pos{p}, curr_state{} {}
+
+    /**
+        Gets the current shift state.
+
+        @return Current shift state.
+     */
+    State state() const { return curr_state; }
+
+    /**
+        Sets the current shift state.
+
+        @param st The state to set.
+     */
+    void state(State st) { curr_state = st; }
+
+    /**
+        Converts the current absolute position value to a value relative to
+        fpos(0).
+     */
+    operator streamoff() const { return pos - fpos(0).pos; }
+
+    /**
+        Increments the current position by the amount provided.
+
+        @param off Offset to increment the position by.
+        @return This fpos after incrementing.
+     */
+    fpos& operator+=(streamoff off) { pos += off; return *this; }
+
+    /**
+        Decrements the current position by the amount provided.
+
+        @param off Offset to decrement the position by.
+        @return This fpos after decrementing.
+     */
+    fpos& operator-=(streamoff off) { pos -= off; return *this; }
+
+    template <typename S>
+    friend fpos<S> operator+(streamoff, const fpos<S>&);
+    template <typename S>
+    friend fpos<S> operator+(const fpos<S>&, streamoff);
+    template <typename S>
+    friend fpos<S> operator-(streamoff, const fpos<S>&);
+    template <typename S>
+    friend fpos<S> operator-(const fpos<S>&, streamoff);
+    template <typename S>
+    friend streamoff operator-(const fpos<S>&, const fpos<S>&);
+};
+
+/**
+    Compares the position only of two fpos objects. The state is not checked.
+
+    @param lhs, rhs Two fpos objects to compare.
+    @return True if the offsets match, false otherwise.
+ */
+template <typename State>
+bool operator==(const fpos<State>& lhs, const fpos<State>& rhs)
+{
+    return (streamoff {lhs} == streamoff {rhs});
+}
+
+/**
+    Compares the position only of two fpos objects. The state is not checked.
+
+    @param lhs, rhs Two fpos objects to compare.
+    @return True if the offsets do not match, false otherwise.
+ */
+template <typename State>
+bool operator!=(const fpos<State>& lhs, const fpos<State>& rhs)
+{
+    return !(lhs == rhs);
+}
+
+/**
+    Typedef specialising fpos for a standard character.
+ */
+using streampos = NMSP::fpos<NMSP::mbstate_t>; 
+
+/**
+    Adds the provided offset to an fpos.
+
+    @param off Offset to add.
+    @param pos Position to add to.
+    @return A new fpos with position offset by off from pos.
+ */
+template<typename State>
+fpos<State> operator+(streamoff off, const fpos<State>& pos)
+{
+    return fpos<State>(pos.pos + off);
+}
+
+template<typename State>
+fpos<State> operator+(const fpos<State>& pos, streamoff off)
+{
+    return fpos<State>(pos.pos + off);
+}
+
+/**
+    Subtracts the provided offset from an fpos.
+
+    @param off Offset to subtract.
+    @param pos Position to subtract from.
+    @return A new fpos with position offset by off from pos.
+ */
+template<typename State>
+fpos<State> operator-(streamoff off, const fpos<State>& pos)
+{
+    return fpos<State>(pos.pos - off);
+}
+
+template<typename State>
+fpos<State> operator-(const fpos<State>& pos, streamoff off)
+{
+    return fpos<State>(pos.pos - off);
+}
+
+/**
+    Finds the difference between two fpos absolute positions.
+
+    @param lhs, rhs fpos to find the difference between.
+    @return Difference in position between lhs and rhs.
+ */
+template <typename State>
+streamoff operator-(const fpos<State>& lhs, const fpos<State>& rhs)
+{
+    return lhs.pos - rhs.pos;
+}
+
+/**
+    Error codes that may be reported by iostreams in failure exception objects.
+    Can be implicitly converted to an error_code.
+ */
+enum class io_errc {
+    /** A stream error. */
+    stream = 1
+};
+
+/**
+    Gets a reference to the static object of type inherited from error_category
+    that represents errors corresponding to I/O errors.
+
+    @return A reference to a static object representing I/O errors.
+ */
+const error_category& iostream_category() noexcept;
+
+/**
+    Specialisation of the template type that determines whether a type is an
+    error code enumeration. Sets the value to true for io_errc.
+ */
+template <>
+struct is_error_code_enum<io_errc> : public true_type {};
+
+/**
+    Overload of function from system_error to support io_errc.
+
+    @param e I/O error code.
+    @return Error code corresponding to the I/O error code, in the iostream
+            category.
+ */
+error_code make_error_code(io_errc e) noexcept;
+
+/**
+    Overload of function from system_error to support io_errc.
+
+    @param e I/O error code.
+    @return Error condition corresponding to the I/O error code, in the iostream
+            category.
+ */
+error_condition make_error_condition(io_errc e) noexcept;
+
+/**
+    Base for all C++ I/O stream classes. Includes various information about
+    the state of the stream.
+ */
+class ios_base {
+public:
+    /**
+        The copy constructor is deleted to prevent stream copying.
+
+        @param other The other stream to (not) copy.
+     */
+    ios_base(const ios_base& other) = delete;
+
+    /**
+        Copy assignment is deleted to prevent stream copying.
+
+        @param other The other stream to (not) copy.
+        @return Reference to this stream.
+     */
+    ios_base& operator=(const ios_base& other) = delete;
+
+    /**
+        Destructor. Calls functions in the callback list with erase_event.
+     */
+    virtual ~ios_base();
+
+    /**
+        Type for the possible open modes of a stream.
+     */
+    enum openmode {
+        /** Append. Seek to the end of the stream before each write. */
+        app = 0x1,
+        /** Binary mode. */
+        binary = 0x2,
+        /** Open for reading. */
+        in = 0x4,
+        /** Open for writing. */
+        out = 0x8,
+        /** Truncate. Discard the previous contents on opening. */
+        trunc = 0x10,
+        /** Seek to the end of the stream immediuately on opening. */
+        ate = 0x20
+    };
+
+    /**
+        Integer type that may be used like openmode.
+     */
+    using open_mode = int;
+
+    /**
+        Type for storing the current format flags.
+     */
+    enum fmtflags {
+        /** Use decimal base for integer I/O. */
+        dec = 0x1,
+        /** Use octal base for integer I/O. */
+        oct = 0x2,
+        /** Use hexadecimal base for integer I/O. */
+        hex = 0x4,
+        /** Left adjustment, fill characters added to the right. */
+        left = 0x8,
+        /** Right adjustment, fill characters added to the left. */
+        right = 0x10,
+        /** Internal adjustment, fill charcters added to the internal point. */
+        internal = 0x20,
+        /** Floating point types use scientific notation, or hex if combined
+            with fixed. */
+        scientific = 0x40,
+        /** Floating point types use fixed notation, or hex if combined with
+            scientific. */
+        fixed = 0x80,
+        /** bool types are in alphanumeric format. */
+        boolalpha = 0x100,
+        /** Use a prefix indicating the numeric base for integer output, require
+            a currency indicator for money. */
+        showbase = 0x200,
+        /** Always generate a decimal point for floating point types. */
+        showpoint = 0x400,
+        /** Generate a + character for non-negative integer output. */
+        showpos = 0x800,
+        /** Skip leading whitespace for certain input operations. */
+        skipws = 0x1000,
+        /** Flush the output after every output operation. */
+        unitbuf = 0x2000,
+        /** Use upper case for hex output and scientific notation. */
+        uppercase = 0x4000,
+        /** dec | oct | hex, used for masking operations. */
+        basefield = dec | oct | hex,
+        /** left | right | internal, used for masking operations. */
+        adjustfield = left | right | internal,
+        /** scientific | fixed, used for masking operations. */
+        floatfield = scientific | fixed
+    };
+
+    /**
+        Type indicating the possible states of the stream.
+     */
+    enum iostate {
+        /** No error. */
+        goodbit = 0x0,
+        /** Unrecoverable stream error. */
+        badbit = 0x1,
+        /** I/O operation failed. */
+        failbit = 0x2,
+        /** End of file. */
+        eofbit = 0x4
+    };
+
+    /**
+        Integer type that may be used like iostate.
+     */
+    using io_state = int;
+
+    /**
+        Type for specifying seek instructions.
+     */
+    enum seekdir {
+        /** Beginning of the stream. */
+        beg = 0x0,
+        /** Current position in the stream. */
+        cur = 0x1,
+        /** End of the stream. */
+        end = 0x2
+    };
+
+    /**
+        Integer type that may be used like seekdir.
+     */
+    using seek_dir = int;
+
+    /**
+        Types of callback events that can be registered.
+     */
+    enum event {
+        /** Called by the destructor and copyfmt(), before copying. */
+        erase_event,
+        /** Called by imbue(). */
+        imbue_event,
+        /** Called by copyfmt(), after copying. */
+        copyfmt_event
+    };
+
+    /**
+        Type of callback functions that can be registered.
+
+        @param type Indicates when this callback will be invoked.
+        @param ios Stream to invoke the callback on. *this is passed by when
+               invoked by member functions.
+        @param index User specified id for this callback.
+     */
+    using event_callback = void (*)(event type, ios_base& ios, int index);
+
+    /**
+        Type that may be used like NMSP::streamoff.
+     */
+    using streamoff = NMSP::streamoff;
+
+    /**
+        Type that may be used like NMSP::streampos.
+     */
+    using streampos = NMSP::streampos;
+
+    /**
+        Exception type thrown when there is an I/O error.
+     */
+    class failure : public system_error {
+    public:
+        /**
+            Constructor. Makes an exception with an error code and a message.
+
+            @param s String containing the error message.
+            @param str C-string containing the error message.
+            @param ec Error code, defaults to io_errc::stream.
+         */
+        failure(const string& s, const error_code& ec = io_errc::stream) :
+            system_error {ec, s}
+        {}
+        failure(const char* str, const error_code& ec = io_errc::stream) :
+            system_error {ec, str}
+        {}
+    };
+
+    /**
+        Used to keep track of the standard streams. Initialises them if this is
+        the first instance, destructs them if this is the last instance.
+     */
+    class Init
+    {
+    public:
+        /**
+            Constructor. Initialises the standard streams if this is the first
+            instance of this class. Otherwise does nothing.
+         */
+        Init();
+
+        /**
+            Destructor. Destroys the standard streams if this is the last
+            instance of this class. Otherwise does nothing.
+         */
+        ~Init();
+
+    private:
+        /** Keeps track of the number of instances of this class. */
+        static size_t ref_count;
+    };
+
+    /**
+        Manages the format flags. Sets them to the new values if any are
+        provided.
+
+        @param flgs New values of the format flags to set.
+        @return Value of the flags before this method was called.
+     */
+    fmtflags flags() const { return fl; }
+    fmtflags flags(fmtflags flgs)
+    {
+        NMSP::swap(flgs, fl);
+        return flgs;
+    }
+
+    /**
+        Sets new format flags. The first version only sets the flags that are
+        set in the provided value, by a bitwise or. The second version clears
+        all the flags not specified in the mask, then sets any cleared flags as
+        specified in the new value.
+
+        @param flgs New flags to set.
+        @param mask Clear any flags not specified in the mask.
+        @return Value of the flags before this method was called.
+     */
+    fmtflags setf(fmtflags flgs);
+
+    fmtflags setf(fmtflags flgs, fmtflags mask);
+
+    /**
+        Clears the format flags that are set in the iput value.
+
+        @param flgs Flags to unset.
+     */
+    void unsetf(fmtflags flgs);
+
+    /**
+        Manages the precision. Sets it to the new value if one is provided.
+
+        @param new_prec New value of the precision to set.
+        @return Value of the precision before this method was called.
+     */
+    streamsize precision() const { return prec; }
+    streamsize precision(streamsize new_prec)
+    {
+        NMSP::swap(prec, new_prec);
+        return new_prec;
+    }
+
+    /**
+        Manages the width. Sets it to the new value if one is provided.
+
+        @param new_width New value of the width to set.
+        @return Value of the width before this method was called.
+     */
+    streamsize width() const { return wid; }
+    streamsize width(streamsize new_width)
+    {
+        NMSP::swap(wid, new_width);
+        return new_width;
+    }
+
+    // TODO skipping locale stuff for now.
+    // locale imbue(const locale& loc);
+    // locale getloc() const;
+
+    /**
+        Gives a unique integer value every time it is called, across different
+        instances of this class. Used for accessing iword() and pword() without
+        clashes.
+
+        @return A different integer every time it is called.
+     */
+    // TODO skip for now, I'm unlikely to use this in the kernel.
+/*    static int xalloc();*/
+
+    /**
+        Gets a reference to the long value stored at the specified index in
+        private storage, allocating additional memory if necessary to make index
+        valid. New indices must first be obtained from xalloc().
+
+        @param index Index to get the reference for.
+        @return Reference to the long element at the specified index.
+     */
+    // TODO skip for now, I'm unlikely to use this in the kernel.
+/*    long& iword(int index)
+    {
+        size_t i = static_cast<size_t>(index);
+        try {
+            while (i >= words.size())
+                words.push_back(Word{});
+        }
+        catch (bad_alloc& e)
+        {
+            buf_state = static_cast<iostate>(buf_state | badbit);
+            throw failure {"ios_base::iword allocation failed"};
+        }
+
+        return words[i].lWord;
+    }*/
+
+    /**
+        Gets a reference to the void* value stored at the specified index in
+        private storage, allocating additional memory if necessary to make index
+        valid. New indices must first be obtained from xalloc().
+
+        @param index Index to get the reference for.
+        @return Reference to the void* element at the specified index.
+     */
+    // TODO skip for now, I'm unlikely to use this in the kernel.
+/*    void*& pword(int index)
+    {
+        size_t i = static_cast<size_t>(index);
+        try {
+            while (i >= words.size())
+                words.push_back(Word{});
+        }
+        catch (bad_alloc& e)
+        {
+            buf_state = static_cast<iostate>(buf_state | badbit);
+            throw failure {"ios_base::pword allocation failed"};
+        }
+
+        return words[i].pWord;
+    }*/
+
+    /**
+        Registers a callback function. Callbacks are called by imbue(),
+        copyfmt() and the destructor, in reverse order. If a function is
+        registered multiple times, it is called multiple times.
+
+        @param func Pointer to the callback function.
+        @param index Custom parameter to pass to the function.
+     */
+    void register_callback(event_callback func, int index);
+
+    /**
+        Sets whether standard streams (cin, cout, cerr) are immediately synced
+        with their underlying device. Effectively, do they maintain their own
+        private buffers. The default is for syncing.
+
+        @param sync Whether to force immediate syncing.
+        @return Synchronisation state before the function call.
+     */
+    static bool sync_with_stdio(bool sync = true);
+
+protected:
+    /** Stores the current precision for floating points. */
+    streamsize prec;
+    /** Stores the current output width. */
+    streamsize wid;
+    /** Stores the current format flags. */
+    fmtflags fl;
+    /** Stores the current exception mask. */
+    iostate except_mask;
+    /** Stores the current buffer error state. */
+    iostate buf_state;
+    /** TODO stores the current locale, skipped for now. */
+    // locale loc;
+
+    /**
+        Custom type for storing callbacks. Stores the function pointer and the
+        custom parameter.
+     */
+    struct callback_type {
+        event_callback func;
+        int index;
+    };
+
+    /** Store for the callback functions. */
+    NMSP::vector<callback_type> callbacks;
+
+    /**
+        Default constructor. Protected, so may only be called by derived
+        classes. Doesn't actually set the internal state to anything sensible:
+        init() must also be called.
+     */
+    ios_base() : prec{}, wid{}, fl{}, except_mask{}, buf_state{} {}
+
+    /**
+        This function performs initialisation activities deferred from the
+        constructor. It must be called by derived objects before the first
+        use of the object (including if the object is destructed before use). To
+        ensure this, it is called by basic_ios::init (which has a similar
+        condition).
+     */
+    void init() noexcept;
+
+private:
+    /** Static counter to ensure xalloc always produces a different value. */
+    // TODO skip for now, I'm unlikely to use this in the kernel.
+/*    static int xalloc_counter;*/
+
+    /** Class for local private storage. */
+    // TODO skip for now, I'm unlikely to use this in the kernel.
+/*    struct Word {
+        void* pWord;
+        long lWord;
+        Word() : pWord{nullptr}, lWord{0} {}
+    };*/
+
+    /** Local storage. */
+    // TODO skip for now, I'm unlikely to use this in the kernel.
+/*    vector<Word> words; */
+};
+
+/**
+    Template overloads to allow member enums to be used as Bitfields.
+ */
+template <>
+struct BitmaskEnable<ios_base::openmode> : public true_type {};
+
+template <>
+struct BitmaskEnable<ios_base::fmtflags> : public true_type {};
+
+template <>
+struct BitmaskEnable<ios_base::iostate> : public true_type {};
+
+/** I/O Manipulators. */
+
+/**
+    Enables the boolalpha flag in the provided stream.
+
+    @param str Stream to enable boolalpha for.
+    @return The provided stream, after modification.
+ */
+ios_base& boolalpha(ios_base& str);
+
+/**
+    Disables the boolalpha flag in the provided stream.
+
+    @param str Stream to disable boolalpha for.
+    @return The provided stream, after modification.
+ */
+ios_base& noboolalpha(ios_base& str);
+
+/**
+    Enables the showbase flag in the provided stream.
+
+    @param str Stream to enable showbase for.
+    @return The provided stream, after modification.
+ */
+ios_base& showbase(ios_base& str);
+
+/**
+    Disables the showbase flag in the provided stream.
+
+    @param str Stream to disable showbase for.
+    @return The provided stream, after modification.
+ */
+ios_base& noshowbase(ios_base& str);
+
+/**
+    Enables the showpoint flag in the provided stream.
+
+    @param str Stream to enable showpoint for.
+    @return The provided stream, after modification.
+ */
+ios_base& showpoint(ios_base& str);
+
+/**
+    Disables the showpoint flag in the provided stream.
+
+    @param str Stream to disable showpoint for.
+    @return The provided stream, after modification.
+ */
+ios_base& noshowpoint(ios_base& str);
+
+/**
+    Enables the showpos flag in the provided stream.
+
+    @param str Stream to enable showpos for.
+    @return The provided stream, after modification.
+ */
+ios_base& showpos(ios_base& str);
+
+/**
+    Disables the showpos flag in the provided stream.
+
+    @param str Stream to disable showpos for.
+    @return The provided stream, after modification.
+ */
+ios_base& noshowpos(ios_base& str);
+
+/**
+    Enables the skipws flag in the provided stream.
+
+    @param str Stream to enable skipws for.
+    @return The provided stream, after modification.
+ */
+ios_base& skipws(ios_base& str);
+
+/**
+    Disables the skipws flag in the provided stream.
+
+    @param str Stream to disable skipws for.
+    @return The provided stream, after modification.
+ */
+ios_base& noskipws(ios_base& str);
+
+/**
+    Enables the uppercase flag in the provided stream.
+
+    @param str Stream to enable uppercase for.
+    @return The provided stream, after modification.
+ */
+ios_base& uppercase(ios_base& str);
+
+/**
+    Disables the uppercase flag in the provided stream.
+
+    @param str Stream to disable uppercase for.
+    @return The provided stream, after modification.
+ */
+ios_base& nouppercase(ios_base& str);
+
+/**
+    Enables the unitbuf flag in the provided stream.
+
+    @param str Stream to enable unitbuf for.
+    @return The provided stream, after modification.
+ */
+ios_base& unitbuf(ios_base& str);
+
+/**
+    Disables the unitbuf flag in the provided stream.
+
+    @param str Stream to disable unitbuf for.
+    @return The provided stream, after modification.
+ */
+ios_base& nounitbuf(ios_base& str);
+
+/**
+    Sets the adjustfield to internal in the provided stream.
+
+    @param str Stream to set the adjustfield for.
+    @return The provided stream, after modification.
+ */
+ios_base& internal(ios_base& str);
+
+/**
+    Sets the adjustfield to left in the provided stream.
+
+    @param str Stream to set the adjustfield for.
+    @return The provided stream, after modification.
+ */
+ios_base& left(ios_base& str);
+
+/**
+    Sets the adjustfield to right in the provided stream.
+
+    @param str Stream to set the adjustfield for.
+    @return The provided stream, after modification.
+ */
+ios_base& right(ios_base& str);
+
+/**
+    Sets the basefield to decimal in the provided stream.
+
+    @param str Stream to set the basefield for.
+    @return The provided stream, after modification.
+ */
+ios_base& dec(ios_base& str);
+
+/**
+    Sets the basefield to hexadecimal in the provided stream.
+
+    @param str Stream to set the basefield for.
+    @return The provided stream, after modification.
+ */
+ios_base& hex(ios_base& str);
+
+/**
+    Sets the basefield to octal in the provided stream.
+
+    @param str Stream to set the basefield for.
+    @return The provided stream, after modification.
+ */
+ios_base& oct(ios_base& str);
+
+/**
+    Sets the floatfield to fixed in the provided stream.
+
+    @param str Stream to set the floatfield for.
+    @return The provided stream, after modification.
+ */
+ios_base& fixed(ios_base& str);
+
+/**
+    Sets the floatfield to scientific in the provided stream.
+
+    @param str Stream to set the floatfield for.
+    @return The provided stream, after modification.
+ */
+ios_base& scientific(ios_base& str);
+
+/**
+    Sets the floatfield to hexadecimal (specified by setting both fixed and
+    scientific) in the provided stream.
+
+    @param str Stream to set the floatfield for.
+    @return The provided stream, after modification.
+ */
+ios_base& hexfloat(ios_base& str);
+
+/**
+    Sets the floatfield to default formatting (specified by clearing both fixed
+    and scientific) in the provided stream.
+
+    @param str Stream to set the floatfield for.
+    @return The provided stream, after modification.
+ */
+ios_base& defaultfloat(ios_base& str);
+
+/**
+    This class, an extension of ios_base, provides facilities for interacting
+    with an object of type basic_streambuf that, unlike for ios_base, depend on
+    the type of character contained in the buffer.
+ */
+template <typename CharT, typename Traits = char_traits<CharT>>
+class basic_ios : public ios_base {
+public:
+    /** Type of the character. */
+    using char_type = CharT;
+    /** Type of the traits. traits_type::char_type must equal char_type. */
+    using traits_type = Traits;
+    /** Type of an int that can represent the char. Taken from traits_type. */
+    using int_type = typename traits_type::int_type;
+    /** Type that can represent a position in a stream. Taken from
+        traits_type. */
+    using pos_type = typename traits_type::pos_type;
+    /** Type of an int that can represent an offset in a stream. Taken from
+        traits_type. */
+    using off_type = typename traits_type::off_type;
+
+    /**
+        Constructor. Sets the associated stream buffer by calling init().
+
+        @param sb The associated stream buffer.
+     */
+    explicit basic_ios(basic_streambuf<CharT, Traits>* sb) :
+        ios_base {}, tsp {nullptr}, sbuf {nullptr}, fch {}
+    {
+        init(sb);
+    }
+
+    /**
+        Copy construction is deleted.
+
+        @param other basic_ios to (not) copy.
+     */
+    basic_ios(const basic_ios& other) = delete;
+
+    /**
+        Copy assignemnt is deleted.
+
+        @param other basic_ios to (not) copy.
+        @return This basic_ios.
+     */
+    basic_ios& operator=(const basic_ios& other) = delete;
+
+    /**
+        Destructor. Does not affect the associated stream buffer.
+     */
+    virtual ~basic_ios() {}
+
+    /**
+        Checks whether the most recent I/O completed sucessfully, by calling
+        rdstate().
+
+        @return True if the last I/O operation completed successfully, false
+                otherwise.
+     */
+    bool good() const { return rdstate() == 0; }
+
+    /**
+        Checks whether the associated stream has reached end-of-file, by calling
+        rdstate().
+
+        @return True if the associated stream has reached end of file, false
+                otherwise.
+     */
+    bool eof() const { return (rdstate() & eofbit) != 0; }
+
+    /**
+        Checks whether the associated stream has experienced an error, by
+        calling rdstate().
+
+        @return True if the associated stream has experienced an error, false
+                otherwise.
+     */
+    bool fail() const { return (rdstate() & (failbit | badbit)) != 0; }
+
+    /**
+        Checks whether the associated stream has experienced a non-recoverable
+        error, by calling rdstate().
+
+        @return True if the associated stream has experienced a non-recoverable
+                error, false otherwise.
+     */
+    bool bad() const { return (rdstate() & badbit) != 0; }
+
+    /**
+        Checks whether the associated stream has experienced an error, a synonym
+        of fail().
+
+        @return True if the associated stream has experienced an error, false
+                otherwise.
+     */
+    bool operator!() const { return fail(); }
+
+    /**
+        Checks whether the associated stream has experienced an error, a synonym
+        of !fail().
+
+        @return True if the associated stream has not experienced an error,
+                false otherwise.
+     */
+    explicit operator bool() const { return !fail(); }
+
+    /**
+        Checks the current stream state.
+
+        @return The current stream state, as a bitmask of eofbit, badbit and
+                failbit.
+     */
+    iostate rdstate() const
+    {
+        // buf_state is a member inherited from ios_base.
+        return buf_state;
+    }
+
+    /**
+        Sets the specified error flags in addition to the currently set flags.
+        Calls clear(rdstate() | state). May raise an exception if setting to a
+        state that is supposed to raise one given the current exception mask.
+
+        @param state Flags to set.
+     */
+    void setstate(iostate state)
+    {
+        clear(rdstate() | state);
+    }   
+
+    /**
+        Sets the state flags to the provided value, which defaults to goodbit.
+        If there is no associated stream, sets badbit instead. May raise an
+        exception if setting to a state that is supposed to raise one given the
+        current exception mask.
+
+        @param state Flags to set.
+     */
+    void clear(iostate state = goodbit)
+    {
+        if (rdbuf() != nullptr)
+            buf_state = state;
+        else
+            buf_state = state | badbit;
+
+        if ((exceptions() & rdstate()) != 0)
+            throw failure("basic_ios::clear");
+    }
+
+    /**
+        Copies the state of the other stream into this stream.
+
+        @param other Other stream to copy.
+        @return This stream.
+     */
+    basic_ios& copyfmt(const basic_ios& other)
+    {
+        // Step 1: call all the current callbacks, in reverse order, with the
+        // erase event.
+        for (auto p = callbacks.rbegin(); p != callbacks.rend(); ++p)
+            p->func(erase_event, *this, p->index);
+
+        // Step 2: copy all members except the iostate, the exeption mask and
+        // the associated buffer.
+        // TODO: locale and local iword/pword storage do not exist yet.
+        prec = other.prec;
+        wid = other.wid;
+        fl = other.fl;
+        callbacks = other.callbacks;
+        tsp = other.tsp;
+        fch = other.fch;
+
+        // Step 3: call all the other callbacks, in reverse order, with the
+        // copyfmt event.
+        for (auto p = callbacks.rbegin(); p != callbacks.rend(); ++p)
+            p->func(copyfmt_event, *this, p->index);
+
+        // Step 4: copy the exception mask.
+        exceptions(other.exceptions());
+
+        return *this;      
+    }
+
+    /**
+        Manages the fill character. Sets it to the new value if one is provided.
+
+        @param ch New value of the fill character to set.
+        @return Value of the fill character before this method was called.
+     */
+    CharT fill() const { return fch; }
+    CharT fill(CharT ch)
+    {
+        NMSP::swap(fch, ch);
+        return ch;
+    }
+
+    /**
+        Manages the exception mask. Sets it to the new value if one is provided.
+
+        @param ex New value of the exception mask to set.
+        @return Value of the exception mask before this method was called.
+     */
+    iostate exceptions() const { return except_mask; }
+    iostate exceptions(iostate ex)
+    {
+        NMSP::swap(except_mask, ex);
+        return ex;
+    }
+
+    // TODO skipping locale stuff for now.
+    // locale imbue(const locale& loc);
+
+    /**
+        Manages the associated stream buffer. Sets it to the new value if one is
+        provided. Also clears the error state.
+
+        @param sb New value of the associated stream buffer mask to set.
+        @return Value of the associated stream buffer before this method was
+                called. Might be nullptr, if there was no buffer.
+     */
+    basic_streambuf<CharT, Traits>* rdbuf() const { return sbuf; }
+    basic_streambuf<CharT, Traits>* rdbuf(basic_streambuf<CharT, Traits>* sb)
+    {
+        swap(sbuf, sb);
+        clear();
+        return sb;
+    }
+
+    /**
+        Manages the tied stream. Sets it to the new value if one is provided. A
+        tied stream is an output stream that is flushed before any I/O
+        operations on this.
+
+        @param t New value of the associated stream buffer mask to set.
+        @return Value of the associated stream buffer before this method was
+                called. Might be nullptr, if there was no buffer.
+     */
+    basic_ostream<CharT, Traits>* tie() const { return tsp; }
+    basic_ostream<CharT, Traits>* tie(basic_ostream<CharT, Traits>* t)
+    {
+        NMSP::swap(tsp, t);
+        return t;
+    }
+
+    // TODO skipping locale stuff for now.
+    // char narrow(char_type c, char dfault) const;
+
+    // TODO skipping locale stuff for now.
+    // char widen(char_type c) const;
+
+protected:
+    /** The tied stream pointer. */
+    basic_ostream<CharT, Traits>* tsp;
+    /** The associated stream buffer. */
+    basic_streambuf<CharT, Traits>* sbuf;
+    /** The fill character. */
+    CharT fch;
+
+    /**
+        Default constructor. The internal state is undefined and init() must be
+        called before the first use, including calling the destructor.
+     */
+    basic_ios() : tsp {nullptr}, sbuf {nullptr}, fch {} {}
+
+    /**
+        Initialises a default constructed basic_ios.
+
+        @param sb The associated streambuffer to use.
+     */
+    void init(basic_streambuf<CharT, Traits>* sb)
+    {
+        // Parent method sets precision, width and flags.
+        ios_base::init();
+
+        // Members inherited from ios_base.
+        except_mask = goodbit;
+        if (sb != nullptr)
+            buf_state = goodbit;
+        else
+            buf_state = badbit;
+
+        // Members of basic_ios.
+        tsp = nullptr;
+        sbuf = sb;
+        // TODO: Should be widen(' '), but we're skipping locales for now.
+        fch = ' ';
+    }
+
+    /**
+        Replaces the state of this basic_ios with the state of other, except
+        for the associated stream buffer, which is handled by derived classes.
+
+        @param other basic_ios to pirate the state from.
+     */
+    void move(basic_ios& other)
+    {
+        // Members inherited from ios_base.
+        // TODO: locale and iword/pword storage do not exist yet.
+        prec = other.prec;
+        wid = other.wid;
+        fl = other.fl;
+        except_mask = other.except_mask;
+        buf_state = other.buf_state;
+        callbacks = other.callbacks;
+
+        // Members of basic_ios
+        tsp = other.tsp;
+        fch = other.fch;
+
+        // Changes to other.
+        other.tsp = nullptr;
+    }
+
+    void move(basic_ios&& other) { move(other); }
+
+    /**
+        Swaps the state of this basic_ios with the state of other, except
+        for the associated stream buffer, which is handled by derived classes.
+
+        @param other bsiac_ios to swap the state with.
+     */
+    void swap(basic_ios& other) noexcept
+    {
+        // Members inherited from ios_base.
+        // TODO: locale and iword/pword storage do not exist yet.
+        NMSP::swap(prec, other.prec);
+        NMSP::swap(wid, other.wid);
+        NMSP::swap(fl, other.fl);
+        NMSP::swap(except_mask, other.except_mask);
+        NMSP::swap(buf_state, other.buf_state);
+        NMSP::swap(callbacks, other.callbacks);
+
+        // Members of basic_ios
+        NMSP::swap(tsp, other.tsp);
+        NMSP::swap(fch, other.fch);
+    }
+
+    /**
+        Sets the associated stream buffer to a new object. Does not affect the
+        current other state. This method is called by derived classes as the
+        conclusion of changing the associated stream. The derived class handles
+        the details of how to do that, but the pointer needs to be changed in
+        basic_ios.
+
+        @param sb New stream buffer to associate with.
+     */
+    void set_rdbuf(basic_streambuf<CharT, Traits>* sb) { sbuf = sb; }
+};
+
+/**
+    Defined specialisation of basic_ios for common character type.
+ */
+using ios = basic_ios<char>;
+
+} // NMSP namespace
+#endif /* IOS_H */

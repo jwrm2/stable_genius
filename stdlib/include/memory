@@ -1,0 +1,1250 @@
+#ifndef MEMORY_H
+#define MEMORY_H
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+#include <stddef.h>
+
+#include "../include/functional"
+#include "../include/limits"
+#include "../include/new"
+#include "../include/type_traits"
+#include "../include/utility"
+
+namespace NMSP {
+
+/**
+    Default deleter intended for smart pointers. Simply calls delete or
+    delete[].
+ */
+template<typename T>
+class default_delete {
+public:
+    /**
+        Uses the delete operator to release the memory of the given pointer.
+
+        @param T* ptr Object to delete.
+     */
+    void operator()(T* ptr) const { delete ptr; }
+};
+
+template<typename T>
+class default_delete<T[]> {
+public:
+    /**
+        Uses the delete[] operator to release the memory of the given pointer.
+
+        @param T* ptr Object to delete.
+     */
+    void operator()(T* ptr) const { delete[] ptr; }
+};
+
+/**
+    A smart pointer that manages a pointer and deletes it when it goes out of
+    scope.
+ */
+template<typename T, typename Deleter = default_delete<T>>
+class unique_ptr {
+private:
+    // For checking whether the deleter has a pointer type.
+    template<typename U>
+    using del_ptr_type = typename U::pointer;
+
+public:
+    /**
+        Type taken from the Deleter if possible, otherwise T*.
+     */
+    using pointer =
+        typename detected_or<T*, del_ptr_type, typename remove_reference<Deleter>::type>::type;
+
+    /**
+        The type managed by this smart pointer.
+     */
+    using element_type = T;
+
+    /**
+        The Deleter type used by this smart pointer.
+     */
+    using deleter_type = Deleter;
+
+    /**
+        Constructs a smart pointer that points at nothing and default constructs
+        the deleter.
+     */
+    constexpr unique_ptr() noexcept : stored_ptr{}, stored_del{} {}
+    constexpr unique_ptr(nullptr_t) noexcept : stored_ptr{}, stored_del{} {}
+
+    /**
+        Constructs a smart pointer initialised with the provided pointer and
+        default constructs the deleter.
+
+        @param ptr Used to initialise the stored pointer.
+     */
+    explicit unique_ptr(pointer ptr) noexcept : stored_ptr{ptr}, stored_del{} {}
+
+    /**
+        Constructs a smart pointer initialised with the provided pointer and the
+        provided deleter.
+
+        @param ptr Used to initialise the stored pointer.
+        @param del Used to initialise the stored deleter.
+     */
+    unique_ptr(pointer ptr,
+        typename conditional<is_reference<deleter_type>::value, deleter_type, const deleter_type&>::type del)
+        noexcept : stored_ptr{ptr}, stored_del{del} {}
+    unique_ptr(pointer ptr, typename remove_reference<deleter_type>::type && del)
+        noexcept : stored_ptr{ptr}, stored_del{move(del)} {}
+
+    /**
+        Move constructor. Take over management of the provided pointer, and
+        use the same deleter.
+
+        @param ptr Pointer to take over from.
+     */
+    unique_ptr(unique_ptr&& ptr) noexcept : stored_ptr{ptr.release()},
+        stored_del{forward<deleter_type>(ptr.get_deleter())} {}
+
+    /**
+        Move constructor from a different type. Take over management of a
+        pointer. Requires that the pointer is convertible from the previous type
+        to the new type, is not an array and that the deleter is compatible.
+        The extra template parameter is a SFINAE way of enforcing the
+        compatability and the default should always be used.
+
+        @param ptr Pointer to take over from.
+        @param U New type to point to.
+        @param E New deleter type.
+     */
+    template<typename U, typename E,
+        typename = helper::Require<
+            is_convertible<typename unique_ptr<U, E>::pointer, pointer>,
+            helper::meta_not<is_array<U>>,
+            typename conditional<is_reference<deleter_type>::value, is_same<E, deleter_type>, is_convertible<E, deleter_type>>::type
+        >
+    >
+    unique_ptr(unique_ptr<U, E>&& ptr) noexcept : stored_ptr{ptr.release()},
+        stored_del{forward<E>(ptr.get_deleter())} {}
+
+    /**
+        Deletes the stored pointer using the stored deleter, unless the stored
+        pointer is nullptr.
+     */
+    ~unique_ptr()
+    {
+        if (stored_ptr != pointer{})
+            get_deleter()(stored_ptr);
+        stored_ptr = pointer{};
+    }
+
+    /**
+        Move assignment from a unique_ptr of the same type. Uses reset() to call
+        the deleter of this pointer first, if necessary.
+
+        @param u unique_ptr to take over ownership from.
+        @return Reference to this unique_ptr.
+     */
+    unique_ptr& operator=(unique_ptr&& ptr) noexcept
+    {
+        reset(ptr.release());
+        stored_del = forward<deleter_type>(ptr.get_deleter());
+        return *this;
+    }
+
+    /**
+        Move assignment from a unique_ptr of a different type. Uses reset() to
+        call the deleter of this pointer first, if necessary. Only allowed if
+        pointer provided is convertible to the type of this pointer and is not
+        an array. Uses tests on the return type to enforce conditions.
+
+        @param u unique_ptr to take over ownership from.
+        @return Reference to this unique_ptr.
+     */
+    template <typename U, typename E>
+    typename enable_if<helper::meta_and<is_convertible<typename unique_ptr<U, E>::pointer, pointer>, helper::meta_not<is_array<U>>>::value,
+        unique_ptr&>::type operator=(unique_ptr<U, E>&& ptr) noexcept
+    {
+        reset(ptr.release());
+        stored_del = forward<deleter_type>(ptr.get_deleter());
+        return *this;
+    }
+
+    /**
+        Reset the pointer to empty.
+     */
+    unique_ptr& operator=(nullptr_t) noexcept
+    {
+        reset();
+        return *this;
+    }
+
+    // Delete copy constructor and assignment (keeps the pointer unique).
+    unique_ptr(const unique_ptr&) = delete;
+    unique_ptr& operator=(const unique_ptr&) = delete;
+
+    /**
+        Release owenership of the stored pointer.
+
+        @return The stored pointer.
+     */
+    pointer release() noexcept
+    {
+        pointer p = stored_ptr;
+        stored_ptr = pointer{};
+        return p;
+    }
+
+    /**
+        Replaces the currently managed pointer, invoking the deleter if
+        required. If no new pointer is provided, set the pointer to empty.
+
+        @param ptr New pointer to manage.
+     */
+    void reset(pointer ptr = pointer{}) noexcept
+    {
+        pointer p = stored_ptr;
+        stored_ptr = ptr;
+        if (p != pointer{})
+            get_deleter()(p);
+    }
+
+    /**
+        Swaps the owned pointer and deleters with another unique_ptr.
+
+        @param other The unique_ptr to swap with.
+     */
+    void swap(unique_ptr& other) noexcept
+    {
+        NMSP::swap(stored_ptr, other.stored_ptr);
+        NMSP::swap(stored_del, other.stored_del);
+    }
+
+    /**
+        Returns a pointer to the owned object.
+
+        @return Pointer to the managed object.
+     */
+    pointer get() const noexcept { return stored_ptr; }
+
+    /**
+        Returns a reference to the stored deleter.
+
+        @return The stored deleter.
+     */
+    deleter_type& get_deleter() noexcept { return stored_del; }
+    const deleter_type& get_deleter() const noexcept { return stored_del; }
+
+    /**
+        Checks whether an object is currently owned.
+
+        @return true is an object is currently owned, false otherwise.
+     */
+    explicit operator bool() const noexcept
+    {
+        return (stored_ptr == pointer{} ? false : true);
+    }
+
+    /**
+        Dereference the stored pointer. Undefined if an object is not currently
+        owned.
+
+        @return Reference or pointer to the stored pointer.
+     */
+    typename add_lvalue_reference<element_type>::type operator*() const
+    {
+        return *stored_ptr;
+    }
+    pointer operator->() const noexcept
+    {
+        return stored_ptr;
+    }
+
+private:
+    // Stored pointer
+    pointer stored_ptr;
+    deleter_type stored_del;
+};
+
+template<typename T, typename Deleter>
+class unique_ptr<T[], Deleter> {
+private:
+    // For checking whether the deleter has a pointer type.
+    template<typename U>
+    using del_ptr_type = typename U::pointer;
+
+    // Checks whether a class is derived from T, but false if unqualified types
+    // are the same.
+    template <typename U>
+    struct is_derived : helper::meta_and<is_base_of<T, U>, helper::meta_not<is_same<remove_cv<T>, remove_cv<U>>>> {}; 
+
+public:
+    /**
+        Type taken from the Deleter if possible, otherwise T*.
+     */
+    using pointer = typename detected_or<T*, del_ptr_type, typename remove_reference<Deleter>::type>::type;
+
+    /**
+        The type managed by this smart pointer.
+     */
+    using element_type = T;
+
+    /**
+        The Deleter type used by this smart pointer.
+     */
+    using deleter_type = Deleter;
+
+private:
+    // Safe conversion check.
+    template <typename U, typename E, typename U_ptr = typename unique_ptr<U, E>::pointer>
+    using safe_conversion = helper::meta_and<
+        is_convertible<U_ptr, pointer>,
+        is_array<U>,
+        helper::meta_or<helper::meta_not<is_pointer<U_ptr>>,
+            helper::meta_not<is_pointer<pointer>>,
+            helper::meta_not<is_derived<typename remove_extent<U>::type>>
+        >
+    >;
+
+public:
+
+    /**
+        Constructs a smart pointer that points at nothing and default constructs
+        the deleter.
+     */
+    constexpr unique_ptr() noexcept : stored_ptr{}, stored_del{} {}
+    constexpr unique_ptr(nullptr_t) noexcept : stored_ptr{}, stored_del{} {}
+
+    /**
+        Constructs a smart pointer initialised with the provided pointer and
+        default constructs the deleter.
+
+        @param ptr Used to initialise the stored pointer.
+     */
+    explicit unique_ptr(pointer ptr) noexcept : stored_ptr{ptr}, stored_del{} {}
+    // Delete construction from convertible pointer types
+    template <typename U, typename = helper::Require<is_pointer<pointer>,
+        is_convertible<U, pointer>, is_derived<U>>>
+    explicit unique_ptr(U*) = delete;
+
+    /**
+        Constructs a smart pointer initialised with the provided pointer and the
+        provided deleter.
+
+        @param ptr Used to initialise the stored pointer.
+        @param del Used to initialise the stored deleter.
+     */
+    unique_ptr(pointer ptr,
+        typename conditional<is_reference<deleter_type>::value,
+            deleter_type, const deleter_type&>::type del)
+        noexcept : stored_ptr{ptr}, stored_del{del} {}
+    unique_ptr(pointer ptr, typename remove_reference<deleter_type>::type && del)
+        noexcept : stored_ptr{ptr}, stored_del{move(del)} {}
+    // Delete construction from convertible pointer type.
+    template <typename U, typename = helper::Require<is_pointer<pointer>,
+        is_convertible<U, pointer>, is_derived<U>>>
+    unique_ptr(U*, typename conditional<is_reference<deleter_type>::value,
+        deleter_type, const deleter_type&>::type) = delete;
+    template <typename U, typename = helper::Require<is_pointer<pointer>,
+        is_convertible<U, pointer>, is_derived<U>>>
+    unique_ptr(U*, typename remove_reference<deleter_type>::type &&) = delete;
+
+    /**
+        Move constructor. Take over management of the provided pointer, and
+        use the same deleter.
+
+        @param ptr Pointer to take over from.
+     */
+    unique_ptr(unique_ptr&& ptr) noexcept : stored_ptr{ptr.release()},
+        stored_del{forward<deleter_type>(ptr.get_deleter())} {}
+
+    /**
+        Move constructor from a different type. Take over management of a
+        pointer. Requires that the pointer is convertible from the previous type
+        to the new type and that the deleter is compatible.
+        The extra template parameter is a SFINAE way of enforcing the
+        compatability and the default should always be used.
+
+        @param ptr Pointer to take over from.
+        @param U New type to point to.
+        @param E New deleter type.
+     */
+    template<typename U, typename E,
+        typename = helper::Require<safe_conversion<U, E>,
+            typename conditional<is_reference<deleter_type>::value,
+                is_same<E, deleter_type>,
+                is_convertible<E, deleter_type>>::type       
+        >
+    >
+    unique_ptr(unique_ptr<U, E>&& ptr) noexcept : stored_ptr{ptr.release()},
+        stored_del{forward<E>(ptr.get_deleter())} {}
+
+    /**
+        Deletes the stored pointer using the stored deleter, unless the stored
+        pointer is nullptr.
+     */
+    ~unique_ptr()
+    {
+        if (stored_ptr != pointer{})
+            get_deleter()(stored_ptr);
+        stored_ptr = pointer{};
+    }
+
+    /**
+        Move assignment from a unique_ptr of the same type. Uses reset() to call
+        the deleter of this pointer first, if necessary.
+
+        @param u unique_ptr to take over ownership from.
+        @return Reference to this unique_ptr.
+     */
+    unique_ptr& operator=(unique_ptr&& ptr) noexcept
+    {
+        reset(ptr.release());
+        stored_del = forward<deleter_type>(ptr.get_deleter());
+        return *this;
+    }
+
+    /**
+        Move assignment from a unique_ptr of a different type. Uses reset() to
+        call the deleter of this pointer first, if necessary. Only allowed if
+        pointer provided is convertible to the type of this pointer and is not
+        an array. Uses tests on the return type to enforce conditions.
+
+        @param u unique_ptr to take over ownership from.
+        @return Reference to this unique_ptr.
+     */
+    template <typename U, typename E>
+    typename enable_if<helper::meta_and<
+        is_convertible<typename unique_ptr<U, E>::pointer, pointer>,
+        helper::meta_not<is_array<U>>>::value, unique_ptr&>::type
+    operator=(unique_ptr<U, E>&& ptr) noexcept
+    {
+        reset(ptr.release());
+        stored_del = forward<deleter_type>(ptr.get_deleter());
+        return *this;
+    }
+
+    /**
+        Reset the pointer to empty.
+     */
+    unique_ptr& operator=(nullptr_t) noexcept
+    {
+        reset();
+        return *this;
+    }
+
+    // Delete copy constructor and assignment (keeps the pointer unique).
+    unique_ptr(const unique_ptr&) = delete;
+    unique_ptr& operator=(const unique_ptr&) = delete;
+
+    /**
+        Release owenership of the stored pointer.
+
+        @return The stored pointer.
+     */
+    pointer release() noexcept
+    {
+        pointer p = stored_ptr;
+        stored_ptr = pointer{};
+        return p;
+    }
+
+    /**
+        Replaces the currently managed pointer, invoking the deleter if
+        required. If no new pointer is provided, set the pointer to empty.
+
+        @param ptr New pointer to manage.
+     */
+    void reset(pointer ptr = pointer{}) noexcept
+    {
+        pointer p = stored_ptr;
+        stored_ptr = ptr;
+        if (p != pointer())
+            get_deleter()(p);
+    }
+    // Deletes resetting from convertible pointer type.
+    template <typename U, typename = helper::Require<is_pointer<pointer>,
+        is_convertible<U, pointer>, is_derived<U>>>
+    void reset(U*) = delete;
+
+    /**
+        Swaps the owned pointer and deleters with another unique_ptr.
+
+        @param other The unique_ptr to swap with.
+     */
+    void swap(unique_ptr& other) noexcept
+    {
+        NMSP::swap(stored_ptr, other.stored_ptr);
+        NMSP::swap(stored_del, other.stored_del);
+    }
+
+    /**
+        Returns a pointer to the owned object.
+
+        @return Pointer to the managed object.
+     */
+    pointer get() const noexcept { return stored_ptr; }
+
+    /**
+        Returns a reference to the stored deleter.
+
+        @return The stored deleter.
+     */
+    deleter_type& get_deleter() noexcept { return stored_del; }
+    const deleter_type& get_deleter() const noexcept { return stored_del; }
+
+    /**
+        Checks whether the an object is currently owned.
+
+        @return true is an object is currently owned, false otherwise.
+     */
+    explicit operator bool() const noexcept
+    {
+        return (stored_ptr == pointer{} ? false : true);
+    }
+
+    /**
+        Access elements of the stored array. No range checking. Undefined if no
+        object is currently owned.
+
+        @param n Index to access.
+        @return Element at index n.
+     */
+    T& operator[](size_t n) const
+    {
+        return stored_ptr[n];
+    }
+
+private:
+    // Stored pointer
+    pointer stored_ptr;
+    deleter_type stored_del;
+};
+
+/**
+    Equality tests for unique_ptr. Returns whether two pointers are equal, or
+    for nullptr_t, whether the unique_ptr manages anything.
+
+    @param x, y Pointers to compare.
+    @return Whether the pointers managed by x and y are the same.
+ */
+template <typename T1, typename D1, typename T2, typename D2>
+bool operator==(const unique_ptr<T1, D1>& x, const unique_ptr<T2, D2>& y)
+{
+    return x.get() == y.get();
+}
+
+template <typename T, typename D>
+bool operator==(const unique_ptr<T, D>& x, nullptr_t) noexcept
+{
+    return !x;
+}
+
+template <typename T, typename D>
+bool operator==(nullptr_t, const unique_ptr<T, D>& x) noexcept
+{
+    return !x;
+}
+
+/**
+    Non-equality tests for unique_ptr. Returns whether two pointers are not
+    equal, or for nullptr_t, whether the unique_ptr manages anything.
+
+    @param x, y Pointers to compare.
+    @return Whether the pointers managed by x and y are different.
+ */
+template <typename T1, typename D1, typename T2, typename D2>
+bool operator!=(const unique_ptr<T1, D1>& x, const unique_ptr<T2, D2>& y)
+{
+    return x.get() != y.get();
+}
+
+template <typename T, typename D>
+bool operator!=(const unique_ptr<T, D>& x, nullptr_t) noexcept
+{
+    return static_cast<bool>(x);
+}
+
+template <typename T, typename D>
+bool operator!=(nullptr_t, const unique_ptr<T, D>& x) noexcept
+{
+    return static_cast<bool>(x);
+}
+
+/**
+    Determines whether one pointer is less than another. Attempts to decay the
+    two pointers to a common type.
+
+    @param x, y Pointers to compare.
+    @return Whether the pointer managed by x is less than that managed by y.
+ */
+template <typename T1, typename D1, typename T2, typename D2>
+bool operator<(const unique_ptr<T1, D1>& x, const unique_ptr<T2, D2>& y)
+{
+    using CT = typename common_type<typename unique_ptr<T1, D1>::pointer,
+        typename unique_ptr<T2, D2>::pointer>::type;
+    return less<CT>()(x.get(), y.get());
+}
+
+template <typename T, typename D>
+bool operator<(const unique_ptr<T, D>& x, nullptr_t) noexcept
+{
+    return less<typename unique_ptr<T, D>::pointer>()(x.get(), nullptr);
+}
+
+template <typename T, typename D>
+bool operator<(nullptr_t, const unique_ptr<T, D>& x) noexcept
+{
+    return less<typename unique_ptr<T, D>::pointer>()(nullptr, x.get());
+}
+
+/**
+    Determines whether one pointer is less than or equal to another. Attempts to
+    decay the two pointers to a common type.
+
+    @param x, y Pointers to compare.
+    @return Whether the pointer managed by x is less than or equal to that
+            managed by y.
+ */
+template <typename T1, typename D1, typename T2, typename D2>
+bool operator<=(const unique_ptr<T1, D1>& x, const unique_ptr<T2, D2>& y)
+{
+    return !(y < x);
+}
+
+template <typename T, typename D>
+bool operator<=(const unique_ptr<T, D>& x, nullptr_t) noexcept
+{
+    return !(nullptr < x);
+}
+
+template <typename T, typename D>
+bool operator<=(nullptr_t, const unique_ptr<T, D>& x) noexcept
+{
+    return !(x < nullptr);
+}
+
+/**
+    Determines whether one pointer is greater than another. Attempts to decay
+    the two pointers to a common type.
+
+    @param x, y Pointers to compare.
+    @return Whether the pointer managed by x is greater than that managed by y.
+ */
+template <typename T1, typename D1, typename T2, typename D2>
+bool operator>(const unique_ptr<T1, D1>& x, const unique_ptr<T2, D2>& y)
+{
+    return y < x;
+}
+
+template <typename T, typename D>
+bool operator>(const unique_ptr<T, D>& x, nullptr_t) noexcept
+{
+    return nullptr < x;
+}
+
+template <typename T, typename D>
+bool operator>(nullptr_t, const unique_ptr<T, D>& x) noexcept
+{
+    return x < nullptr;
+}
+
+/**
+    Determines whether one pointer is greater than or equal to another. Attempts
+    to decay the two pointers to a common type.
+
+    @param x, y Pointers to compare.
+    @return Whether the pointer managed by x is greater than or equal to that
+            managed by y.
+ */
+template <typename T1, typename D1, typename T2, typename D2>
+bool operator>=(const unique_ptr<T1, D1>& x, const unique_ptr<T2, D2>& y)
+{
+    return !(x < y);
+}
+
+template <typename T, typename D>
+bool operator>=(const unique_ptr<T, D>& x, nullptr_t) noexcept
+{
+    return !(x < nullptr);
+}
+
+template <typename T, typename D>
+bool operator>=(nullptr_t, const unique_ptr<T, D>& x) noexcept
+{
+    return !(nullptr < x);
+}
+
+/**
+    Specialisation of swap for unique_ptr. Calls the member function of the
+    first argument.
+
+    @param x, y Pointers to swap.
+ */
+template <typename T, typename D>
+void swap(unique_ptr<T, D>& x, unique_ptr<T, D>& y) noexcept
+{
+    x.swap(y);
+}
+
+/**
+    Constructs an object with the given arguments and creates a unique_ptr
+    around it. Not allowed for array types of known bounds.
+
+    @param T type of object.
+    @param Args arguments for the constructor of T.
+    @return A unique_ptr to the constructed object.
+ */
+namespace helper {
+    // These structs allow the overload resolution for the main function based
+    // on the return type.
+    template <typename T>
+    struct make_unique_helper { using single = unique_ptr<T>; };
+
+    template <typename T>
+    struct make_unique_helper<T[]> { using array = unique_ptr<T[]>; };
+
+    template <typename T, size_t N>
+    struct make_unique_helper<T[N]> { struct invalid{}; };
+} // helper namespace
+
+// Single objects
+template <typename T, typename... Args>
+typename helper::make_unique_helper<T>::single make_unique(Args&&... args)
+{
+    return unique_ptr<T>{new T{forward<Args>(args)...}};
+}
+
+// Arrays with unknown bounds
+template <typename T>
+typename helper::make_unique_helper<T>::array make_unique(size_t n)
+{
+    return unique_ptr<T>(new typename remove_extent<T>::type[n]{});
+}
+
+// Arrays with known bounds, deleted.
+template <typename T, typename... Args>
+typename helper::make_unique_helper<T>::invalid make_unique(Args&&...) = delete;
+
+/**
+    Gives the address of a reference or function, even when operator& is
+    overloaded.
+
+    @param arg Object to get the address of.
+    @return Address of arg.
+ */
+template <typename T>
+T* addressof(T& arg) noexcept
+{
+    return reinterpret_cast<T*>(
+        &const_cast<char&>(reinterpret_cast<const volatile char&>(arg))
+    );
+}
+
+/**
+    Provides a way to access the properties of pointers.
+ */
+template<typename Ptr>
+class pointer_traits{
+private:
+    // These two attempt to get the element type and difference type. Necessary
+    // because detected_or can only handle template classes, not classes.
+    template<typename T>
+    using elem_t = typename T::element_type;
+    template<class T>
+    using pdiff_t = typename T::difference_type;
+
+    // Given a template T<U, ...> returns U. Otherwise undefined.
+    template<typename T>
+    struct get_first_arg {};
+    template<template<typename, typename...> class T, typename U,
+        typename... Args>
+    struct get_first_arg<T<U, Args...>> { using type = U; };
+
+    // Given a template T<U, ...> and V, return T<V, ...>. Otherwise undefined.
+    template<typename T, typename V>
+    struct replace_first_arg {};
+    template<template<typename, typename...> class T, typename U, typename V,
+        typename... Args>
+    struct replace_first_arg<T<U, Args...>, V> { using type = T<V, Args...>; };
+
+    // Means that Ptr::rebind<U> will be used if it exists, otherwise swap the
+    // first argument in the Ptr template specification.
+    template<typename T, typename U, typename = void>
+    struct reb : replace_first_arg<T, U> { };
+    template<typename T, typename U>
+    struct reb<T, U, void_t<typename T::rebind>>
+        { using type = typename T::template rebind<U>; };
+
+public:
+    /**
+        Type of this instantiation.
+     */
+    using pointer = Ptr;
+    /**
+        Type pointed to.
+     */
+    using element_type = 
+        typename detected_or<get_first_arg<Ptr>, elem_t, Ptr>::type;
+    /**
+        Type for differences between pointers of this type.
+     */
+    using difference_type = 
+        typename detected_or<ptrdiff_t, pdiff_t, Ptr>::type;
+    /**
+        Provides a way to convert a pointer-like type from pointing to type T to
+        type U.
+     */
+    template<typename U>
+    using rebind = typename reb<Ptr, U>::type;
+
+    /**
+        Returns a dereferencable simple pointer or fancy pointer to its
+        argument. Attempting this if Ptr does not provide pointer_to is a
+        compile time error.
+
+        @param r object to get a pointer to.
+     */
+    static pointer pointer_to(element_type& r) { return Ptr::pointer_to(r); }
+};
+
+/**
+    Partial specialisation of pointer_traits for built-in pointer types.
+ */
+template<typename Ptr>
+class pointer_traits<Ptr*>{
+public:
+    /**
+        Type of this specialisation.
+     */
+    using pointer = Ptr*;
+    /**
+        Type pointed to.
+     */
+    using element_type = Ptr;
+    /**
+        Type for differences between pointers of this type.
+     */
+    using difference_type = ptrdiff_t;
+    /**
+        Provides a way to convert a pointer-like type from pointing to type T to
+        type U.
+     */
+    template<typename U>
+    using rebind = U*;
+
+    /**
+        Returns a dereferencable simple pointer or fancy pointer to its
+        argument.
+
+        @param r object to get a pointer to.
+     */
+    static pointer pointer_to(element_type& r) { return addressof(r); }
+};
+
+/**
+    The default memory allocator.
+ */
+template <typename>
+struct allocator;
+
+/**
+    Allocator specialisation for void. Lots of things are not allowed.
+ */
+template <>
+struct allocator<void> {
+    /**
+        Type of value this allocator manages.
+     */
+    using value_type = void;
+    /**
+        Pointer to type.
+     */
+    using pointer = void*;
+    /**
+        Const pointer to type.
+     */
+    using const_pointer = const void*;
+    /**
+        Type for specifying numbers of objects.
+     */
+    using size_type = size_t;
+    /**
+        Type for differences between pointers of type.
+     */
+    using difference_type = ptrdiff_t;
+    /**
+        Specifies the behaviour of the allocator on conatiner move assignment.
+     */
+    using propagate_on_container_move_assignment = true_type;
+
+    /**
+        Provides a way to get an allocator for a different type.
+     */
+    template<typename U>
+    struct rebind {
+        using other = allocator<U>;
+    };
+};
+
+/**
+    Generic memory allocator.
+ */
+template<typename T>
+struct allocator {
+    /**
+        Type of value this allocator manages.
+     */
+    using value_type = T;
+    /**
+        Pointer to type.
+     */
+    using pointer = T*;
+    /**
+        Const pointer to type.
+     */
+    using const_pointer = const T*;
+    /**
+        Reference to type.
+     */
+    using reference = T&;
+    /**
+        Const reference to type.
+     */
+    using const_reference = const T&;
+    /**
+        Type for specifying numbers of objects.
+     */
+    using size_type = size_t;
+    /**
+        Type for differences between pointers of type.
+     */
+    using difference_type = ptrdiff_t;
+
+    /**
+        Provides a way to get an allocator for a different type.
+     */
+    template<typename U>
+    struct rebind {
+        using other = allocator<U>;
+    };
+
+    /**
+        Since the default allocator is stateless, the constructor does nothing.
+     */
+    allocator() noexcept {}
+    allocator(const allocator&) = default;
+    template<typename U>
+    allocator(const allocator<U>&) noexcept {}
+
+    /**
+        Default copy assignement.
+     */
+    allocator& operator=(const allocator&) = default;
+
+    /**
+        Since the default allocator is stateless, the destructor does nothing.
+        It does not attempt to deallocate the objects this allocator has
+        allocated.
+     */
+    ~allocator() {}
+
+    /**
+        Get the address of an object even if operator& has been overloaded.
+
+        @param x Object to get the address of.
+        @return Address of the object.
+     */
+    pointer address(reference x) const
+    {
+        return reinterpret_cast<pointer>(
+            &const_cast<char&>(reinterpret_cast<const volatile char&>(x))
+        );
+    }
+    const_pointer address(const_reference x) const
+    {
+        return reinterpret_cast<const_pointer>(
+            &const_cast<char&>(reinterpret_cast<const volatile char&>(x))
+        );
+    }
+
+    /**
+        Allocate unitialised memory fo n objects of type value_type.
+
+        @param n Number of objects to allocate space for.
+        @param hint A hint for where to allocate the memory. Ignored.
+     */
+    pointer allocate(size_type n,
+        typename allocator<void>::const_pointer hint = 0)
+    {
+        (void)hint; // silence unused parameter warning
+        if (n == 1)
+            return static_cast<pointer>(operator new(sizeof(value_type)));
+        else
+            return static_cast<pointer>(operator new[](n * sizeof(value_type)));
+    }
+
+    /**
+        Deallocate space at p, which must have been previously allocated with
+        this allocate.
+
+        @param p Address for deallocation.
+        @param n Number of objects starting at the given address. Behaviour is
+                 undefined if this does not match the number supplied to
+                 allocate.
+     */
+    void deallocate(pointer p, size_type n)
+    {
+        if (n == 1)
+            operator delete(p);
+        else
+            operator delete[](p);
+    }
+
+    /**
+        The largest conceivable allocation that might work. Actually just the
+        maximum possible value of size_type divided by the size of the type.
+
+        @return Largest size.
+     */
+    size_type max_size() const 
+    {
+        return numeric_limits<size_type>::max() / sizeof(value_type);
+    }
+
+    /**
+        Construct an object at the unitialised memory given.
+
+        @param p Pointer to allocated but uninitialised memory.
+        @param args... Arguments for the constructor.
+     */
+    template<typename U, typename... Args>
+    void construct(U* p, Args&&... args)
+    {
+        ::new(static_cast<void*>(p)) U{forward<Args>(args)...};
+    }
+
+    /**
+        Destroy the given object, but leave its memory allocated.
+
+        @param p Pointer to the object to destroy.
+     */
+    template<typename U>
+    void destroy(U* p)
+    {
+        p->~U();
+    }
+};
+
+/**
+    Since the default allocator is stateless, two will always be equal.
+
+    @param lhs, rhs Two default allocators to compare.
+    @return true
+ */
+template<typename T1, typename T2>
+bool operator==(const allocator<T1>&, const allocator<T2>&)
+{
+    return true;
+}
+
+/**
+    Since the default allocator is stateless, two will always be equal.
+
+    @param lhs, rhs Two default allocators to compare.
+    @return false
+ */
+template<typename T1, typename T2>
+bool operator!=(const allocator<T1>& lhs, const allocator<T2>& rhs)
+{
+    return !(lhs == rhs);
+}
+
+/**
+    Provides a way to access the properties of allocators.
+ */
+template<typename Alloc>
+struct allocator_traits{
+private:
+    // Helper to check for the presence of a particular function.
+    template<class, class = void>
+    struct has_copy_construction : false_type { };
+
+    template<class T>
+    struct has_copy_construction<T, void_t<decltype(declval<T>().select_on_container_copy_construction(declval<const T&>()))>> 
+    : is_same<decltype(declval<T>().select_on_container_copy_construction(declval<const T&>())), decltype(declval<T>())>::type { };
+
+    template <typename Alloc2,
+        typename = helper::Require<has_copy_construction<Alloc2>>>
+    static Alloc2 soccc(const Alloc2& a, int)
+    {
+        return a.select_on_container_copy_construction();
+    }
+    template <typename Alloc2,
+        typename = helper::Require<helper::meta_not<has_copy_construction<Alloc2>>>>
+    static Alloc2 soccc(const Alloc2& a, ...)
+    {
+        return a;
+    }
+
+    // Helpers to check for the presence of types.
+    template<typename T>
+    using pointer_type = typename T::pointer;
+    template<typename T>
+    using const_pointer_type = typename T::const_pointer;
+    template<typename T>
+    using void_pointer_type = typename T::void_pointer;
+    template<typename T>
+    using const_void_pointer_type = typename T::const_void_pointer;
+    template<typename T>
+    using diff_type = typename T::difference_type;
+    template<typename T>
+    using sz_type = typename T::size_type;
+    template<typename T>
+    using copy_assign_type = typename T::propagate_on_container_copy_assignment;
+    template<typename T>
+    using move_assign_type = typename T::propagate_on_container_move_assignment;
+    template<typename T>
+    using swap_type = typename T::propagate_on_container_swap;
+    template<typename T, typename V>
+    using rebind_type = typename T::template rebind<V>::other;
+
+    // Given a template T<U, ...> and V, return T<V, ...>. Otherwise undefined.
+    template<typename T, typename V>
+    struct replace_first_arg {};
+    template<template<typename, typename...> class T, typename U, typename V,
+        typename... Args>
+    struct replace_first_arg<T<U, Args...>, V> { using type = T<V, Args...>; };
+
+public:
+    /**
+        The type of the allocator.
+     */
+    using allocator_type = Alloc;
+    /**
+        Type of value this allocator manages.
+     */
+    using value_type = typename Alloc::value_type;
+    /**
+        Pointer to type.
+     */
+    using pointer = typename detected_or<Alloc*, pointer_type, Alloc>::type;
+    /**
+        Const pointer to type.
+     */
+    using const_pointer = typename detected_or<typename pointer_traits<pointer>::template rebind<const value_type>, const_pointer_type, Alloc>::type;
+    /**
+        Void pointer.
+     */
+    using void_pointer = typename detected_or<typename pointer_traits<pointer>::template rebind<void>,
+        void_pointer_type, Alloc>::type;
+    /**
+        Const void pointer.
+     */
+    using const_void_pointer = typename detected_or<typename pointer_traits<pointer>::template rebind<const void>,
+        const_void_pointer_type, Alloc>::type;
+    /**
+        Type for differences between pointers of type.
+     */
+    using difference_type = typename detected_or<typename pointer_traits<pointer>::difference_type,
+        diff_type, Alloc>::type;
+    /**
+        Type for specifying numbers of objects.
+     */
+    using size_type = typename detected_or<typename make_unsigned<difference_type>::type,
+        sz_type, Alloc>::type;
+
+    using propagate_on_container_copy_assignment = typename detected_or<false_type,
+        copy_assign_type, Alloc>::type;
+    using propagate_on_container_move_assignment = typename detected_or<false_type,
+        move_assign_type, Alloc>::type;
+    using propagate_on_container_swap = typename detected_or<false_type,
+        swap_type, Alloc>::type;
+
+    template<typename T>
+    using rebind_alloc = typename detected_or<typename replace_first_arg<Alloc, T>::type, rebind_type, Alloc, T>::type;
+    template<typename T>
+    using rebind_traits = allocator_traits<rebind_alloc<T>>;
+
+    /**
+        Allocates unitialised storage using the allocator.
+
+        @param a Allocator to use.
+        @param n Number of objects to allocate.
+        @param hint Memory location hint. Ignored.
+        @return Pointer to the allocated storage.
+     */
+    static pointer allocate(allocator_type& a, size_type n) { return a.allocate(n); }
+    static pointer allocate(allocator_type& a, size_type n, const_void_pointer hint)
+    {
+        return a.allocate(n, hint);
+    }
+
+    /**
+        Deallocate space at p, which must have been previously allocated with
+        this allocator.
+
+        @param a Allocator to use.
+        @param p Address for deallocation.
+        @param n Number of objects starting at the given address. Behaviour is
+                 undefined if this does not match the number supplied to
+                 allocate.
+     */
+    static void deallocate(allocator_type& a, pointer p, size_type n)
+    {
+        a.deallocate(p, n);
+    }
+
+    /**
+        Construct an object at the unitialised memory given.
+
+        @param a Allocator to use.
+        @param p Pointer to allocated but unitialised memory.
+        @param args... Arguments for the constructor.
+     */
+    template<typename T, typename... Args>
+    static void construct(allocator_type& a, T* p, Args&&... args)
+    {
+        a.construct(p, forward<Args>(args)...);
+    }
+
+    /**
+        Destory the given object, but leave its memory allocated.
+
+        @param a Allocator to use.
+        @param p Pointer to the object to destroy.
+     */
+    template<typename T>
+    static void destroy(allocator_type& a, T* p)
+    {
+        a.destroy(p);
+    }
+
+    /**
+        The largest conceivable allocation that might work. Actually just the
+        maximum possible value of size_type divided by the size of the type.
+
+        @return Largest size.
+     */
+    static size_type max_size(const allocator_type& a)
+    {
+        return a.max_size();
+    }
+
+    /**
+        Obtains the correct allocator on copy construction. Uses the specialised
+        function if available, otherwise just returns the given allocator.
+
+        @param a Allocator to copy.
+        @return Copy of a.
+     */
+    static allocator_type select_on_container_copy_construction(const allocator_type& a)
+    {
+        return soccc(a, 0);
+    }
+};
+
+} // NMSP namespace
+
+#endif /* MEMORY_H */
