@@ -92,6 +92,15 @@ public:
      */
     virtual int seek(long, int) override { return EOF; }
 
+    /**
+        Empties the contents of a file, without changing any of the metadata.
+        Used, for example, when opening a file in "w" mode. This has no meaning
+        for a character file, so does nothing successfully.
+
+        @return 0 on success, -1 on failure.
+     */
+    virtual int truncate() override { return 0; }
+
 protected:
     // Character device that handles the writes.
     CharacterDevice& dev;
@@ -180,6 +189,15 @@ public:
         @return 0 on success, nonzero otherwise.
      */
     virtual int seek(long offset, int origin) override;
+
+    /**
+        Empties the contents of a file, without changing any of the metadata.
+        Used, for example, when opening a file in "w" mode. This has no meaning
+        for a bloack file, so does nothing successfully.
+
+        @return 0 on success, -1 on failure.
+     */
+    virtual int truncate() override { return 0; }
 
 protected:
     // Block device that handles the reads and writes.
@@ -288,6 +306,15 @@ public:
         @return 0 on success, nonzero otherwise.
      */
     virtual int seek(long offset, int origin) override;
+
+    /**
+        Empties the contents of a file, without changing any of the metadata.
+        Used, for example, when opening a file in "w" mode. This wipes the
+        contents of the memory file, freeing the associated memory. 
+
+        @return 0 on success, -1 on failure.
+     */
+    virtual int truncate() override;
 
 protected:
     // Start address of the file.
