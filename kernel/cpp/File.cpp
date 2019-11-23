@@ -421,5 +421,23 @@ int MemoryFile::seek(long offset, int origin)
     return 0;
 }
 
+/******************************************************************************/
+
+int MemoryFile::truncate()
+{
+    // Ask the file system to reallocate the size to zero.
+    addr = mfs.reallocate_file(addr, 0);
+
+    if (addr == nullptr)
+    {
+        // Success
+        file_size = 0;
+        return 0;
+    }
+    else
+        // Failure, shouldn't really happen.
+        return -1;
+}
+
 /******************************************************************************
  ******************************************************************************/

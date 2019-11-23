@@ -262,7 +262,11 @@ Ext2File::Ext2File(const char* m, Ext2Inode& in, size_t indx,
     inode{in},
     inode_index{indx},
     ext2fs {fs}
-{}
+{
+    if (mode == "w" || mode == "w+")
+        // Truncate the file.
+        truncate();
+}
 
 /******************************************************************************/
 
@@ -273,7 +277,6 @@ size_t Ext2File::read(void* buf, size_t size, size_t count)
         return 0;
 
     // Flush the current buffer before reading.
-    // Flush current buffer.
     if (writing)
         if(flush() != 0)
             return 0;
@@ -492,6 +495,98 @@ int Ext2File::seek(long offset, int origin)
     return 0;
 }
 
+/******************************************************************************/
+
+int Ext2File::truncate()
+{
+    // Do nothing if we shouldn't be writing or the size is already zero.
+    if (!writing)
+        return -1;
+    if (sz == 0)
+        return 0;
+
+    // Store the block size.
+    size_t bl_sz = fs.block_size();
+    const size_t addr_per_block = bl_sz / sizeof(size_t);
+
+    // Cycle through the blocks in the file and deallocate them in the block
+    // table. Wipe the pointers. This doesn't feel very safe if the file is open
+    // multiple times.
+
+    // Start with the direct pointers.
+    bool finished = false;
+    for (size_t i = 0; i < no_direct)
+    {
+        if ((size_t bl = direct[i])) != 0)
+        {
+            blocks.push_back(bl);
+            direct[i] = 0;
+        }
+        else
+        {
+            finished = true;
+            break;
+        }
+    }
+
+    // Now the singly indirect pointer.
+    if (inode.s_indirect == 0)
+        finished == true;
+    else if (!finished)
+    {
+        // Read the singly indirect block, using the exisiting file buffer.
+        fs.read(inode.s_indirect * bl_sz, buffer, bl_sz);
+        size_t* buffer_blocks = reinterpret_cast<size_t*>(buffer);
+        for (size_t i = 0; i < addr_per_block; ++i)
+        {
+            if (buffer_blocks[i] != 0)
+                ext2fs.deallocate(buffer_blocks[i]);
+            else
+            {
+                finished = true;
+                break;
+            }
+        }
+        inode.s_indirect = 0;
+    }
+
+    // The doubly indirect.
+    if (inode.d_indirect == 0)
+        finished == true;
+    else if (!finished)
+    {
+        char* buffer2 = new char[bl_sz];
+        // Read the doubly indirect block, using the exisiting file buffer.
+        fs.read(inode.d_indirect * bl_sz, buffer, bl_sz);
+        size_t* buffer_blocks = reinterpret_cast<size_t*>(buffer);
+        for (size_t i = 0; i < addr_per_block && !finished; ++i)
+        {
+            if (buffer_blocks[i] != 0)
+            {
+                // Read the singly indirect block pointed to.
+                fs.read(inode.d_indirect * bl_sz, buffer2, bl_sz);
+                size_t* buffer_blocks2 = reinterpret_cast<size_t*>(buffer2);
+                for (size_t i = 0; i < addr_per_block; ++i)
+                {
+                    if (buffer_blocks2[i] != 0)
+                        ext2fs.deallocate(buffer2_blocks[i]);
+                    else
+                    {
+                        finished = true;
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                finished = true;
+                break;
+            }
+        }
+        inode.d_indirect = 0;
+    }
+}
+
 /******************************************************************************
  ******************************************************************************/
 
@@ -673,10 +768,11 @@ Directory* Ext2FileSystem::diropen(const klib::string& name)
 klib::FILE* Ext2FileSystem::fopen(const klib::string& name, const char* mode)
 {
     klib::pair<size_t, Ext2Inode> file = get_inode(name);
-    if (file.first == 0)
-        return nullptr;
-
-    return new Ext2File{mode, file.second, file.first, *this};
+    if (file.first != 0)
+    {
+        // File already exists.
+        return new Ext2File{mode, file.second, file.first, *this};
+    }
 }
 
 /******************************************************************************/

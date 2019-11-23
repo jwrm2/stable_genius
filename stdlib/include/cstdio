@@ -342,6 +342,14 @@ public:
      */
     virtual int seek(long offset, int origin) = 0;
 
+    /**
+        Empties the contents of a file, without changing any of the metadata.
+        Used, for example, when opening a file in "w" mode.
+
+        @return 0 on success, -1 on failure.
+     */
+    virtual int truncate() = 0;
+
 protected:
     // Whether the file is buffered.
     bool buffered;

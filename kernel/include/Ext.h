@@ -316,6 +316,15 @@ public:
      */
     virtual int seek(long offset, int origin) override;
 
+    /**
+        Empties the contents of a file. Goes through each block pointer and
+        deallocates the block before wiping the pointer. Sets the file size to
+        zero.
+
+        @return 0 on success, -1 on failure.
+     */
+    virtual int truncate() override;
+
 protected:
     // Inode for this file.
     Ext2Inode inode;
