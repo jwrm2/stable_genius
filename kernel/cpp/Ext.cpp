@@ -759,7 +759,7 @@ klib::vector<klib::string> Ext2Directory::ls() const
  ******************************************************************************/
 
 Ext2FileSystem::Ext2FileSystem(const klib::string& drv) :
-    FileSystem {drv}, val {true}
+    FileSystem {drv}, val {true}, block_alloc {}
 {
     klib::ifstream in {drv_name};
     in.seekg(superblock_loc);
@@ -1044,6 +1044,59 @@ klib::pair<size_t, Ext2Inode> Ext2FileSystem::get_inode(
 
     return klib::pair<size_t, Ext2Inode> {inode_indx, dir_inode};
 }
+
+/******************************************************************************/
+
+int Ext2FileSystem::flush_bgdt()
+{
+    // Locate the start of the BGDT, which is in the block after the super
+    // block.
+    size_t bgdt_off = 0;
+    while (superblock_loc + super_block.size > bgdt_off)
+        bgdt_off += (1024 << super_block.block_size_shift);
+
+    // Create a writer and shift to the start of the BGDT.
+    klib::ofstream out {drv_name};
+    if (!out)
+        return -1;
+    out.seekg(bgdt_off);
+    if (!out)
+        return -1;
+
+    // Write each entry. Write them unformatted.
+    char* buf = new char[BlockGroupDescriptor.size];
+    for (size_t i = 0; i < bgdt.size(); ++i)
+    {
+        klib::memcpy(buf, &bgdt[i].block_map, sizeof(bgdt[i].block_map));
+        klib::memcpy(buf + 4, &bgdt[i].inode_map, sizeof(bgdt[i].inode_map));
+        klib::memcpy(buf + 8, &bgdt[i].inode_table,
+            sizeof(bgdt[i].inode_table));
+        klib::memcpy(buf + 12, &bgdt[i].unalloc_blocks,
+            sizeof(bgdt[i].unalloc_blocks));
+        klib::memcpy(buf + 14, &bgdt[i].unalloc_inodes,
+            sizeof(bgdt[i].unalloc_inodes));
+        klib::memcpy(buf + 16, &bgdt[i].dirs, sizeof(bgdt[i].dirs));
+        klib::memset(buf + 18, 0, BlockGroupDescriptor::unused_space);
+
+        out.write(buf, BlockGroupDescriptor.size);
+        if (!out)
+            break;
+    }
+    delete buf;
+
+    if (!out)
+        return -1;
+
+    return 0;
+}
+
+/******************************************************************************/
+
+void Ext2FileSystem::cache_block_alloc(size_t bg_index) const;
+
+/******************************************************************************/
+
+void Ext2FileSystem::flush_block_alloc();
 
 /******************************************************************************
  ******************************************************************************/

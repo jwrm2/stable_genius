@@ -138,6 +138,8 @@ private:
     // Number of unused bytes trailing a block group descriptor before reaching
     // the next entry in the table.
     static constexpr size_t unused_space = 14;
+    // Size of the whole entry on disk.
+    static constexpr size_t size = 32;
 };
 
 /**
@@ -630,6 +632,22 @@ protected:
     klib::pair<size_t, Ext2Inode> get_inode(size_t index) const;
     klib::pair<size_t, Ext2Inode> get_inode(const klib::string& name);
 
+    // Writes the block group descriptor table back to the disk, after changes
+    // in memory have been made. Return 0 on success, -1 on failure.
+    int flush_bgdt();
+
+    // Keep a cache of block allocation tables. Means we can deallocate lots of
+    // blocks without updating each table multiple times. The key is which block
+    // group the table is for. The data is the allocation table.
+    klib::pair<size_t, klib::vector<char>> block_alloc;
+
+    // Caches the block allocation table for a particular block group, by
+    // reading it from the disk.
+    void cache_block_alloc(size_t bg_index) const;
+
+    // Flush the cache of block allocation tables, writing them back to the
+    // disk.
+    void flush_block_alloc();
 };
 
 /**
