@@ -253,6 +253,52 @@ Ext2Inode::Ext2Inode(klib::istream& in)
             sizeof(os_2[i]) / sizeof(klib::istream::char_type));
 }
 
+/******************************************************************************/
+
+klib::ostream& Ext2Inode::write(klib::ostream& out, size_t sz)
+{
+    if (sz < size)
+    {
+        // Unacceptable size.
+        out.clear(klib::ios::failbit);
+    }
+
+    if (!out)
+        // Can't write to stream.
+        return out;
+
+    // Now write the data into a buffer. It should be unformatted, and each
+    // field has fixed size.
+    char* buf = new char[sz];
+    klib::memcpy(buf, &type, sizeof(type));
+    klib::memcpy(buf + 2, &uid, sizeof(uid));
+    klib::memcpy(buf + 4, &lower_size, sizeof(lower_size));
+    klib::memcpy(buf + 8, &access_time, sizeof(access_time));
+    klib::memcpy(buf + 12, &creation_time, sizeof(creation_time));
+    klib::memcpy(buf + 16, &mod_time, sizeof(mod_time));
+    klib::memcpy(buf + 20, &del_time, sizeof(del_time));
+    klib::memcpy(buf + 24, &gid, sizeof(gid));
+    klib::memcpy(buf + 26, &hard_links, sizeof(hard_links));
+    klib::memcpy(buf + 28, &sectors, sizeof(sectors));
+    klib::memcpy(buf + 32, &flags, sizeof(flags));
+    klib::memcpy(buf + 36, &os_1, sizeof(os_1));
+    klib::memcpy(buf + 40, &direct, no_direct * sizeof(direct[0]));
+    klib::memcpy(buf + 88, &s_indirect, sizeof(s_indirect));
+    klib::memcpy(buf + 92, &d_indirect, sizeof(d_indirect));
+    klib::memcpy(buf + 96, &t_indirect, sizeof(t_indirect));
+    klib::memcpy(buf + 100, &gen_no, sizeof(gen_no));
+    klib::memcpy(buf + 104, &file_acl, sizeof(file_acl));
+    klib::memcpy(buf + 108, &upper_size, sizeof(upper_size));
+    klib::memcpy(buf + 112, &frag_addr, sizeof(frag_addr));
+    klib::memcpy(buf + 116, &os_2, os_2_size * sizeof(os_2[0]));
+    for (int i = size; i < sz; ++i)
+        buf[i] = 0;
+
+    // Write the buffer to the stream.
+    out.write(buf, sz);
+    return out;
+}
+
 /******************************************************************************
  ******************************************************************************/
 
@@ -515,76 +561,82 @@ int Ext2File::truncate()
 
     // Start with the direct pointers.
     bool finished = false;
-    for (size_t i = 0; i < no_direct)
+    for (size_t i = 0; i < no_direct && !finished; ++i)
     {
-        if ((size_t bl = direct[i])) != 0)
-        {
-            blocks.push_back(bl);
-            direct[i] = 0;
-        }
-        else
-        {
-            finished = true;
-            break;
-        }
+        finished = truncate_recursive(inode.direct[i], 0);
+        inode.direct[i] = 0;
     }
 
     // Now the singly indirect pointer.
-    if (inode.s_indirect == 0)
-        finished == true;
-    else if (!finished)
+    if (!finished)
     {
-        // Read the singly indirect block, using the exisiting file buffer.
-        fs.read(inode.s_indirect * bl_sz, buffer, bl_sz);
-        size_t* buffer_blocks = reinterpret_cast<size_t*>(buffer);
-        for (size_t i = 0; i < addr_per_block; ++i)
-        {
-            if (buffer_blocks[i] != 0)
-                ext2fs.deallocate(buffer_blocks[i]);
-            else
-            {
-                finished = true;
-                break;
-            }
-        }
+        finished = truncate_singly(inode.s_indirect);
         inode.s_indirect = 0;
     }
 
     // The doubly indirect.
-    if (inode.d_indirect == 0)
-        finished == true;
-    else if (!finished)
+    if (!finished)
     {
-        char* buffer2 = new char[bl_sz];
-        // Read the doubly indirect block, using the exisiting file buffer.
-        fs.read(inode.d_indirect * bl_sz, buffer, bl_sz);
-        size_t* buffer_blocks = reinterpret_cast<size_t*>(buffer);
-        for (size_t i = 0; i < addr_per_block && !finished; ++i)
-        {
-            if (buffer_blocks[i] != 0)
-            {
-                // Read the singly indirect block pointed to.
-                fs.read(inode.d_indirect * bl_sz, buffer2, bl_sz);
-                size_t* buffer_blocks2 = reinterpret_cast<size_t*>(buffer2);
-                for (size_t i = 0; i < addr_per_block; ++i)
-                {
-                    if (buffer_blocks2[i] != 0)
-                        ext2fs.deallocate(buffer2_blocks[i]);
-                    else
-                    {
-                        finished = true;
-                        break;
-                    }
-                }
-            }
-            else
-            {
-                finished = true;
-                break;
-            }
-        }
+        finished = truncate_doubly(inode.d_indirect);
         inode.d_indirect = 0;
     }
+
+    // The triply indirect.
+    if (!finished)
+    {
+        finished = truncate_doubly(inode.d_indirect);
+        inode.t_indirect = 0;
+    }
+
+    // Set the file size to zero.
+    sz = 0;
+
+    // Update the inode.
+    inode.lower_size = 0;
+    if (inode.get_type() == Ext2Inode::file)
+        inode.upper_size = 0;
+    inode.sectors = 0;
+    ext2fs.update_inode(inode, inode_index);
+}
+
+/******************************************************************************/
+
+bool Ext2File::truncate_recursive(size_t bl, size_t depth)
+{
+    // Don't do anything if the block is zero. Return indicating finished.
+    if (bl == 0)
+        return true;
+
+    // We can call this with depth 0, for the direct pointers, but we don't need
+    // to do any loops.
+    if (depth == 0)
+    {
+        ext2fs.deallocate(bl);
+        return false;
+    }
+
+    // Create a buffer to read the block.
+    unique_ptr<char> buffer2 = new char[bl_sz];
+    bool finished = false;
+
+    // Read the singly indirect block.
+    fs.read(bl * bl_sz, buffer, bl_sz);
+    size_t* buffer_blocks = reinterpret_cast<size_t*>(buffer);
+    for (size_t i = 0; i < addr_per_block && !finsihed; ++i)
+    {
+        if (buffer_blocks[i] != 0)
+        {
+            if (depth == 1)
+                ext2fs.deallocate(buffer_blocks[i]);
+            else
+                finished = truncate_recursive(buffer_blocks[i], depth - 1);
+        }
+        else
+            finished = true;
+    }
+
+    delete buffer2;
+    return finished;
 }
 
 /******************************************************************************
@@ -878,6 +930,50 @@ size_t Ext2FileSystem::inode_lookup(const Ext2Inode& inode, size_t bl) const
     }
 
     return 0;
+}
+
+/******************************************************************************/
+
+int Ext2FileSystem::update_inode(const Ext2Inode& inode, size_t inode_index)
+{
+    // Check the index is in the exisitng range.
+    if (inode_index > super_block.no_inodes || inode_index == 0)
+        return -1;
+
+    // Determine the block group, by dividing by the number of inodes per block
+    // group.
+    size_t bg = (index - 1) / super_block.inodes_per_group;
+
+    // Determine the offset within the block by modding by the number of inodes
+    // per block group.
+    size_t offset = (index - 1) % super_block.inodes_per_group;
+
+    // Combine the offset and the block base address to get the inode start.
+    uint64_t loc = block_to_byte(bgdt[bg].inode_table) +
+        offset * super_block.inode_size;
+
+    // Create a writer for the drive.
+    klib::ofstream out {drv_name};
+    if (out)
+        out.seekg(loc);
+    else
+        return -1;
+    if (out)
+        return (inode.write(out, super_block.inode_size) ? 0 : 1);
+    else
+        return -1;
+}
+
+/******************************************************************************/
+
+void Ext2FileSystem::deallocate(size_t bl)
+{
+    // Do nothing if the block index is larger than the number of blocks.
+    if (bl >= super_block.no_blocks)
+        return;
+
+    // Find which block group the block is in.
+    size_t bl_grp = bl / 
 }
 
 /******************************************************************************/

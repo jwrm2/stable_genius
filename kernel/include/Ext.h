@@ -177,6 +177,18 @@ struct Ext2Inode {
     explicit Ext2Inode(klib::istream& in);
 
     /**
+        Write the inode data to a stream.
+
+        @param dest Stream to write to.
+        @param sz Size of the inode data on disk. For early version this was
+               fixed to 128 bytes, but for later versions it's contained in the
+               superblock. Zero padding will be added if the value is greater
+               than 128 bytes.
+        @return dest after writing.
+     */
+    klib::ostream& write(klib::ostream& dest, size_t sz) const;
+
+    /**
         Process the type field to get the type of file.
      */
     Type get_type() const { return static_cast<Type>(type & 0xF000); }
@@ -332,6 +344,19 @@ protected:
     size_t inode_index;
     // File system for ext2fs specific operations.
     Ext2FileSystem& ext2fs;
+
+private:
+    /**
+        Called by truncate. Reads the block pointed top as a list of blocks,
+        either to deallocate, or read as another list of blocks, according to
+        the depth.
+
+        @param bl The block containing the list of blocks to read.
+        @param depth Depth left to recurse. 0 for a direct pointer, 1 for a
+               singly indirect, etc.
+        @return True if we reached a 0, indicating end of file.
+     */
+    bool truncate_recursive(size_t bl, size_t depth);
 };
 
 /**
@@ -522,6 +547,24 @@ public:
         @return Block address in the file system.
      */
     size_t inode_lookup(const Ext2Inode& inode, size_t bl) const;
+
+    /**
+        Update an inode record on disk.
+
+        @param inode New data for the inode.
+        @param inode_index Index of the inode to update.
+        @return 0 on success, -1 on failure.
+     */
+    int update_inode(const Ext2Inode& inode, size_t inode_index);
+
+    /**
+        Deallocate a block, setting it to unused in the block group usage table.
+        Updates the entry for number of unused blocks in the block group
+        descriptor table and superblock too.
+
+        @param bl Block to deallocate.
+     */
+    void deallocate(size_t bl);
 
     /**
         Whether the file system is valid. Errors in the superblock or the device
