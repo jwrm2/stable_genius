@@ -33,111 +33,23 @@ FileSystem* create_ext(const klib::string& drv)
 /******************************************************************************
  ******************************************************************************/
 
-Ext2SuperBlock::Ext2SuperBlock(klib::istream& in)
+Ext2SuperBlock::Ext2SuperBlock(klib::istream& in) : val {true}
 {
-    // Total number of inodes.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&no_inodes),
-        sizeof(no_inodes) / sizeof(klib::istream::char_type));
-//    global_kernel->syslog()->info("Ext2SuperBlock constructor: no of inodes is %u.\n", no_inodes);
-    // Total number of blocks.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&no_blocks),
-        sizeof(no_blocks) / sizeof(klib::istream::char_type));
-//    global_kernel->syslog()->info("Ext2SuperBlock constructor: no of blocks is %u.\n", no_blocks);
-    // Number of blocks reserved for the superuser.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&reserved_blocks),
-        sizeof(reserved_blocks) / sizeof(klib::istream::char_type));
-//    global_kernel->syslog()->info("Ext2SuperBlock constructor: no of reserved blocks is %u.\n", reserved_blocks);
-    // Number of unallocated blocks.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&unalloc_blocks),
-        sizeof(unalloc_blocks) / sizeof(klib::istream::char_type));
-//    global_kernel->syslog()->info("Ext2SuperBlock constructor: no of unallocated blocks is %u.\n", unalloc_blocks);
-    // Number of unallocated inodes.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&unalloc_inodes),
-        sizeof(unalloc_inodes) / sizeof(klib::istream::char_type));
-//    global_kernel->syslog()->info("Ext2SuperBlock constructor: no of unallocated inodes is %u.\n", unalloc_inodes);
-    // Block number of block containing the superblock.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&superblock_block),
-        sizeof(superblock_block) / sizeof(klib::istream::char_type));
-//    global_kernel->syslog()->info("Ext2SuperBlock constructor: block containing superblock is %u.\n", superblock_block);
-    // Left shift 1024 by this number of bits to get the block size.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&block_size_shift),
-        sizeof(block_size_shift) / sizeof(klib::istream::char_type));
-//    global_kernel->syslog()->info("Ext2SuperBlock constructor: block size shift is %u.\n", block_size_shift);
-    // Left shift 1024 by this number of bits to get the fragment size.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&fragment_size_shift),
-        sizeof(fragment_size_shift) / sizeof(klib::istream::char_type));
-//    global_kernel->syslog()->info("Ext2SuperBlock constructor: fragment size shift is %u.\n", fragment_size_shift);
-    // Number of blocks in each block group.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&blocks_per_group),
-        sizeof(blocks_per_group) / sizeof(klib::istream::char_type));
-//    global_kernel->syslog()->info("Ext2SuperBlock constructor: no blocks in each block group is %u.\n", blocks_per_group);
-    // Number of fragments in each block group.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&fragments_per_group),
-        sizeof(fragments_per_group) / sizeof(klib::istream::char_type));
-//    global_kernel->syslog()->info("Ext2SuperBlock constructor: no fragments in each block group is %u.\n", fragments_per_group);
-    // Number of inodes in each block group.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&inodes_per_group),
-        sizeof(inodes_per_group) / sizeof(klib::istream::char_type));
-//    global_kernel->syslog()->info("Ext2SuperBlock constructor: no inodes in each block group is %u.\n", inodes_per_group);
-
-    // Skip times and consistency check things.
-    in.ignore(12 / sizeof(klib::istream::char_type));
-
-    // Signature, should match 0xEF53.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&signature),
-        sizeof(signature) / sizeof(klib::istream::char_type));
-//    global_kernel->syslog()->info("Ext2SuperBlock constructor: signature is %X.\n", signature);
-
-    // Skip error handling.
-    in.ignore(4 / sizeof(klib::istream::char_type));
-
-    // Minor version number.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&minor_version),
-        sizeof(minor_version) / sizeof(klib::istream::char_type));
-
-    // Skip consistency check things and OS ID.
-    in.ignore(12 / sizeof(klib::istream::char_type));
-
-    // Major version number.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&major_version),
-        sizeof(major_version) / sizeof(klib::istream::char_type));
-    // UID that can use reserved blocks.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&reserved_uid),
-        sizeof(reserved_uid) / sizeof(klib::istream::char_type));
-    // GID that can use reserved blocks.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&reserved_gid),
-        sizeof(reserved_gid) / sizeof(klib::istream::char_type));
-
-    // Extended attributes.
-    if (major_version < 1)
+    // Read in the first 84 bytes, which are compulsory.
+    in.read(data, compulsory_size);
+    if (!in || in.gcount() != compulsory_size)
+    {
+        val = false;
         return;
+    }
 
-    // First non-reserved inode.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&first_usable_inode),
-        sizeof(first_usable_inode) / sizeof(klib::istream::char_type));
-    // Size of each inode in bytes.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&inode_size),
-        sizeof(inode_size) / sizeof(klib::istream::char_type));
-    // Block group this superblock is part of, if a backup copy.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&backup_block),
-        sizeof(backup_block) / sizeof(klib::istream::char_type));
-    // Optional features present.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&optional_features),
-        sizeof(optional_features) / sizeof(klib::istream::char_type));
-    // Features present that must be supported for reads and writes.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&required_features),
-        sizeof(required_features) / sizeof(klib::istream::char_type));
-    // Features present that must be supported for writes.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&write_features),
-        sizeof(write_features) / sizeof(klib::istream::char_type));
-    // File system ID (UUID).
-    klib::istream::char_type uuid_buf[uuid_length];
-    in.read(uuid_buf, uuid_length);
-    uuid = klib::string {uuid_buf, uuid_length};
-    // Volume name.
-    klib::istream::char_type name_buf[name_length];
-    in.read(name_buf, name_length);
-    name = klib::string {name_buf, name_length};
+    // Check the major version and read the optional data.
+    if (major_version() >= 1)
+    {
+        in.read(data + compulsory_size, data_size - compulsory_size);
+        if (!in || in.gcount() != compulsory_size)
+            val = false;
+    }
 }
 
 /******************************************************************************
