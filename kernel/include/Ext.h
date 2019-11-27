@@ -42,6 +42,53 @@ struct Ext2SuperBlock {
      */
     explicit Ext2SuperBlock(klib::istream& in);
 
+    /**
+        Gets or sets the total number of inodes.
+
+        @param no Number of inodes to set.
+        @return Total number of inodes.
+     */
+    uint32_t no_inodes() const { return *reinterpret_cast<uint32_t*>(data); }
+    void no_inodes(uint32_t no) { *reinterpret_cast<uint32_t*>(data) = no; }
+
+    /**
+        Gets or sets the total number of blocks.
+
+        @param no Number of blocks to set.
+        @return Total number of blocks.
+     */
+    uint32_t no_blocks() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 4);
+    }
+    void no_blocks(uint32_t no) { *reinterpret_cast<uint32_t*>(data + 4) = no; }
+
+    /**
+        Gets or sets the total number of blocks reserved for the superuser.
+
+        @param res Number of reserved blocks to set.
+        @return Number of reserved of inodes.
+     */
+    uint32_t reserved_blocks() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 8);
+    }
+    void reserved_blocks(uint32_t res)
+    {
+        *reinterpret_cast<uint32_t*>(data + 8) = res;
+    }
+
+protected:
+    // Whether the data seems to be valid.
+    bool val;
+    // Size of data fields.
+    static constexpr size_t compulsory_size = 84;
+    static constexpr size_t data_size = 236;
+    // Total size reserved for superblock.
+    static constexpr size_t disk_size = 1024;
+    // Actual store for the data.
+    uint8_t data[data_size];
+
     // Total number of inodes.
     uint32_t no_inodes;
     // Total number of blocks.
@@ -93,9 +140,9 @@ struct Ext2SuperBlock {
     // Volume name.
     klib::string name;
     static constexpr size_t name_length = 16;
-
-    // Superblock always has 1024 bytes reserved for it.
-    static constexpr size_t size = 1024;
+    // Name last mounted as.
+    klib::string mount_name;
+    static constexpr size_t name_length = 64;
 };
 
 /**
