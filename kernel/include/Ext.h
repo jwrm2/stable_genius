@@ -67,7 +67,7 @@ struct Ext2SuperBlock {
         Gets or sets the total number of blocks reserved for the superuser.
 
         @param res Number of reserved blocks to set.
-        @return Number of reserved of inodes.
+        @return Number of reserved blocks.
      */
     uint32_t reserved_blocks() const
     {
@@ -76,6 +76,264 @@ struct Ext2SuperBlock {
     void reserved_blocks(uint32_t res)
     {
         *reinterpret_cast<uint32_t*>(data + 8) = res;
+    }
+
+    /**
+        Gets or sets the total number of unallocated blocks.
+
+        @param unalloc Number of unallocated blocks to set.
+        @return Number of unallocated blocks.
+     */
+    uint32_t unalloc_blocks() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 12);
+    }
+    void unalloc_blocks(uint32_t unalloc)
+    {
+        *reinterpret_cast<uint32_t*>(data + 12) = unalloc;
+    }
+
+    /**
+        Gets or sets the total number of unallocated inodes.
+
+        @param unalloc Number of unallocated inodes to set.
+        @return Number of unallocated inodes.
+     */
+    uint32_t unalloc_inodes() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 16);
+    }
+    void unalloc_inodes(uint32_t unalloc)
+    {
+        *reinterpret_cast<uint32_t*>(data + 16) = unalloc;
+    }
+
+    /**
+        Gets or sets the block number of the block containing the superblock.
+
+        @param sb Block number of the block containing the superblock to set.
+        @return Block number of the block containing the superblock.
+     */
+    uint32_t superblock_no() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 20);
+    }
+    void superblock_no(uint32_t sb)
+    {
+        *reinterpret_cast<uint32_t*>(data + 20) = sb;
+    }
+
+    /**
+        Log base 2 of the block size - 10. Left shift 1024 by this number to get
+        the block size.
+
+        @param sh Block size shift to set.
+        @return Block size shift.
+     */
+    uint32_t block_size_shift() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 24);
+    }
+    void block_size_shift(uint32_t sh)
+    {
+        *reinterpret_cast<uint32_t*>(data + 24) = sh;
+    }
+
+    /**
+        Log base 2 of the fragment size - 10. Left shift 1024 by this number to
+        get the fragment size.
+
+        @param sh Fragment size shift to set.
+        @return Fragment size shift.
+     */
+    uint32_t fragment_size_shift() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 28);
+    }
+    void fragment_size_shift(uint32_t sh)
+    {
+        *reinterpret_cast<uint32_t*>(data + 28) = sh;
+    }
+
+    /**
+        Number of blocks in each block group.
+
+        @param bpg Number of blocks in each block group to set.
+        @return Number of blocks in each block group.
+     */
+    uint32_t blocks_per_group() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 32);
+    }
+    void blocks_per_group(uint32_t bpg)
+    {
+        *reinterpret_cast<uint32_t*>(data + 32) = bpg;
+    }
+
+    /**
+        Number of fragments in each block group.
+
+        @param fpg Number of fragments in each block group to set.
+        @return Number of fragments in each block group.
+     */
+    uint32_t fragments_per_group() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 36);
+    }
+    void fragments_per_group(uint32_t fpg)
+    {
+        *reinterpret_cast<uint32_t*>(data + 36) = fpg;
+    }
+
+    /**
+        Number of inodes in each block group.
+
+        @param ipg Number of inodes in each block group to set.
+        @return Number of inodes in each block group.
+     */
+    uint32_t inodes_per_group() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 40);
+    }
+    void inodes_per_group(uint32_t fpg)
+    {
+        *reinterpret_cast<uint32_t*>(data + 40) = ipg;
+    }
+
+    /**
+        Last mount time (in POSIX time).
+
+        @param t Last mount time to set.
+        @return Last mount time.
+     */
+    uint32_t last_mount() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 44);
+    }
+    void last_mount(uint32_t t)
+    {
+        *reinterpret_cast<uint32_t*>(data + 44) = t;
+    }
+
+    /**
+        Last written time (in POSIX time).
+
+        @param t Last written time to set.
+        @return Last written time.
+     */
+    uint32_t last_write() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 48);
+    }
+    void last_write(uint32_t t)
+    {
+        *reinterpret_cast<uint32_t*>(data + 48) = t;
+    }
+
+    /**
+        Number of mounts since last consistency check.
+
+        @param n Number of mounts to set.
+        @return Number of mounts.
+     */
+    uint16_t mounts_since_check() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 52);
+    }
+    void mounts_since_check(uint16_t n)
+    {
+        *reinterpret_cast<uint32_t*>(data + 52) = n;
+    }
+
+    /**
+        Number of mounts allowed before consistency check.
+
+        @param n Number of mounts to set.
+        @return Number of mounts.
+     */
+    uint16_t mounts_before_check() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 54);
+    }
+    void mounts_before_check(uint16_t n)
+    {
+        *reinterpret_cast<uint32_t*>(data + 54) = n;
+    }
+
+    /**
+        Ext2 signature. Should be 0xef53.
+
+        @param sig Signature to set.
+        @return Signature.
+     */
+    uint16_t signature() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 56);
+    }
+    void signature(uint16_t sig)
+    {
+        *reinterpret_cast<uint32_t*>(data + 56) = sig;
+    }
+
+    /**
+        File system state. 1 means clean, 2 means there are errors.
+
+        @param st State to set.
+        @return State.
+     */
+    uint16_t state() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 58);
+    }
+    void state(uint16_t st)
+    {
+        *reinterpret_cast<uint32_t*>(data + 58) = st;
+    }
+
+    /**
+        Action on error. 1 means ignore, 2 means remount read only, 3 means
+        panic.
+
+        @param ac Action to set.
+        @return Action on error.
+     */
+    uint16_t error_action() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 60);
+    }
+    void error_action(uint16_t ac)
+    {
+        *reinterpret_cast<uint32_t*>(data + 60) = ac;
+    }
+
+    /**
+        Minor version number.
+
+        @param ver Minor version number to set.
+        @return Minor version number.
+     */
+    uint16_t minor_version() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 62);
+    }
+    void minor_version(uint16_t ver)
+    {
+        *reinterpret_cast<uint32_t*>(data + 62) = ver;
+    }
+
+    /**
+        Last consistency check time (in POSIX time).
+
+        @param t Last consistency check time to set.
+        @return Last consistency check time.
+     */
+    uint32_t last_check() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 64);
+    }
+    void last_check(uint32_t t)
+    {
+        *reinterpret_cast<uint32_t*>(data + 64) = t;
     }
 
 protected:
