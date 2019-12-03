@@ -37,7 +37,9 @@ Ext2SuperBlock::Ext2SuperBlock(klib::istream& in) : val {true}
 {
     // Read in the first 84 bytes, which are compulsory.
     in.read(data, compulsory_size);
-    if (!in || in.gcount() != compulsory_size)
+
+    // Check the amount read and the signature.
+    if (!in || in.gcount() != compulsory_size || signature() != sig)
     {
         val = false;
         return;
@@ -49,35 +51,105 @@ Ext2SuperBlock::Ext2SuperBlock(klib::istream& in) : val {true}
         in.read(data + compulsory_size, data_size - compulsory_size);
         if (!in || in.gcount() != compulsory_size)
             val = false;
+
+        // Skip over any unused space, so the stream is positioned at the end of
+        // the superblock reserved space.
+        in.ignore(disk_size - data_size);
+        if (!in || in.gcount() != disk_size - data_size)
+            val = false;
+    }
+    else
+    {
+        // Skip over any unused space, so the stream is positioned at the end of
+        // the superblock reserved space.
+        in.ignore(disk_size - compulsory_size);
+        if (!in || in.gcount() != disk_size - compulsory_size)
+            val = false;
+    }
+}
+
+/******************************************************************************/
+
+klib::ostream& Ext2SuperBlock::write(klib::ostream& dest) const
+{
+    if (!dest)
+        return dest;
+
+    if (major_version() >= 1)
+        dest.write(data, data_size);
+    else
+        dest.write(data, compulsory_size);
+
+    return dest;
+}
+
+/******************************************************************************/
+
+void Ext2SuperBlock::uuid(const klib::string& u)
+{
+    if (major_version() >= 1)
+        klib::memcpy(data + 104, u.data(), uuid_length);
+}
+
+/******************************************************************************/
+
+void Ext2SuperBlock::name(const klib::string& n)
+{
+    if (major_version() >= 1)
+        klib::memcpy(data + 120, n.data(), name_length);
+}
+
+/******************************************************************************/
+
+void Ext2SuperBlock::path(const klib::string& p)
+{
+    if (major_version() >= 1)
+    {
+        if (p.size() < path_length)
+        {
+            klib::memcpy(data + 136, n.data(), p.size());
+            klib::memset(data + 136 + p.size(), '\0', path_length - p.size());
+        }
+        else
+        {
+            klib::memcpy(data + 136, n.data(), path_length - 1);
+            data[135 + path_length] = '\0';
+        }
     }
 }
 
 /******************************************************************************
  ******************************************************************************/
 
-BlockGroupDescriptor::BlockGroupDescriptor(klib::istream& in)
+BlockGroupDescriptor::BlockGroupDescriptor(klib::istream& in) : val {true}
 {
-    // Block address of block usage bitmap.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&block_map),
-        sizeof(block_map) / sizeof(klib::istream::char_type));
-    // Block address of inode usage bitmap.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&inode_map),
-        sizeof(inode_map) / sizeof(klib::istream::char_type));
-    // Starting block address of inode table.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&inode_table),
-        sizeof(inode_table) / sizeof(klib::istream::char_type));
-    // Number of unallocated blocks in group.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&unalloc_blocks),
-        sizeof(unalloc_blocks) / sizeof(klib::istream::char_type));
-    // Number of unallocated inodes in group.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&unalloc_inodes),
-        sizeof(unalloc_inodes) / sizeof(klib::istream::char_type));
-    // Number of directories in group.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&dirs),
-        sizeof(dirs) / sizeof(klib::istream::char_type));
+    // Read in the first 84 bytes, which are compulsory.
+    in.read(data, data_size);
 
-    // Skip over the unused space.
-    in.ignore(unused_space / sizeof(klib::istream::char_type));
+    // Check the amount read and the signature.
+    if (!in || in.gcount() != data_size)
+    {
+        val = false;
+        return;
+    }
+
+    // Skip over any unused space, so the stream is positioned at the end of
+    // the descriptor reserved space.
+    in.ignore(disk_size - data_size);
+    if (!in || in.gcount() != disk_size - data_size)
+        val = false;
+}
+
+/******************************************************************************/
+
+klib::ostream& BlockGroupDescriptor::write(klib::ostream& dest) const
+{
+    if (!dest)
+        return dest;
+
+    dest.write(data, data_size);
+
+    return dest;
 }
 
 /******************************************************************************/
@@ -85,10 +157,10 @@ BlockGroupDescriptor::BlockGroupDescriptor(klib::istream& in)
 void BlockGroupDescriptor::dump(klib::ostream& dest) const
 {
     dest << klib::hex;
-    dest << ' ' << block_map << ' ' << inode_map << ' ' << inode_table;
+    dest << ' ' << block_map() << ' ' << inode_map() << ' ' << inode_table();
 
     dest << klib::dec;
-    dest << ' ' << unalloc_blocks << ' ' << unalloc_inodes << ' ' << dirs;
+    dest << ' ' << unalloc_blocks() << ' ' << unalloc_inodes() << ' ' << dirs();
 
     dest.flush();
 }

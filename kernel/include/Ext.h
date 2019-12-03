@@ -26,6 +26,56 @@ class Ext2FileSystem;
 FileSystem* create_ext(const klib::string& drv);
 
 /**
+    Features among the required features set.
+ */
+enum class ext2_required_features : uint32_t {
+    /** None. */
+    none = 0x0,
+    /** Compression is used. */
+    compression = 0x1,
+    /** Directory entries have type field. */
+    directories_type = 0x2,
+    /** File needs to replay its journal. */
+    journal_replay = 0x4,
+    /** File system uses a journal device. */
+    journal_device = 0x8
+};
+
+/**
+    Features among the required for writing features set.
+ */
+enum class ext2_required_writing_features : uint32_t {
+    /** None. */
+    none = 0x0,
+    /** Sparse superblocks and group decriptor tables. */
+    sparse = 0x1,
+    /** File system uses 64-bit file size. */
+    large_file_size = 0x2,
+    /** Directory contents are stored in the form of a binary tree. */
+    directory_tree = 0x4
+};
+
+/**
+    Optional features.
+ */
+enum class ext2_optional_features : uint32_t {
+    /** None. */
+    none = 0x0,
+    /** Preallocate blocks when creating a new directory. */
+    preallocate = 0x1,
+    /** AFS server inodes exist. */
+    afs_server = 0x2,
+    /** File system has a journal (ie is actually Ext3). */
+    journal = 0x4,
+    /** Inodes have extended attributes/ */
+    extended_inodes = 0x8,
+    /** File system can resize to a bigger size. */
+    resize = 0x10,
+    /** Directories use a hash index. */
+    directory_hash = 0x20,
+};
+
+/**
     Represents the data in an ext2 superblock.
  */
 struct Ext2SuperBlock {
@@ -41,6 +91,14 @@ struct Ext2SuperBlock {
         @param in Stream to read the data from.
      */
     explicit Ext2SuperBlock(klib::istream& in);
+
+    /**
+        Write the data unformatted to the provided stream.
+
+        @param dest The stream to write to.
+        @return The stream after writing.
+     */
+    klib::ostream& write(klib::ostream& dest) const;
 
     /**
         Gets or sets the total number of inodes.
@@ -238,11 +296,11 @@ struct Ext2SuperBlock {
      */
     uint16_t mounts_since_check() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 52);
+        return *reinterpret_cast<uint16_t*>(data + 52);
     }
     void mounts_since_check(uint16_t n)
     {
-        *reinterpret_cast<uint32_t*>(data + 52) = n;
+        *reinterpret_cast<uint16_t*>(data + 52) = n;
     }
 
     /**
@@ -253,11 +311,11 @@ struct Ext2SuperBlock {
      */
     uint16_t mounts_before_check() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 54);
+        return *reinterpret_cast<uint16_t*>(data + 54);
     }
     void mounts_before_check(uint16_t n)
     {
-        *reinterpret_cast<uint32_t*>(data + 54) = n;
+        *reinterpret_cast<uint16_t*>(data + 54) = n;
     }
 
     /**
@@ -268,7 +326,7 @@ struct Ext2SuperBlock {
      */
     uint16_t signature() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 56);
+        return *reinterpret_cast<uint16_t*>(data + 56);
     }
     void signature(uint16_t sig)
     {
@@ -281,13 +339,20 @@ struct Ext2SuperBlock {
         @param st State to set.
         @return State.
      */
-    uint16_t state() const
+    enum state_t : uint16_t {
+        /** No errors in the file system */
+        clean = 1,
+        /** Errors present in the file system. */
+        errors = 2
+    };
+
+    state_t state() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 58);
+        return *reinterpret_cast<state_t*>(data + 58);
     }
-    void state(uint16_t st)
+    void state(state_t st)
     {
-        *reinterpret_cast<uint32_t*>(data + 58) = st;
+        *reinterpret_cast<state_t*>(data + 58) = st;
     }
 
     /**
@@ -297,13 +362,22 @@ struct Ext2SuperBlock {
         @param ac Action to set.
         @return Action on error.
      */
+    enum error_action_t : uint16_t {
+        /** Ignore errors and carry on. */
+        ignore = 1,
+        /** Remount the file system read-only. */
+        remount = 2,
+        /** Cause a kernel panic. */
+        panic = 3
+    };
+
     uint16_t error_action() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 60);
+        return *reinterpret_cast<error_action_t*>(data + 60);
     }
-    void error_action(uint16_t ac)
+    void error_action(error_action_t ac)
     {
-        *reinterpret_cast<uint32_t*>(data + 60) = ac;
+        *reinterpret_cast<error_action_t*>(data + 60) = ac;
     }
 
     /**
@@ -314,11 +388,11 @@ struct Ext2SuperBlock {
      */
     uint16_t minor_version() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 62);
+        return *reinterpret_cast<uint16_t*>(data + 62);
     }
     void minor_version(uint16_t ver)
     {
-        *reinterpret_cast<uint32_t*>(data + 62) = ver;
+        *reinterpret_cast<uint16_t*>(data + 62) = ver;
     }
 
     /**
@@ -336,6 +410,277 @@ struct Ext2SuperBlock {
         *reinterpret_cast<uint32_t*>(data + 64) = t;
     }
 
+    /**
+        Interval between forced consistency checks (in POSIX time).
+
+        @param t Check interval  to set.
+        @return Check interval.
+     */
+    uint32_t check_interval() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 68);
+    }
+    void check_interval(uint32_t t)
+    {
+        *reinterpret_cast<uint32_t*>(data + 68) = t;
+    }
+
+    /**
+        ID of the operating system that created this file system. 0 is Linux,
+        1 is GNU HURD, 2 is MASIX, 3 is FreeBSD, 4 is other.
+
+        @param op Operating system ID to set.
+        @return Operating system ID.
+     */
+    enum opid_t : uint32_t {
+        /** Linux */
+        linux = 0,
+        /** GNU HURD */
+        hurd = 1,
+        /** MASIX */
+        masix = 3,
+        /** FreeBSD */
+        freebsd = 4,
+        /** Other OS */
+        other = 5
+    };
+
+    opid_t state() const
+    {
+        return *reinterpret_cast<opid_t*>(data + 72);
+    }
+    void state(opid_t op)
+    {
+        *reinterpret_cast<opid_t*>(data + 72) = op;
+    }
+
+    /**
+        Major version number.
+
+        @param ver Major version number to set.
+        @return Major version number.
+     */
+    uint32_t major_version() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 76);
+    }
+    void major_version(uint32_t ver)
+    {
+        *reinterpret_cast<uint32_t*>(data + 76) = ver;
+    }
+
+    /**
+        UID of the user that can use reserved blocks.
+
+        @param uid Reserved block user to set.
+        @return Reserved block user.
+     */
+    uint16_t reserved_uid() const
+    {
+        return *reinterpret_cast<uint16_t*>(data + 80);
+    }
+    void reserved_uid(uint16_t uid)
+    {
+        *reinterpret_cast<uint16_t*>(data + 80) = ver;
+    }
+
+    /**
+        GID of the group that can use reserved blocks.
+
+        @param gid Reserved block group to set.
+        @return Reserved block group.
+     */
+    uint16_t reserved_gid() const
+    {
+        return *reinterpret_cast<uint16_t*>(data + 82);
+    }
+    void reserved_uid(uint16_t gid)
+    {
+        *reinterpret_cast<uint16_t*>(data + 82) = ver;
+    }
+
+    /**
+        First non-reserved inode. Variable and stored in the superblock if the
+        major version is 1 or higher. Otherwise fixed to 11.
+
+        @param no First non-reserved inode number to set. Silently fails if the
+                  major version is less than 1.
+        @return First non-reserved inode number.
+     */
+    uint32_t first_inode() const
+    {
+        if (major_version() >= 1)
+            return *reinterpret_cast<uint32_t*>(data + 84);
+        else
+            return f_inode;
+    }
+    void first_inode(uint32_t no)
+    {
+        if (major_version() >= 1)
+            *reinterpret_cast<uint32_t*>(data + 84) = no;
+    }
+
+    /**
+        Size of each inode. Variable and stored in the superblock if the major
+        version is 1 or higher. Otherwise fixed to 128.
+
+        @param sz Size of an inode to set. Silently fails if the major version
+               is less than 1.
+        @return Size of an inode.
+     */
+    uint16_t inode_size() const
+    {
+        if (major_version() >= 1)
+            return *reinterpret_cast<uint16_t*>(data + 88);
+        else
+            return inode_sz;
+    }
+    void inode_size(uint16_t sz)
+    {
+        if (major_version() >= 1)
+            *reinterpret_cast<uint16_t*>(data + 88) = sz;
+    }
+
+    /**
+        Block group this superblock is part of, if it's a backup. For major
+        version 1 or higher only.
+
+        @param blg Block group number to set.
+        @return Block group number.
+     */
+    uint16_t backup_group() const
+    {
+        if (major_version() >= 1)
+            return *reinterpret_cast<uint16_t*>(data + 90);
+        else
+            return 0;
+    }
+    void backup_group(uint16_t blg)
+    {
+        if (major_version() >= 1)
+            *reinterpret_cast<uint16_t*>(data + 90) = blg;
+    }
+
+    /**
+        Optional features in use in the file system. The implementation does
+        not need to support these for reading or writing. For major version 1 or
+        higher only.
+
+        @param feat Optional features to set.
+        @return Optional features.
+     */
+    ext2_optional_features optional_features() const
+    {
+        if (major_version() >= 1)
+            return *reinterpret_cast<ext2_optional_features*>(data + 92);
+        else
+            return ext2_optional_features::none;
+    }
+    void optional_features(ext2_optional_features feat)
+    {
+        if (major_version() >= 1)
+            *reinterpret_cast<ext2_optional_features*>(data + 92) = feat;
+    }
+
+    /**
+        Required features in use in the file system. The implementation does
+        must support these for reading or writing. For major version 1 or
+        higher only.
+
+        @param feat Required features to set.
+        @return Required features.
+     */
+    ext2_required_features required_features() const
+    {
+        if (major_version() >= 1)
+            return *reinterpret_cast<ext2_required_features*>(data + 96);
+        else
+            return ext2_required_features::none;
+    }
+    void required_features(ext2_required_features feat)
+    {
+        if (major_version() >= 1)
+            *reinterpret_cast<ext2_required_features*>(data + 96) = feat;
+    }
+
+    /**
+        Required writing features in use in the file system. The implementation
+        does not need to support these to mount the file system read only, but
+        must for mounting read-write. For major version 1 or higher only.
+
+        @param feat Required writing features to set.
+        @return Required writing features.
+     */
+    ext2_required_writing_features required_writing_features() const
+    {
+        if (major_version() >= 1)
+            return *reinterpret_cast<ext2_required_writing_features*>(
+                data + 100);
+        else
+            return ext2_required_writing_features::none;
+    }
+    void required_writing_features(ext2_required_writing_features feat)
+    {
+        if (major_version() >= 1)
+            *reinterpret_cast<ext2_required_writing_features*>(data + 100) =
+                feat;
+    }
+
+    /**
+        File system UUID. For major version 1 or higher only.
+
+        @param u UUID to set.
+        @return UUID.
+     */
+    klib::string uuid() const
+    {
+        if (major_version() >= 1)
+            return klib::string {data + 104, uuid_length};
+        else
+            return klib::string {};
+    }
+    void uuid(const klib::string& u);
+
+    /**
+        Volume name. For major version 1 or higher only.
+
+        @param n Name to set.
+        @return Name.
+     */
+    klib::string name() const
+    {
+        if (major_version() >= 1)
+            return klib::string {data + 120, name_length};
+        else
+            return klib::string {};
+    }
+    void name(const klib::string& n);
+
+    /**
+        Last mounted path. On disk, this is stored with a null terminator. For
+        major version 1 or higher only.
+
+        @param p Path to set.
+        @return Path.
+     */
+    klib::string path() const
+    {
+        if (major_version() >= 1)
+            return klib::string {data + 136};
+        else
+            return klib::string {};
+    }
+    void path(const klib::string& p);
+
+    // TODO There are other fields, but they all relate to additional features.
+
+    /**
+        Whether the file system seems to be valid.
+
+        @return True if the file system seems to be valid, false otherwise.
+     */
+    bool valid() const { return val; }
+
 protected:
     // Whether the data seems to be valid.
     bool val;
@@ -347,60 +692,18 @@ protected:
     // Actual store for the data.
     uint8_t data[data_size];
 
-    // Total number of inodes.
-    uint32_t no_inodes;
-    // Total number of blocks.
-    uint32_t no_blocks;
-    // Number of blocks reserved for the superuser.
-    uint32_t reserved_blocks;
-    // Number of unallocated blocks.
-    uint32_t unalloc_blocks;
-    // Number of unallocated inodes.
-    uint32_t unalloc_inodes;
-    // Block number of block containing the superblock.
-    uint32_t superblock_block;
-    // Left shift 1024 by this number of bits to get the block size.
-    uint32_t block_size_shift;
-    // Left shift 1024 by this number of bits to get the fragment size.
-    uint32_t fragment_size_shift;
-    // Number of blocks in each block group.
-    uint32_t blocks_per_group;
-    // Number of fragments in each block group.
-    uint32_t fragments_per_group;
-    // Number of inodes in each block group.
-    uint32_t inodes_per_group;
-    // Signature, should match 0xEF53.
-    uint16_t signature;
-    // Minor version number.
-    uint16_t minor_version;
-    // Major version number.
-    uint32_t major_version;
-    // UID that can use reserved blocks.
-    uint16_t reserved_uid;
-    // GID that can use reserved blocks.
-    uint16_t reserved_gid;
-
-    // First non-reserved inode.
-    uint32_t first_usable_inode = 11;
-    // Size of each inode in bytes.
-    uint16_t inode_size = 128;
-    // Block group this superblock is part of, if a backup copy.
-    uint16_t backup_block = 0;
-    // Optional features present.
-    uint32_t optional_features = 0;
-    // Features present that must be supported for reads and writes.
-    uint32_t required_features = 0;
-    // Features present that must be supported for writes.
-    uint32_t write_features = 0;
-    // File system ID (UUID).
-    klib::string uuid;
+    // Signature value to compare with.
+    static constexpr uint16_t sig = 0xef53;
+    // Fixed first non-reserved inode, for major version less than 1.
+    static constexpr uint32_t f_inode = 11;
+    // Fixed size of inodes, for major version less than 1.
+    static constexpr uint16_t inode_sz;
+    // Length of the file system ID (UUID).
     static constexpr size_t uuid_length = 16;
-    // Volume name.
-    klib::string name;
+    // Length of the volume name.
     static constexpr size_t name_length = 16;
-    // Name last mounted as.
-    klib::string mount_name;
-    static constexpr size_t name_length = 64;
+    // Length of the path last mounted as.
+    static constexpr size_t path_length = 64;
 };
 
 /**
@@ -420,31 +723,126 @@ struct BlockGroupDescriptor {
     explicit BlockGroupDescriptor(klib::istream& in);
 
     /**
-        Print the contents to the provided stream.
+        Write the data unformatted to the provided stream.
+
+        @param dest The stream to write to.
+        @return The stream after writing.
+     */
+    klib::ostream& write(klib::ostream& dest) const;
+
+    /**
+        Print the contents to the provided stream in a human readable format.
 
         @param dest Stream to print information to.
      */
     void dump(klib::ostream& dest) const;
 
-    // Block address of block usage bitmap.
-    uint32_t block_map;
-    // Block address of inode usage bitmap.
-    uint32_t inode_map;
-    // Starting block address of inode table.
-    uint32_t inode_table;
-    // Number of unallocated blocks in group.
-    uint16_t unalloc_blocks;
-    // Number of unallocated inodes in group.
-    uint16_t unalloc_inodes;
-    // Number of directories in group.
-    uint16_t dirs;
+    /**
+        Block address of the block usage bitmap.
 
-private:
-    // Number of unused bytes trailing a block group descriptor before reaching
-    // the next entry in the table.
-    static constexpr size_t unused_space = 14;
-    // Size of the whole entry on disk.
-    static constexpr size_t size = 32;
+        @param bl Block address of the block usage bitmap to set.
+        @return Block address of the block usage bitmap. 
+     */
+    uint32_t block_map() const
+    {
+        return *reinterpret_cast<uint32_t*>(data);
+    }
+    void block_map(uint32_t bl)
+    {
+        *reinterpret_cast<uint32_t*>(data) = bl;
+    }
+
+    /**
+        Block address of the inode usage bitmap.
+
+        @param bl Block address of the inode usage bitmap to set.
+        @return Block address of the inode usage bitmap. 
+     */
+    uint32_t inode_map() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 4);
+    }
+    void inode_map(uint32_t bl)
+    {
+        *reinterpret_cast<uint32_t*>(data + 4) = bl;
+    }
+
+    /**
+        Block address of the start of the inode table.
+
+        @param bl Block address of the start of the inode table to set.
+        @return Block address of the start of the inode table.
+     */
+    uint32_t inode_table() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 8);
+    }
+    void inode_table(uint32_t bl)
+    {
+        *reinterpret_cast<uint32_t*>(data + 8) = bl;
+    }
+
+    /**
+        Number of unallocated blocks in the block group.
+
+        @param n Number of unallocated blocks to set.
+        @return Number of unallocated blocks.
+     */
+    uint16_t unalloc_blocks() const
+    {
+        return *reinterpret_cast<uint16_t*>(data + 12);
+    }
+    void unalloc_blocks(uint16_t n)
+    {
+        *reinterpret_cast<uint16_t*>(data + 12) = n;
+    }
+
+    /**
+        Number of unallocated inodes in the block group.
+
+        @param n Number of unallocated inodes to set.
+        @return Number of unallocated inodes.
+     */
+    uint16_t unalloc_inodes() const
+    {
+        return *reinterpret_cast<uint16_t*>(data + 14);
+    }
+    void unalloc_inodes(uint16_t n)
+    {
+        *reinterpret_cast<uint16_t*>(data + 14) = n;
+    }
+
+    /**
+        Number of directories inodes in the block group.
+
+        @param n Number of directories to set.
+        @return Number of directories.
+     */
+    uint16_t dirs() const
+    {
+        return *reinterpret_cast<uint16_t*>(data + 16);
+    }
+    void dirs(uint16_t n)
+    {
+        *reinterpret_cast<uint16_t*>(data + 16) = n;
+    }
+
+    /**
+        Whether the record seems to be valid.
+
+        @return True if the record seems to be valid, false otherwise.
+     */
+    bool valid() const { return val; }
+
+protected:
+    // Whether we seem to have a valid record.
+    bool val;
+    // Size of used data.
+    static constexpr size_t data_size = 18;
+    // Total size reserved for block group descriptor.
+    static constexpr size_t disk_size = 32;
+    // Actual store for the data.
+    uint8_t data[data_size];
 };
 
 /**
@@ -739,38 +1137,12 @@ protected:
 class Ext2FileSystem : public FileSystem {
 public:
     /**
-        Features among the required features set.
-     */
-    enum class required_features {
-        /** Compression is used. */
-        compression = 0x1,
-        /** Directory entries have type field. */
-        directories_type = 0x2,
-        /** File needs to replay its journal. */
-        journal_replay = 0x4,
-        /** File system uses a journal device. */
-        journal_device = 0x8
-    };
-
-    /**
         Features from the required feature set currently supported. Bits set
         correspond to the required features in the superblock. And that value
         with the complement of this and if it's not zero, we don't support it.
      */
-    static constexpr uint32_t required_supported =
+    static constexpr uint32_t ext2_required_supported =
         static_cast<uint32_t>(required_features::directories_type);
-
-    /**
-        Features among the required for writing features set.
-     */
-    enum class required_writing_features {
-        /** Sparse superblocks and group decriptor tables. */
-        sparse = 0x1,
-        /** File system uses 64-bit file size. */
-        large_file_size = 0x2,
-        /** Directory contents are stored in the form of a binary tree. */
-        directory_tree = 0x4
-    };
 
     /**
         Features from the required for writing feature set currently supported.
