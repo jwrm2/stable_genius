@@ -690,7 +690,7 @@ protected:
     // Total size reserved for superblock.
     static constexpr size_t disk_size = 1024;
     // Actual store for the data.
-    uint8_t data[data_size];
+    klib::array<uint8_t, data_size> data;
 
     // Signature value to compare with.
     static constexpr uint16_t sig = 0xef53;
@@ -842,7 +842,7 @@ protected:
     // Total size reserved for block group descriptor.
     static constexpr size_t disk_size = 32;
     // Actual store for the data.
-    uint8_t data[data_size];
+    klib::array<uint8_t, data_size> data;
 };
 
 /**
@@ -852,7 +852,7 @@ struct Ext2Inode {
     /**
         Values for the type field.
      */
-    enum Type : uint16_t {
+    enum type_t : uint16_t {
         /** First in first out pipe. */
         fifo = 0x1000,
         /** Character device. */
@@ -870,33 +870,93 @@ struct Ext2Inode {
     };
 
     /**
-        Default constructor. Everything becomes zero.
+        Default constructor. Everything becomes zero. We assume 128 bytes
+        on disk.
      */
-    Ext2Inode() = default;
+    Ext2Inode() : val {false}, data {}, disk_size {128} {}
 
     /**
         Constructor. Fill the data fields starting from the provided stream.
 
         @param in Stream to read the data from.
+        @param sz Size of the inode on disk, read from the superblock.
      */
-    explicit Ext2Inode(klib::istream& in);
+    explicit Ext2Inode(klib::istream& in, size_t sz);
 
     /**
-        Write the inode data to a stream.
+        Write the inode data to a stream. Zero padding is added if the
+        superblock indicates more than 128 bytes.
 
         @param dest Stream to write to.
-        @param sz Size of the inode data on disk. For early version this was
-               fixed to 128 bytes, but for later versions it's contained in the
-               superblock. Zero padding will be added if the value is greater
-               than 128 bytes.
         @return dest after writing.
      */
-    klib::ostream& write(klib::ostream& dest, size_t sz) const;
+    klib::ostream& write(klib::ostream& dest) const;
 
     /**
-        Process the type field to get the type of file.
+        Type of file.
+
+        @param t Type of file to set.
+        @return Type of file.
      */
-    Type get_type() const { return static_cast<Type>(type & 0xF000); }
+    type_t type() const
+    {
+        return static_cast<type_t>(*reinterpret_cast<uint16_t*>(data) & 0xF000);
+    }
+    void type(type_t t)
+    {
+        *reinterpret_cast<uint16_t*>(data) =
+            (*reinterpret_cast<uint16_t*>(data) & 0x0FFF) |
+            static_cast<uint16_t>(t);
+    }
+
+    /**
+        Permissions of the file. Only the lowest 12 bits can be set. The highest
+        4 bits are the file type and will be unset in the value to set.
+
+        @param p Permissions to set (& 0x0FFF).
+        @return Permissions.
+     */
+    uint16_t permissions() const
+    {
+        return *reinterpret_cast<uint16_t*>(data) & 0x0FFF;
+    }
+    void permissions(uint16_t p)
+    {
+        *reinterpret_cast<uint16_t*>(data) =
+            (*reinterpret_cast<uint16_t*>(data) & 0xF000) | (p & 0x0FFF);
+    }
+
+    /**
+        User ID of the file owner.
+
+        @param uid User ID to set.
+        @return User ID.
+     */
+    uint16_t uid() const
+    {
+        return *reinterpret_cast<uint16_t*>(data + 2);
+    }
+    void uid(uint16_t uid)
+    {
+        *reinterpret_cast<uint16_t*>(data + 2) = uid;
+    }
+
+    /**
+        Whether the record seems to be valid.
+
+        @return True if the record seems to be valid, false otherwise.
+     */
+    bool valid() const { return val; }
+
+protected:
+    // Whether we seem to have a valid record.
+    bool val;
+    // Size of used data.
+    static constexpr size_t data_size = 128;
+    // Actual store for the data.
+    klib::array<uint8_t, data_size> data;
+    // Size of the inode on disk. Read from the superblock.
+    size_t disk_size;
 
     // Types and permissions.
     uint16_t type;
@@ -942,9 +1002,6 @@ struct Ext2Inode {
     // Second OS specific value.
     static constexpr size_t os_2_size = 12;
     klib::array<uint8_t, os_2_size> os_2;
-
-    // Size of data fields on disk.
-    static constexpr size_t size = 128;
 };
 
 /**
