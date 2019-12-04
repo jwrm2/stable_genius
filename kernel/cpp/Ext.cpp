@@ -45,6 +45,13 @@ Ext2SuperBlock::Ext2SuperBlock(klib::istream& in) : val {true}
         return;
     }
 
+    // Check the inode size is at least 128 bytes.
+    if (inode_size() < 128)
+    {
+        val = false;
+        return;
+    }
+
     // Check the major version and read the optional data.
     if (major_version() >= 1)
     {
@@ -123,7 +130,7 @@ void Ext2SuperBlock::path(const klib::string& p)
 
 BlockGroupDescriptor::BlockGroupDescriptor(klib::istream& in) : val {true}
 {
-    // Read in the first 84 bytes, which are compulsory.
+    // Read in the 18 bytes that actually contain data.
     in.read(data, data_size);
 
     // Check the amount read and the signature.
@@ -168,119 +175,38 @@ void BlockGroupDescriptor::dump(klib::ostream& dest) const
 /******************************************************************************
  ******************************************************************************/
 
-Ext2Inode::Ext2Inode(klib::istream& in)
+Ext2Inode::Ext2Inode(klib::istream& in, size_t sz) :
+    val {true},
+    data{},
+    disk_size {sz}
 {
-    // Types and permissions.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&type),
-        sizeof(type) / sizeof(klib::istream::char_type));
-    // User ID.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&uid),
-        sizeof(uid) / sizeof(klib::istream::char_type));
-    // Lower 32 bits of file size in bytes.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&lower_size),
-        sizeof(lower_size) / sizeof(klib::istream::char_type));
-    // Last access time.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&access_time),
-        sizeof(access_time) / sizeof(klib::istream::char_type));
-    // Creation time.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&creation_time),
-        sizeof(creation_time) / sizeof(klib::istream::char_type));
-    // Last modification time.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&mod_time),
-        sizeof(mod_time) / sizeof(klib::istream::char_type));
-    // Deletion time.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&del_time),
-        sizeof(del_time) / sizeof(klib::istream::char_type));
-    // Group id.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&gid),
-        sizeof(gid) / sizeof(klib::istream::char_type));
-    // Count of hard links.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&hard_links),
-        sizeof(hard_links) / sizeof(klib::istream::char_type));
-    // Number of disk sectors (not blocks) used, excluding inode sector.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&sectors),
-        sizeof(sectors) / sizeof(klib::istream::char_type));
-    // Flags.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&flags),
-        sizeof(flags) / sizeof(klib::istream::char_type));
-    // First OS specific value.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&os_1),
-        sizeof(os_1) / sizeof(klib::istream::char_type));
-    // Array of direct block pointers.
-    for (size_t i = 0; i < no_direct; ++i)
-        in.read(reinterpret_cast<klib::istream::char_type*>(direct.data() + i),
-            sizeof(direct[i]) / sizeof(klib::istream::char_type));
-    // Singly indirect pointer.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&s_indirect),
-        sizeof(s_indirect) / sizeof(klib::istream::char_type));
-    // Doubly indirect pointer.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&d_indirect),
-        sizeof(d_indirect) / sizeof(klib::istream::char_type));
-    // Triply indirect pointer.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&t_indirect),
-        sizeof(t_indirect) / sizeof(klib::istream::char_type));
-    // Generation number (for NFS).
-    in.read(reinterpret_cast<klib::istream::char_type*>(&gen_no),
-        sizeof(gen_no) / sizeof(klib::istream::char_type));
-    // File ACL (reserved in older versions).
-    in.read(reinterpret_cast<klib::istream::char_type*>(&file_acl),
-        sizeof(file_acl) / sizeof(klib::istream::char_type));
-    // Directory ACL or upper 32 bits of file size.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&upper_size),
-        sizeof(upper_size) / sizeof(klib::istream::char_type));
-    // Block address of fragment.
-    in.read(reinterpret_cast<klib::istream::char_type*>(&frag_addr),
-        sizeof(frag_addr) / sizeof(klib::istream::char_type));
-    // Second OS specific value.
-    for (size_t i = 0; i < os_2_size; ++i)
-        in.read(reinterpret_cast<klib::istream::char_type*>(os_2.data() + i),
-            sizeof(os_2[i]) / sizeof(klib::istream::char_type));
+    // Read in the 128 bytes that actually contain data.
+    in.read(data, data_size);
+
+    // Check the amount read and the signature.
+    if (!in || in.gcount() != data_size)
+    {
+        val = false;
+        return;
+    }
+
+    // Skip over any unused space, so the stream is positioned at the end of
+    // the descriptor reserved space.
+    in.ignore(disk_size - data_size);
+    if (!in || in.gcount() != disk_size - data_size)
+        val = false;
 }
 
 /******************************************************************************/
 
-klib::ostream& Ext2Inode::write(klib::ostream& out, size_t sz)
+klib::ostream& Ext2Inode::write(klib::ostream& dest)
 {
-    if (sz < size)
-    {
-        // Unacceptable size.
-        out.clear(klib::ios::failbit);
-    }
+    if (!dest)
+        return dest;
 
-    if (!out)
-        // Can't write to stream.
-        return out;
+    dest.write(data, data_size);
 
-    // Now write the data into a buffer. It should be unformatted, and each
-    // field has fixed size.
-    char* buf = new char[sz];
-    klib::memcpy(buf, &type, sizeof(type));
-    klib::memcpy(buf + 2, &uid, sizeof(uid));
-    klib::memcpy(buf + 4, &lower_size, sizeof(lower_size));
-    klib::memcpy(buf + 8, &access_time, sizeof(access_time));
-    klib::memcpy(buf + 12, &creation_time, sizeof(creation_time));
-    klib::memcpy(buf + 16, &mod_time, sizeof(mod_time));
-    klib::memcpy(buf + 20, &del_time, sizeof(del_time));
-    klib::memcpy(buf + 24, &gid, sizeof(gid));
-    klib::memcpy(buf + 26, &hard_links, sizeof(hard_links));
-    klib::memcpy(buf + 28, &sectors, sizeof(sectors));
-    klib::memcpy(buf + 32, &flags, sizeof(flags));
-    klib::memcpy(buf + 36, &os_1, sizeof(os_1));
-    klib::memcpy(buf + 40, &direct, no_direct * sizeof(direct[0]));
-    klib::memcpy(buf + 88, &s_indirect, sizeof(s_indirect));
-    klib::memcpy(buf + 92, &d_indirect, sizeof(d_indirect));
-    klib::memcpy(buf + 96, &t_indirect, sizeof(t_indirect));
-    klib::memcpy(buf + 100, &gen_no, sizeof(gen_no));
-    klib::memcpy(buf + 104, &file_acl, sizeof(file_acl));
-    klib::memcpy(buf + 108, &upper_size, sizeof(upper_size));
-    klib::memcpy(buf + 112, &frag_addr, sizeof(frag_addr));
-    klib::memcpy(buf + 116, &os_2, os_2_size * sizeof(os_2[0]));
-    for (int i = size; i < sz; ++i)
-        buf[i] = 0;
-
-    // Write the buffer to the stream.
-    out.write(buf, sz);
-    return out;
+    return dest;
 }
 
 /******************************************************************************
