@@ -850,26 +850,6 @@ protected:
  */
 struct Ext2Inode {
     /**
-        Values for the type field.
-     */
-    enum type_t : uint16_t {
-        /** First in first out pipe. */
-        fifo = 0x1000,
-        /** Character device. */
-        char_dev = 0x2000,
-        /** Directory. */
-        directory = 0x4000,
-        /** Block device. */
-        block_dev = 0x6000,
-        /** Regular file. */
-        file = 0x8000,
-        /** Symbolic link. */
-        sym_link = 0xA000,
-        /** Unix socket. */
-        socket = 0xC000
-    };
-
-    /**
         Default constructor. Everything becomes zero. We assume 128 bytes
         on disk.
      */
@@ -891,6 +871,26 @@ struct Ext2Inode {
         @return dest after writing.
      */
     klib::ostream& write(klib::ostream& dest) const;
+
+    /**
+        Values for the type field.
+     */
+    enum type_t : uint16_t {
+        /** First in first out pipe. */
+        fifo = 0x1000,
+        /** Character device. */
+        char_dev = 0x2000,
+        /** Directory. */
+        directory = 0x4000,
+        /** Block device. */
+        block_dev = 0x6000,
+        /** Regular file. */
+        file = 0x8000,
+        /** Symbolic link. */
+        sym_link = 0xA000,
+        /** Unix socket. */
+        socket = 0xC000
+    };
 
     /**
         Type of file.
@@ -929,17 +929,364 @@ struct Ext2Inode {
     /**
         User ID of the file owner.
 
-        @param uid User ID to set.
+        @param u User ID to set.
         @return User ID.
      */
     uint16_t uid() const
     {
         return *reinterpret_cast<uint16_t*>(data + 2);
     }
-    void uid(uint16_t uid)
+    void uid(uint16_t u)
     {
-        *reinterpret_cast<uint16_t*>(data + 2) = uid;
+        *reinterpret_cast<uint16_t*>(data + 2) = u;
     }
+
+    /**
+        Lower 4 bytes of the file size.
+
+        @param lsz Lower size to set.
+        @return Lower size.
+     */
+    uint32_t lower_size() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 4);
+    }
+    void lower_size(uint32_t lsz)
+    {
+        *reinterpret_cast<uint32_t*>(data + 4) = lsz;
+    }
+
+    /**
+        Last access time (in POSIX time).
+
+        @param t Last access time to set.
+        @return Last access time.
+     */
+    uint32_t access_time() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 8);
+    }
+    void access_time(uint32_t t)
+    {
+        *reinterpret_cast<uint32_t*>(data + 8) = t;
+    }
+
+    /**
+        Creation time (in POSIX time).
+
+        @param t Creation time to set.
+        @return Creation time.
+     */
+    uint32_t creation_time() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 12);
+    }
+    void creation_time(uint32_t t)
+    {
+        *reinterpret_cast<uint32_t*>(data + 12) = t;
+    }
+
+    /**
+        Modification time (in POSIX time).
+
+        @param t Modification time to set.
+        @return Modification time.
+     */
+    uint32_t modification_time() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 16);
+    }
+    void modification_time(uint32_t t)
+    {
+        *reinterpret_cast<uint32_t*>(data + 16) = t;
+    }
+
+    /**
+        Deletion time (in POSIX time).
+
+        @param t Deletion time to set.
+        @return Deletion time.
+     */
+    uint32_t deletion_time() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 20);
+    }
+    void deletion_time(uint32_t t)
+    {
+        *reinterpret_cast<uint32_t*>(data + 20) = t;
+    }
+
+    /**
+        Group ID of the file owner.
+
+        @param g Group ID to set.
+        @return Group ID.
+     */
+    uint16_t gid() const
+    {
+        return *reinterpret_cast<uint16_t*>(data + 24);
+    }
+    void gid(uint16_t g)
+    {
+        *reinterpret_cast<uint16_t*>(data + 24) = g;
+    }
+
+    /**
+        Number of hard links to the file.
+
+        @param n Number of hard links to set to set.
+        @return Number of hard links.
+     */
+    uint16_t hard_links() const
+    {
+        return *reinterpret_cast<uint16_t*>(data + 26);
+    }
+    void hard_links(uint16_t n)
+    {
+        *reinterpret_cast<uint16_t*>(data + 26) = n;
+    }
+
+    /**
+        Number of disk sectors used by the file data.
+
+        @param n Number of disk sectors to set.
+        @return Number of disk sectors.
+     */
+    uint32_t sectors() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 30);
+    }
+    void sectors(uint32_t n)
+    {
+        *reinterpret_cast<uint32_t*>(data + 30) = n;
+    }
+
+    /**
+        Values of the flags field.
+     */
+    enum flags_t : uint32_t {
+        /** Secure deletion (unused). */
+        secure_del = 0x00000001,
+        /** Keep copy on deletion (unused). */
+        del_copy = 0x00000002,
+        /** File compression (unused). */
+        compression = 0x00000004,
+        /** Synchronous updating of the disk. */
+        sync = 0x00000008,
+        /** Immutable file. */
+        immutable = 0x00000010,
+        /** Only appending is permitted. */
+        append_only = 0x00000020,
+        /** File not included by dump command. */
+        not_dump = 0x00000040,
+        /** Do not update last access time. */
+        no_last_access = 0x00000080,
+        /** Hash indexed directory. */
+        hash_dir = 0x00010000,
+        /** AFS directory. */
+        afs_dir = 0x00020000,
+        /** Journal file data. */
+        journal_data = 0x00040000
+    };
+
+    /**
+        Flags.
+
+        @param f Flags to set.
+        @return Flags.
+     */
+    flags_t flags() const
+    {
+        return *reinterpret_cast<flags_t*>(data + 32);
+    }
+    void sectors(flags_t n)
+    {
+        *reinterpret_cast<flags_t*>(data + 32) = f;
+    }
+
+    /**
+        First OS specific value.
+
+        @param v OS specific value to set.
+        @return OS specific value.
+     */
+    uint32_t os_1() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 36);
+    }
+    void os_1(uint32_t v)
+    {
+        *reinterpret_cast<uint32_t*>(data + 36) = v;
+    }
+
+
+    /**
+        Number of direct block pointers.
+     */
+    static constexpr size_t no_direct = 12;
+
+    /**
+        Direct block pointer, specified by index.
+
+        @param bl Block pointer value to set. Does nothing if n is out of
+               bounds.
+        @param n Index of pointer.
+        @return Block pointer value. 0 if out of bounds.
+     */
+    uint32_t direct(size_t n) const
+    {
+        if (n >= no_direct)
+            return 0;
+        return *reinterpret_cast<uint32_t*>(data + 40 + 4*n);
+    }
+    void direct(uint32_t bl, size_t n)
+    {
+        if (n >= no_direct)
+            return;
+        *reinterpret_cast<uint32_t*>(data + 40 + 4*n) = bl;
+    }
+
+    /**
+        Singly indirect pointer.
+
+        @param v Singly indirect pointer to set.
+        @return Singly indirect pointer.
+     */
+    uint32_t s_indirect() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 88);
+    }
+    void s_indirect(uint32_t v)
+    {
+        *reinterpret_cast<uint32_t*>(data + 88) = v;
+    }
+
+    /**
+        Doubly indirect pointer.
+
+        @param v Doubly indirect pointer to set.
+        @return Doubly indirect pointer.
+     */
+    uint32_t d_indirect() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 92);
+    }
+    void d_indirect(uint32_t v)
+    {
+        *reinterpret_cast<uint32_t*>(data + 92) = v;
+    }
+
+    /**
+        Triply indirect pointer.
+
+        @param v Triply indirect pointer to set.
+        @return Triply indirect pointer.
+     */
+    uint32_t t_indirect() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 96);
+    }
+    void t_indirect(uint32_t v)
+    {
+        *reinterpret_cast<uint32_t*>(data + 96) = v;
+    }
+
+    /**
+        Generation number. Used for NFS.
+
+        @param n Generation number to set.
+        @return Generation number.
+     */
+    uint32_t gen_no() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 100);
+    }
+    void gen_no(uint32_t v)
+    {
+        *reinterpret_cast<uint32_t*>(data + 100) = v;
+    }
+
+    /**
+        Extended attribute block, file ACL.
+
+        @param acl File ACL to set to set.
+        @return File ACL.
+     */
+    uint32_t file_acl() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 104);
+    }
+    void file_acl(uint32_t acl)
+    {
+        *reinterpret_cast<uint32_t*>(data + 104) = acl;
+    }
+
+    /**
+        Extended attribute block, directory ACL.
+
+        @param acl Directory ACL to set to set. Does nothing if not a directory.
+        @return Directory ACL. 0 if not a directory.
+     */
+    uint32_t directory_acl() const
+    {
+        if (type() != directory)
+            return 0;
+        return *reinterpret_cast<uint32_t*>(data + 108);
+    }
+    void directory_acl(uint32_t acl)
+    {
+        if (type() != directory)
+            return;
+        *reinterpret_cast<uint32_t*>(data + 108) = acl;
+    }
+
+    /**
+        Upper 4 bytes of the file size, if not a directory.
+
+        @param usz Upper size to set. Does nothing if a directory.
+        @return Upper size. 0 if a directory.
+     */
+    uint32_t upper_size() const
+    {
+        if (type() == directory)
+            return 0;
+        return *reinterpret_cast<uint32_t*>(data + 108);
+    }
+    void upper_size(uint32_t usz)
+    {
+        if (type() == directory)
+            return 0;
+        *reinterpret_cast<uint32_t*>(data + 108) = usz;
+    }
+
+    /**
+        Block address of fragment.
+
+        @param bl Block address of fragment to set.
+        @return Block address of fragment.
+     */
+    uint32_t frag_addr() const
+    {
+        return *reinterpret_cast<uint32_t*>(data + 112);
+    }
+    void frag_addr(uint32_t bl)
+    {
+        *reinterpret_cast<uint32_t*>(data + 112) = bl;
+    }
+
+    /**
+        Size, in bytes, of the second OS specific value.
+     */
+    static constexpr size_t os_2_size = 12;
+
+    /**
+        Second OS specific value.
+
+        @param v OS specific value to set.
+        @return OS specific value.
+     */
+    klib::array<uint8_t, os_2_size> os_2() const;
+    void os_2(const klib::array<uint8_t, os_2_size>& v);
 
     /**
         Whether the record seems to be valid.
@@ -982,8 +1329,7 @@ protected:
     uint32_t flags;
     // First OS specific value.
     uint32_t os_1;
-    // Array of direct block pointers.
-    static constexpr size_t no_direct = 12;
+
     klib::array<uint32_t, no_direct> direct;
     // Singly indirect pointer.
     uint32_t s_indirect;
@@ -999,8 +1345,7 @@ protected:
     uint32_t upper_size;
     // Block address of fragment.
     uint32_t frag_addr;
-    // Second OS specific value.
-    static constexpr size_t os_2_size = 12;
+
     klib::array<uint8_t, os_2_size> os_2;
 };
 

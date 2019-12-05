@@ -209,6 +209,20 @@ klib::ostream& Ext2Inode::write(klib::ostream& dest)
     return dest;
 }
 
+/******************************************************************************/
+
+klib::array<uint8_t, os_2_size> Ext2Inode::os_2() const
+{
+    klib::array<uint8_t, os_2_size> ret_val;
+    klib::memcpy(ret_val.data(), data + 116, os_2_size);
+    return ret_val;
+}
+
+void Ext2Inode::os_2(const klib::array<uint8_t, os_2_size>& v)
+{
+    klib::memcpy(data + 116, v.data(), os_2_size);
+}
+
 /******************************************************************************
  ******************************************************************************/
 
@@ -471,41 +485,41 @@ int Ext2File::truncate()
 
     // Start with the direct pointers.
     bool finished = false;
-    for (size_t i = 0; i < no_direct && !finished; ++i)
+    for (size_t i = 0; i < Ext2Inode::no_direct && !finished; ++i)
     {
-        finished = truncate_recursive(inode.direct[i], 0);
-        inode.direct[i] = 0;
+        finished = truncate_recursive(inode.direct(i), 0);
+        inode.direct(0, i);
     }
 
     // Now the singly indirect pointer.
     if (!finished)
     {
-        finished = truncate_singly(inode.s_indirect);
-        inode.s_indirect = 0;
+        finished = truncate_recursive(inode.s_indirect(), 1);
+        inode.s_indirect(0);
     }
 
     // The doubly indirect.
     if (!finished)
     {
-        finished = truncate_doubly(inode.d_indirect);
-        inode.d_indirect = 0;
+        finished = truncate_recursive(inode.d_indirect(), 2);
+        inode.d_indirect(0);
     }
 
     // The triply indirect.
     if (!finished)
     {
-        finished = truncate_doubly(inode.d_indirect);
-        inode.t_indirect = 0;
+        finished = truncate_recursive(inode.d_indirect(), 3);
+        inode.t_indirect(0);
     }
 
     // Set the file size to zero.
     sz = 0;
 
     // Update the inode.
-    inode.lower_size = 0;
-    if (inode.get_type() == Ext2Inode::file)
-        inode.upper_size = 0;
-    inode.sectors = 0;
+    inode.lower_size(0);
+    if (inode.type() == Ext2Inode::file)
+        inode.upper_size(0);
+    inode.sectors(0);
     ext2fs.update_inode(inode, inode_index);
 }
 
@@ -525,13 +539,16 @@ bool Ext2File::truncate_recursive(size_t bl, size_t depth)
         return false;
     }
 
+    // Store the block size.
+    size_t bl_sz = fs.block_size();
+
     // Create a buffer to read the block.
-    unique_ptr<char> buffer2 = new char[bl_sz];
+    unique_ptr<char> buf {new char[bl_sz]};
     bool finished = false;
 
     // Read the singly indirect block.
-    fs.read(bl * bl_sz, buffer, bl_sz);
-    size_t* buffer_blocks = reinterpret_cast<size_t*>(buffer);
+    fs.read(bl * bl_sz, buf, bl_sz);
+    size_t* buffer_blocks = reinterpret_cast<size_t*>(buf);
     for (size_t i = 0; i < addr_per_block && !finsihed; ++i)
     {
         if (buffer_blocks[i] != 0)
@@ -545,7 +562,6 @@ bool Ext2File::truncate_recursive(size_t bl, size_t depth)
             finished = true;
     }
 
-    delete buffer2;
     return finished;
 }
 
@@ -558,7 +574,7 @@ Ext2Directory::Ext2Directory(Ext2Inode& in, size_t indx, Ext2FileSystem& fs) :
     ext2fs {fs}
 {
     // Check that this is actually a directory.
-    if (inode.get_type() != Ext2Inode::directory)
+    if (inode.type() != Ext2Inode::directory)
         return;
 
     // Determine whether the directory has a type field.
@@ -753,13 +769,13 @@ klib::streamoff Ext2FileSystem::file_size(const Ext2Inode& inode) const
 
     if ((super_block.write_features & static_cast<uint32_t>(
         required_writing_features::large_file_size)) != 0 &&
-        inode.get_type() == Ext2Inode::file)
+        inode.type() == Ext2Inode::file)
     {
-        ret_val = inode.upper_size;
+        ret_val = inode.upper_size();
         ret_val <<= 32;
     }
 
-    ret_val += inode.lower_size;
+    ret_val += inode.lower_size();
 
     return ret_val;
 }
@@ -772,7 +788,7 @@ size_t Ext2FileSystem::inode_lookup(const Ext2Inode& inode, size_t bl) const
 
     // First check the direct pointers.
     if (bl < Ext2Inode::no_direct)
-        return inode.direct[bl];
+        return inode.direct(bl);
     bl -= Ext2Inode::no_direct;
 
     // Test for out of bounds.
@@ -787,7 +803,7 @@ size_t Ext2FileSystem::inode_lookup(const Ext2Inode& inode, size_t bl) const
     if (bl >= addr_per_block * (addr_per_block + 1))
     {
         // Return 0 if the triply indirect pointer is invalid.
-        if (inode.t_indirect == 0)
+        if (inode.t_indirect() == 0)
             return 0;
         // Set up a reader for the block pointed to by the triply indirect
         // pointer.
@@ -800,7 +816,7 @@ size_t Ext2FileSystem::inode_lookup(const Ext2Inode& inode, size_t bl) const
         bl -= addr_per_block * addr_per_block * addr_per_block;
     }
     else
-        d_indirect = inode.d_indirect;
+        d_indirect = inode.d_indirect();
 
     // Next for the doubly indirect.
     if (bl >= addr_per_block &&
@@ -820,7 +836,7 @@ size_t Ext2FileSystem::inode_lookup(const Ext2Inode& inode, size_t bl) const
         bl -= addr_per_block * addr_per_block;
     }
     else
-        s_indirect = inode.s_indirect;
+        s_indirect = inode.s_indirect();
 
     // Finally resolve the singly indirect.
     if (bl < addr_per_block)
@@ -974,25 +990,12 @@ int Ext2FileSystem::flush_bgdt()
         return -1;
 
     // Write each entry. Write them unformatted.
-    char* buf = new char[BlockGroupDescriptor.size];
     for (size_t i = 0; i < bgdt.size(); ++i)
     {
-        klib::memcpy(buf, &bgdt[i].block_map, sizeof(bgdt[i].block_map));
-        klib::memcpy(buf + 4, &bgdt[i].inode_map, sizeof(bgdt[i].inode_map));
-        klib::memcpy(buf + 8, &bgdt[i].inode_table,
-            sizeof(bgdt[i].inode_table));
-        klib::memcpy(buf + 12, &bgdt[i].unalloc_blocks,
-            sizeof(bgdt[i].unalloc_blocks));
-        klib::memcpy(buf + 14, &bgdt[i].unalloc_inodes,
-            sizeof(bgdt[i].unalloc_inodes));
-        klib::memcpy(buf + 16, &bgdt[i].dirs, sizeof(bgdt[i].dirs));
-        klib::memset(buf + 18, 0, BlockGroupDescriptor::unused_space);
-
-        out.write(buf, BlockGroupDescriptor.size);
+        bgdt.write(out);
         if (!out)
             break;
     }
-    delete buf;
 
     if (!out)
         return -1;
