@@ -230,6 +230,12 @@ then
 fi
 AC_SUBST(qemuimg, ["${qemuimg}"])
 
+AC_PATH_PROG(xorriso, xorriso, [not found])
+if [[ "${xorriso}" == "not found" ]]
+then
+    AC_MSG_ERROR([could not find xorriso])
+fi
+
 # Flags to do with running the OS.
 AC_SUBST(RUN_FLAGS, ["-monitor stdio"])
 SERIAL="serial.out"
