@@ -520,7 +520,12 @@ int Ext2File::truncate()
     if (inode.type() == Ext2Inode::file)
         inode.upper_size(0);
     inode.sectors(0);
-    ext2fs.update_inode(inode, inode_index);
+    bool success = (ext2fs.update_inode(inode, inode_index) == 0);
+
+    // Flush metadata cache.
+    success = (success && (ext2fs.flush_metadata() == 0));
+
+    return (success ? 0 : -1);
 }
 
 /******************************************************************************/
@@ -751,6 +756,9 @@ klib::FILE* Ext2FileSystem::fopen(const klib::string& name, const char* mode)
         // File already exists.
         return new Ext2File{mode, file.second, file.first, *this};
     }
+
+    // TODO create new file.
+    return nullptr;
 }
 
 /******************************************************************************/
@@ -892,14 +900,43 @@ int Ext2FileSystem::update_inode(const Ext2Inode& inode, size_t inode_index)
 
 /******************************************************************************/
 
-void Ext2FileSystem::deallocate(size_t bl)
+int Ext2FileSystem::flush_metadata()
+{
+    return (flush_superblock() == 0) && (flush_bgdt() == 0) &&
+        (flush_block_alloc() == 0) ? 0 : -1);
+}
+
+/******************************************************************************/
+
+int Ext2FileSystem::deallocate(size_t bl)
 {
     // Do nothing if the block index is larger than the number of blocks.
-    if (bl >= super_block.no_blocks)
+    if (bl >= super_block.no_blocks())
         return;
 
-    // Find which block group the block is in.
-    size_t bl_grp = bl / 
+    // Find which block group the block is in, and the index in the group.
+    size_t bl_grp = bl / (super_block.blocks_per_group());
+    size_t bl_indx = bl % (super_block.blocks_per_group());
+
+    // Cache the block allocation table.
+    if (cache_block_alloc(bl_grp) != 0)
+        return -1;
+
+    // Check whether it was already deallocated.
+    bool change =
+        block_alloc[bl_grp][bl_indx / 8] & (1 << (bl_indx % 8)) == 1;
+
+    if (change)
+    {
+        // Set the block to unalloctaed in the bitmap.
+        block_alloc[bl_grp][bl_indx / 8] &= ~(1 << (bl_indx % 8));
+        // Increase the number of unallocated blocks in the Block Descriptor.
+        bgdt[bl_grp].unalloc_blocks(bgdt[bl_grp].unalloc_blocks() + 1);
+        // Increase the number of unallocated blocks in the Superblock.
+        super_block.unalloc_blocks(super_block.unalloc_blocks() + 1);
+    }
+
+    return 0;
 }
 
 /******************************************************************************/
@@ -973,26 +1010,49 @@ klib::pair<size_t, Ext2Inode> Ext2FileSystem::get_inode(
 
 /******************************************************************************/
 
-int Ext2FileSystem::flush_bgdt()
+int Ext2FileSystem::flush_superblock() const
+{
+    // Create a writer and shift to the start of the superblock.
+    klib::ofstream out {drv_name};
+    if (!out)
+        return -1;
+    out.seekp(superblock_loc);
+    if (!out)
+        return -1;
+
+    // Write the data.
+    super_block.write(out);
+
+    // TODO we should really be writing the back up versions here too.
+
+    if (!out)
+        return -1;
+
+    return 0;
+}
+
+/******************************************************************************/
+
+int Ext2FileSystem::flush_bgdt() const
 {
     // Locate the start of the BGDT, which is in the block after the super
     // block.
     size_t bgdt_off = 0;
-    while (superblock_loc + super_block.size > bgdt_off)
-        bgdt_off += (1024 << super_block.block_size_shift);
+    while (superblock_loc + super_block.size() > bgdt_off)
+        bgdt_off += (1024 << super_block.block_size_shift());
 
     // Create a writer and shift to the start of the BGDT.
     klib::ofstream out {drv_name};
     if (!out)
         return -1;
-    out.seekg(bgdt_off);
+    out.seekp(bgdt_off);
     if (!out)
         return -1;
 
     // Write each entry. Write them unformatted.
     for (size_t i = 0; i < bgdt.size(); ++i)
     {
-        bgdt.write(out);
+        bgdt[i].write(out);
         if (!out)
             break;
     }
@@ -1005,11 +1065,81 @@ int Ext2FileSystem::flush_bgdt()
 
 /******************************************************************************/
 
-void Ext2FileSystem::cache_block_alloc(size_t bg_index) const;
+int Ext2FileSystem::cache_block_alloc(size_t bg_index)
+{
+    // Check whether the block allocation table is already cahced.
+    if (block_alloc.count(bg_index) != 0)
+        return 0;
+
+    // Get the block address of the allocation table.
+    size_t block_addr = bgdt[bg_index].block_map();
+
+    // Create a reader and shift to the start of the allocation table.
+    klib::ifstream in {drv_name};
+    if (!in)
+        return -1;
+    in.seekg(block_addr * block_size());
+    if (!in)
+        return -1;
+
+    // Create a cache entry of the right size.
+    klib::pair<typename klib::map<size_t, klib::vector<char>>::iterator, bool> p
+        = block_alloc.emplace(bg_index, klib::vector<char> (block_size()));
+    // p.second is a bool indicating whether the emplacement succeeded. If it
+    // did, p.first is an iterator to the new element.
+    if (!p.second)
+        return -1;
+
+    // Read the data into the new element.
+    in.read(p.first->second.data(), block_size());
+
+    // Check for success.
+    if (!in || in.gcount() != block_size())
+    {
+        block_alloc.erase(p.first);
+        return -1;
+    }
+
+    return 0;
+}
 
 /******************************************************************************/
 
-void Ext2FileSystem::flush_block_alloc();
+int Ext2FileSystem::flush_block_alloc()
+{
+    // Cycle through the cached block allocation tables.
+    auto it = block_alloc.begin();
+    while (it != block_alloc.end()) 
+    {
+        // Create a writer and shift to the start of the allocation table.
+        klib::ofstream out {drv_name};
+        if (!out)
+        {
+            ++it;
+            continue;
+        }
+        out.seekp(it->first * block_size());
+        if (!out)
+        {
+            ++it;
+            continue;
+        }
+
+        // Do the write.
+        out.write(it->second.data(), block_size());
+        if (!out)
+        {
+            ++it;
+            continue;
+        }
+
+        // Erase the entry.
+        it = block_alloc.erase(it);
+    }
+
+    // Check whether we managed to flush all the allocation tables.
+    return (block_alloc.empty() ? 0 : -1);
+}
 
 /******************************************************************************
  ******************************************************************************/
