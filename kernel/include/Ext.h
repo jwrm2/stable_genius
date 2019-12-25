@@ -681,6 +681,20 @@ struct Ext2SuperBlock {
      */
     bool valid() const { return val; }
 
+    /**
+        Size of the data in the superblock. 236 for major version 1 or higher,
+        84 for earlier versions.
+
+        @return Size of the data in the superblock.
+     */
+    size_t size() const
+    {
+        if (major_version() >= 1)
+            return data_size;
+        else
+            return compulsory_size;
+    }   
+
 protected:
     // Whether the data seems to be valid.
     bool val;
@@ -1639,11 +1653,21 @@ public:
     int update_inode(const Ext2Inode& inode, size_t inode_index);
 
     /**
+        Writes all the metadata back to disk, including the superblock, the
+        BGDT and any cached allocation tables.
+
+        @return 0 on success, -1 on failure.
+     */
+    int flush_metadata();
+
+    /**
         Deallocate a block, setting it to unused in the block group usage table.
         Updates the entry for number of unused blocks in the block group
-        descriptor table and superblock too.
+        descriptor table and superblock too. Does not flush the information
+        back to the disk. Does not change any inodes.
 
         @param bl Block to deallocate.
+        @return 0 on success, -1 on failure.
      */
     void deallocate(size_t bl);
 
@@ -1674,7 +1698,7 @@ public:
     static constexpr uint16_t signature = 0xEF53;
 
 protected:
-    // Whether this seems to be a valid ext2 file systems.
+    // Whether this seems to be a valid ext2 file system.
     bool val;
     // The contents of the superblock.
     Ext2SuperBlock super_block;
@@ -1711,22 +1735,26 @@ protected:
     klib::pair<size_t, Ext2Inode> get_inode(size_t index) const;
     klib::pair<size_t, Ext2Inode> get_inode(const klib::string& name);
 
+    // Writes the superblock back to the disk, after changes
+    // in memory have been made. Return 0 on success, -1 on failure.
+    int flush_superblock() const;
+
     // Writes the block group descriptor table back to the disk, after changes
     // in memory have been made. Return 0 on success, -1 on failure.
-    int flush_bgdt();
+    int flush_bgdt() const;
 
     // Keep a cache of block allocation tables. Means we can deallocate lots of
     // blocks without updating each table multiple times. The key is which block
     // group the table is for. The data is the allocation table.
-    klib::pair<size_t, klib::vector<char>> block_alloc;
+    klib::map<size_t, klib::vector<char>> block_alloc;
 
     // Caches the block allocation table for a particular block group, by
-    // reading it from the disk.
-    void cache_block_alloc(size_t bg_index) const;
+    // reading it from the disk. Return 0 on success, -1 on failure.
+    int cache_block_alloc(size_t bg_index);
 
     // Flush the cache of block allocation tables, writing them back to the
-    // disk.
-    void flush_block_alloc();
+    // disk. Return 0 on success, -1 on failure.
+    int flush_block_alloc();
 };
 
 /**

@@ -7,6 +7,7 @@ AC_PREREQ([2.67])
 # Initialise Automake. Keep built objects in their corrct subdirectories. Do not
 # cause fatal errors with autoreconf for not having NEWS, AUTHORS etc.
 AM_INIT_AUTOMAKE([subdir-objects foreign])
+AM_SILENT_RULES([yes])
 
 # This should not be installed on the system. Instead, we use installation
 # process to create ISOs and hard disk images. Therefore, the build directory is
