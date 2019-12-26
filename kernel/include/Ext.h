@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include <array>
+#include <ios>
 #include <ostream>
 #include <string>
 #include <utility>
@@ -41,6 +42,11 @@ enum class ext2_required_features : uint32_t {
     journal_device = 0x8
 };
 
+namespace klib {
+    template<>
+    struct BitmaskEnable<ext2_required_features> : public true_type {};
+}
+
 /**
     Features among the required for writing features set.
  */
@@ -54,6 +60,11 @@ enum class ext2_required_writing_features : uint32_t {
     /** Directory contents are stored in the form of a binary tree. */
     directory_tree = 0x4
 };
+
+namespace klib {
+    template<>
+    struct BitmaskEnable<ext2_required_writing_features> : public true_type {};
+} // end klib namespace
 
 /**
     Optional features.
@@ -74,6 +85,19 @@ enum class ext2_optional_features : uint32_t {
     /** Directories use a hash index. */
     directory_hash = 0x20,
 };
+
+namespace klib {
+    template<>
+    struct BitmaskEnable<ext2_optional_features> : public true_type {};
+} // end klib namespace
+
+using klib::operator|;
+using klib::operator&;
+using klib::operator^;
+using klib::operator~;
+using klib::operator|=;
+using klib::operator&=;
+using klib::operator^=;
 
 /**
     Represents the data in an ext2 superblock.
@@ -106,8 +130,14 @@ struct Ext2SuperBlock {
         @param no Number of inodes to set.
         @return Total number of inodes.
      */
-    uint32_t no_inodes() const { return *reinterpret_cast<uint32_t*>(data); }
-    void no_inodes(uint32_t no) { *reinterpret_cast<uint32_t*>(data) = no; }
+    uint32_t no_inodes() const
+    {
+        return *reinterpret_cast<const uint32_t*>(data.data());
+    }
+    void no_inodes(uint32_t no)
+    {
+        *reinterpret_cast<uint32_t*>(data.data()) = no;
+    }
 
     /**
         Gets or sets the total number of blocks.
@@ -117,9 +147,12 @@ struct Ext2SuperBlock {
      */
     uint32_t no_blocks() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 4);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 4);
     }
-    void no_blocks(uint32_t no) { *reinterpret_cast<uint32_t*>(data + 4) = no; }
+    void no_blocks(uint32_t no)
+    {
+        *reinterpret_cast<uint32_t*>(data.data() + 4) = no;
+    }
 
     /**
         Gets or sets the total number of blocks reserved for the superuser.
@@ -129,11 +162,11 @@ struct Ext2SuperBlock {
      */
     uint32_t reserved_blocks() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 8);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 8);
     }
     void reserved_blocks(uint32_t res)
     {
-        *reinterpret_cast<uint32_t*>(data + 8) = res;
+        *reinterpret_cast<uint32_t*>(data.data() + 8) = res;
     }
 
     /**
@@ -144,11 +177,11 @@ struct Ext2SuperBlock {
      */
     uint32_t unalloc_blocks() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 12);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 12);
     }
     void unalloc_blocks(uint32_t unalloc)
     {
-        *reinterpret_cast<uint32_t*>(data + 12) = unalloc;
+        *reinterpret_cast<uint32_t*>(data.data() + 12) = unalloc;
     }
 
     /**
@@ -159,11 +192,11 @@ struct Ext2SuperBlock {
      */
     uint32_t unalloc_inodes() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 16);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 16);
     }
     void unalloc_inodes(uint32_t unalloc)
     {
-        *reinterpret_cast<uint32_t*>(data + 16) = unalloc;
+        *reinterpret_cast<uint32_t*>(data.data() + 16) = unalloc;
     }
 
     /**
@@ -174,11 +207,11 @@ struct Ext2SuperBlock {
      */
     uint32_t superblock_no() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 20);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 20);
     }
     void superblock_no(uint32_t sb)
     {
-        *reinterpret_cast<uint32_t*>(data + 20) = sb;
+        *reinterpret_cast<uint32_t*>(data.data() + 20) = sb;
     }
 
     /**
@@ -190,11 +223,11 @@ struct Ext2SuperBlock {
      */
     uint32_t block_size_shift() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 24);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 24);
     }
     void block_size_shift(uint32_t sh)
     {
-        *reinterpret_cast<uint32_t*>(data + 24) = sh;
+        *reinterpret_cast<uint32_t*>(data.data() + 24) = sh;
     }
 
     /**
@@ -206,11 +239,11 @@ struct Ext2SuperBlock {
      */
     uint32_t fragment_size_shift() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 28);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 28);
     }
     void fragment_size_shift(uint32_t sh)
     {
-        *reinterpret_cast<uint32_t*>(data + 28) = sh;
+        *reinterpret_cast<uint32_t*>(data.data() + 28) = sh;
     }
 
     /**
@@ -221,11 +254,11 @@ struct Ext2SuperBlock {
      */
     uint32_t blocks_per_group() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 32);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 32);
     }
     void blocks_per_group(uint32_t bpg)
     {
-        *reinterpret_cast<uint32_t*>(data + 32) = bpg;
+        *reinterpret_cast<uint32_t*>(data.data() + 32) = bpg;
     }
 
     /**
@@ -236,11 +269,11 @@ struct Ext2SuperBlock {
      */
     uint32_t fragments_per_group() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 36);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 36);
     }
     void fragments_per_group(uint32_t fpg)
     {
-        *reinterpret_cast<uint32_t*>(data + 36) = fpg;
+        *reinterpret_cast<uint32_t*>(data.data() + 36) = fpg;
     }
 
     /**
@@ -251,11 +284,11 @@ struct Ext2SuperBlock {
      */
     uint32_t inodes_per_group() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 40);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 40);
     }
-    void inodes_per_group(uint32_t fpg)
+    void inodes_per_group(uint32_t ipg)
     {
-        *reinterpret_cast<uint32_t*>(data + 40) = ipg;
+        *reinterpret_cast<uint32_t*>(data.data() + 40) = ipg;
     }
 
     /**
@@ -266,11 +299,11 @@ struct Ext2SuperBlock {
      */
     uint32_t last_mount() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 44);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 44);
     }
     void last_mount(uint32_t t)
     {
-        *reinterpret_cast<uint32_t*>(data + 44) = t;
+        *reinterpret_cast<uint32_t*>(data.data() + 44) = t;
     }
 
     /**
@@ -281,11 +314,11 @@ struct Ext2SuperBlock {
      */
     uint32_t last_write() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 48);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 48);
     }
     void last_write(uint32_t t)
     {
-        *reinterpret_cast<uint32_t*>(data + 48) = t;
+        *reinterpret_cast<uint32_t*>(data.data() + 48) = t;
     }
 
     /**
@@ -296,11 +329,11 @@ struct Ext2SuperBlock {
      */
     uint16_t mounts_since_check() const
     {
-        return *reinterpret_cast<uint16_t*>(data + 52);
+        return *reinterpret_cast<const uint16_t*>(data.data() + 52);
     }
     void mounts_since_check(uint16_t n)
     {
-        *reinterpret_cast<uint16_t*>(data + 52) = n;
+        *reinterpret_cast<uint16_t*>(data.data() + 52) = n;
     }
 
     /**
@@ -311,11 +344,11 @@ struct Ext2SuperBlock {
      */
     uint16_t mounts_before_check() const
     {
-        return *reinterpret_cast<uint16_t*>(data + 54);
+        return *reinterpret_cast<const uint16_t*>(data.data() + 54);
     }
     void mounts_before_check(uint16_t n)
     {
-        *reinterpret_cast<uint16_t*>(data + 54) = n;
+        *reinterpret_cast<uint16_t*>(data.data() + 54) = n;
     }
 
     /**
@@ -326,11 +359,11 @@ struct Ext2SuperBlock {
      */
     uint16_t signature() const
     {
-        return *reinterpret_cast<uint16_t*>(data + 56);
+        return *reinterpret_cast<const uint16_t*>(data.data() + 56);
     }
     void signature(uint16_t sig)
     {
-        *reinterpret_cast<uint32_t*>(data + 56) = sig;
+        *reinterpret_cast<uint32_t*>(data.data() + 56) = sig;
     }
 
     /**
@@ -348,11 +381,11 @@ struct Ext2SuperBlock {
 
     state_t state() const
     {
-        return *reinterpret_cast<state_t*>(data + 58);
+        return *reinterpret_cast<const state_t*>(data.data() + 58);
     }
     void state(state_t st)
     {
-        *reinterpret_cast<state_t*>(data + 58) = st;
+        *reinterpret_cast<state_t*>(data.data() + 58) = st;
     }
 
     /**
@@ -373,11 +406,11 @@ struct Ext2SuperBlock {
 
     uint16_t error_action() const
     {
-        return *reinterpret_cast<error_action_t*>(data + 60);
+        return *reinterpret_cast<const error_action_t*>(data.data() + 60);
     }
     void error_action(error_action_t ac)
     {
-        *reinterpret_cast<error_action_t*>(data + 60) = ac;
+        *reinterpret_cast<error_action_t*>(data.data() + 60) = ac;
     }
 
     /**
@@ -388,11 +421,11 @@ struct Ext2SuperBlock {
      */
     uint16_t minor_version() const
     {
-        return *reinterpret_cast<uint16_t*>(data + 62);
+        return *reinterpret_cast<const uint16_t*>(data.data() + 62);
     }
     void minor_version(uint16_t ver)
     {
-        *reinterpret_cast<uint16_t*>(data + 62) = ver;
+        *reinterpret_cast<uint16_t*>(data.data() + 62) = ver;
     }
 
     /**
@@ -403,11 +436,11 @@ struct Ext2SuperBlock {
      */
     uint32_t last_check() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 64);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 64);
     }
     void last_check(uint32_t t)
     {
-        *reinterpret_cast<uint32_t*>(data + 64) = t;
+        *reinterpret_cast<uint32_t*>(data.data() + 64) = t;
     }
 
     /**
@@ -418,11 +451,11 @@ struct Ext2SuperBlock {
      */
     uint32_t check_interval() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 68);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 68);
     }
     void check_interval(uint32_t t)
     {
-        *reinterpret_cast<uint32_t*>(data + 68) = t;
+        *reinterpret_cast<uint32_t*>(data.data() + 68) = t;
     }
 
     /**
@@ -445,13 +478,13 @@ struct Ext2SuperBlock {
         other = 5
     };
 
-    opid_t state() const
+    opid_t opid() const
     {
-        return *reinterpret_cast<opid_t*>(data + 72);
+        return *reinterpret_cast<const opid_t*>(data.data() + 72);
     }
-    void state(opid_t op)
+    void opid(opid_t op)
     {
-        *reinterpret_cast<opid_t*>(data + 72) = op;
+        *reinterpret_cast<opid_t*>(data.data() + 72) = op;
     }
 
     /**
@@ -462,11 +495,11 @@ struct Ext2SuperBlock {
      */
     uint32_t major_version() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 76);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 76);
     }
     void major_version(uint32_t ver)
     {
-        *reinterpret_cast<uint32_t*>(data + 76) = ver;
+        *reinterpret_cast<uint32_t*>(data.data() + 76) = ver;
     }
 
     /**
@@ -477,11 +510,11 @@ struct Ext2SuperBlock {
      */
     uint16_t reserved_uid() const
     {
-        return *reinterpret_cast<uint16_t*>(data + 80);
+        return *reinterpret_cast<const uint16_t*>(data.data() + 80);
     }
     void reserved_uid(uint16_t uid)
     {
-        *reinterpret_cast<uint16_t*>(data + 80) = ver;
+        *reinterpret_cast<uint16_t*>(data.data() + 80) = uid;
     }
 
     /**
@@ -492,11 +525,11 @@ struct Ext2SuperBlock {
      */
     uint16_t reserved_gid() const
     {
-        return *reinterpret_cast<uint16_t*>(data + 82);
+        return *reinterpret_cast<const uint16_t*>(data.data() + 82);
     }
-    void reserved_uid(uint16_t gid)
+    void reserved_gid(uint16_t gid)
     {
-        *reinterpret_cast<uint16_t*>(data + 82) = ver;
+        *reinterpret_cast<uint16_t*>(data.data() + 82) = gid;
     }
 
     /**
@@ -510,14 +543,14 @@ struct Ext2SuperBlock {
     uint32_t first_inode() const
     {
         if (major_version() >= 1)
-            return *reinterpret_cast<uint32_t*>(data + 84);
+            return *reinterpret_cast<const uint32_t*>(data.data() + 84);
         else
             return f_inode;
     }
     void first_inode(uint32_t no)
     {
         if (major_version() >= 1)
-            *reinterpret_cast<uint32_t*>(data + 84) = no;
+            *reinterpret_cast<uint32_t*>(data.data() + 84) = no;
     }
 
     /**
@@ -531,14 +564,14 @@ struct Ext2SuperBlock {
     uint16_t inode_size() const
     {
         if (major_version() >= 1)
-            return *reinterpret_cast<uint16_t*>(data + 88);
+            return *reinterpret_cast<const uint16_t*>(data.data() + 88);
         else
             return inode_sz;
     }
     void inode_size(uint16_t sz)
     {
         if (major_version() >= 1)
-            *reinterpret_cast<uint16_t*>(data + 88) = sz;
+            *reinterpret_cast<uint16_t*>(data.data() + 88) = sz;
     }
 
     /**
@@ -551,14 +584,14 @@ struct Ext2SuperBlock {
     uint16_t backup_group() const
     {
         if (major_version() >= 1)
-            return *reinterpret_cast<uint16_t*>(data + 90);
+            return *reinterpret_cast<const uint16_t*>(data.data() + 90);
         else
             return 0;
     }
     void backup_group(uint16_t blg)
     {
         if (major_version() >= 1)
-            *reinterpret_cast<uint16_t*>(data + 90) = blg;
+            *reinterpret_cast<uint16_t*>(data.data() + 90) = blg;
     }
 
     /**
@@ -572,14 +605,15 @@ struct Ext2SuperBlock {
     ext2_optional_features optional_features() const
     {
         if (major_version() >= 1)
-            return *reinterpret_cast<ext2_optional_features*>(data + 92);
+            return *reinterpret_cast<const ext2_optional_features*>(
+                data.data() + 92);
         else
             return ext2_optional_features::none;
     }
     void optional_features(ext2_optional_features feat)
     {
         if (major_version() >= 1)
-            *reinterpret_cast<ext2_optional_features*>(data + 92) = feat;
+            *reinterpret_cast<ext2_optional_features*>(data.data() + 92) = feat;
     }
 
     /**
@@ -593,14 +627,15 @@ struct Ext2SuperBlock {
     ext2_required_features required_features() const
     {
         if (major_version() >= 1)
-            return *reinterpret_cast<ext2_required_features*>(data + 96);
+            return *reinterpret_cast<const ext2_required_features*>(
+                data.data() + 96);
         else
             return ext2_required_features::none;
     }
     void required_features(ext2_required_features feat)
     {
         if (major_version() >= 1)
-            *reinterpret_cast<ext2_required_features*>(data + 96) = feat;
+            *reinterpret_cast<ext2_required_features*>(data.data() + 96) = feat;
     }
 
     /**
@@ -614,16 +649,16 @@ struct Ext2SuperBlock {
     ext2_required_writing_features required_writing_features() const
     {
         if (major_version() >= 1)
-            return *reinterpret_cast<ext2_required_writing_features*>(
-                data + 100);
+            return *reinterpret_cast<const ext2_required_writing_features*>(
+                data.data() + 100);
         else
             return ext2_required_writing_features::none;
     }
     void required_writing_features(ext2_required_writing_features feat)
     {
         if (major_version() >= 1)
-            *reinterpret_cast<ext2_required_writing_features*>(data + 100) =
-                feat;
+            *reinterpret_cast<ext2_required_writing_features*>(
+                data.data() + 100) = feat;
     }
 
     /**
@@ -635,7 +670,8 @@ struct Ext2SuperBlock {
     klib::string uuid() const
     {
         if (major_version() >= 1)
-            return klib::string {data + 104, uuid_length};
+            return klib::string {
+                reinterpret_cast<const char*>(data.data() + 104), uuid_length};
         else
             return klib::string {};
     }
@@ -650,7 +686,8 @@ struct Ext2SuperBlock {
     klib::string name() const
     {
         if (major_version() >= 1)
-            return klib::string {data + 120, name_length};
+            return klib::string {
+                reinterpret_cast<const char*>(data.data() + 120), name_length};
         else
             return klib::string {};
     }
@@ -666,7 +703,8 @@ struct Ext2SuperBlock {
     klib::string path() const
     {
         if (major_version() >= 1)
-            return klib::string {data + 136};
+            return klib::string {
+                reinterpret_cast<const char*>(data.data()) + 136};
         else
             return klib::string {};
     }
@@ -711,7 +749,7 @@ protected:
     // Fixed first non-reserved inode, for major version less than 1.
     static constexpr uint32_t f_inode = 11;
     // Fixed size of inodes, for major version less than 1.
-    static constexpr uint16_t inode_sz;
+    static constexpr uint16_t inode_sz = 128;
     // Length of the file system ID (UUID).
     static constexpr size_t uuid_length = 16;
     // Length of the volume name.
@@ -759,11 +797,11 @@ struct BlockGroupDescriptor {
      */
     uint32_t block_map() const
     {
-        return *reinterpret_cast<uint32_t*>(data);
+        return *reinterpret_cast<const uint32_t*>(data.data());
     }
     void block_map(uint32_t bl)
     {
-        *reinterpret_cast<uint32_t*>(data) = bl;
+        *reinterpret_cast<uint32_t*>(data.data()) = bl;
     }
 
     /**
@@ -774,11 +812,11 @@ struct BlockGroupDescriptor {
      */
     uint32_t inode_map() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 4);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 4);
     }
     void inode_map(uint32_t bl)
     {
-        *reinterpret_cast<uint32_t*>(data + 4) = bl;
+        *reinterpret_cast<uint32_t*>(data.data() + 4) = bl;
     }
 
     /**
@@ -789,11 +827,11 @@ struct BlockGroupDescriptor {
      */
     uint32_t inode_table() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 8);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 8);
     }
     void inode_table(uint32_t bl)
     {
-        *reinterpret_cast<uint32_t*>(data + 8) = bl;
+        *reinterpret_cast<uint32_t*>(data.data() + 8) = bl;
     }
 
     /**
@@ -804,11 +842,11 @@ struct BlockGroupDescriptor {
      */
     uint16_t unalloc_blocks() const
     {
-        return *reinterpret_cast<uint16_t*>(data + 12);
+        return *reinterpret_cast<const uint16_t*>(data.data() + 12);
     }
     void unalloc_blocks(uint16_t n)
     {
-        *reinterpret_cast<uint16_t*>(data + 12) = n;
+        *reinterpret_cast<uint16_t*>(data.data() + 12) = n;
     }
 
     /**
@@ -819,11 +857,11 @@ struct BlockGroupDescriptor {
      */
     uint16_t unalloc_inodes() const
     {
-        return *reinterpret_cast<uint16_t*>(data + 14);
+        return *reinterpret_cast<const uint16_t*>(data.data() + 14);
     }
     void unalloc_inodes(uint16_t n)
     {
-        *reinterpret_cast<uint16_t*>(data + 14) = n;
+        *reinterpret_cast<uint16_t*>(data.data() + 14) = n;
     }
 
     /**
@@ -834,11 +872,11 @@ struct BlockGroupDescriptor {
      */
     uint16_t dirs() const
     {
-        return *reinterpret_cast<uint16_t*>(data + 16);
+        return *reinterpret_cast<const uint16_t*>(data.data() + 16);
     }
     void dirs(uint16_t n)
     {
-        *reinterpret_cast<uint16_t*>(data + 16) = n;
+        *reinterpret_cast<uint16_t*>(data.data() + 16) = n;
     }
 
     /**
@@ -914,12 +952,13 @@ struct Ext2Inode {
      */
     type_t type() const
     {
-        return static_cast<type_t>(*reinterpret_cast<uint16_t*>(data) & 0xF000);
+        return static_cast<type_t>(
+            *reinterpret_cast<const uint16_t*>(data.data()) & 0xF000);
     }
     void type(type_t t)
     {
-        *reinterpret_cast<uint16_t*>(data) =
-            (*reinterpret_cast<uint16_t*>(data) & 0x0FFF) |
+        *reinterpret_cast<uint16_t*>(data.data()) =
+            (*reinterpret_cast<uint16_t*>(data.data()) & 0x0FFF) |
             static_cast<uint16_t>(t);
     }
 
@@ -932,12 +971,12 @@ struct Ext2Inode {
      */
     uint16_t permissions() const
     {
-        return *reinterpret_cast<uint16_t*>(data) & 0x0FFF;
+        return *reinterpret_cast<const uint16_t*>(data.data()) & 0x0FFF;
     }
     void permissions(uint16_t p)
     {
-        *reinterpret_cast<uint16_t*>(data) =
-            (*reinterpret_cast<uint16_t*>(data) & 0xF000) | (p & 0x0FFF);
+        *reinterpret_cast<uint16_t*>(data.data()) =
+            (*reinterpret_cast<uint16_t*>(data.data()) & 0xF000) | (p & 0x0FFF);
     }
 
     /**
@@ -948,11 +987,11 @@ struct Ext2Inode {
      */
     uint16_t uid() const
     {
-        return *reinterpret_cast<uint16_t*>(data + 2);
+        return *reinterpret_cast<const uint16_t*>(data.data() + 2);
     }
     void uid(uint16_t u)
     {
-        *reinterpret_cast<uint16_t*>(data + 2) = u;
+        *reinterpret_cast<uint16_t*>(data.data() + 2) = u;
     }
 
     /**
@@ -963,11 +1002,11 @@ struct Ext2Inode {
      */
     uint32_t lower_size() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 4);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 4);
     }
     void lower_size(uint32_t lsz)
     {
-        *reinterpret_cast<uint32_t*>(data + 4) = lsz;
+        *reinterpret_cast<uint32_t*>(data.data() + 4) = lsz;
     }
 
     /**
@@ -978,11 +1017,11 @@ struct Ext2Inode {
      */
     uint32_t access_time() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 8);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 8);
     }
     void access_time(uint32_t t)
     {
-        *reinterpret_cast<uint32_t*>(data + 8) = t;
+        *reinterpret_cast<uint32_t*>(data.data() + 8) = t;
     }
 
     /**
@@ -993,11 +1032,11 @@ struct Ext2Inode {
      */
     uint32_t creation_time() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 12);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 12);
     }
     void creation_time(uint32_t t)
     {
-        *reinterpret_cast<uint32_t*>(data + 12) = t;
+        *reinterpret_cast<uint32_t*>(data.data() + 12) = t;
     }
 
     /**
@@ -1008,11 +1047,11 @@ struct Ext2Inode {
      */
     uint32_t modification_time() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 16);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 16);
     }
     void modification_time(uint32_t t)
     {
-        *reinterpret_cast<uint32_t*>(data + 16) = t;
+        *reinterpret_cast<uint32_t*>(data.data() + 16) = t;
     }
 
     /**
@@ -1023,11 +1062,11 @@ struct Ext2Inode {
      */
     uint32_t deletion_time() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 20);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 20);
     }
     void deletion_time(uint32_t t)
     {
-        *reinterpret_cast<uint32_t*>(data + 20) = t;
+        *reinterpret_cast<uint32_t*>(data.data() + 20) = t;
     }
 
     /**
@@ -1038,11 +1077,11 @@ struct Ext2Inode {
      */
     uint16_t gid() const
     {
-        return *reinterpret_cast<uint16_t*>(data + 24);
+        return *reinterpret_cast<const uint16_t*>(data.data() + 24);
     }
     void gid(uint16_t g)
     {
-        *reinterpret_cast<uint16_t*>(data + 24) = g;
+        *reinterpret_cast<uint16_t*>(data.data() + 24) = g;
     }
 
     /**
@@ -1053,11 +1092,11 @@ struct Ext2Inode {
      */
     uint16_t hard_links() const
     {
-        return *reinterpret_cast<uint16_t*>(data + 26);
+        return *reinterpret_cast<const uint16_t*>(data.data() + 26);
     }
     void hard_links(uint16_t n)
     {
-        *reinterpret_cast<uint16_t*>(data + 26) = n;
+        *reinterpret_cast<uint16_t*>(data.data() + 26) = n;
     }
 
     /**
@@ -1068,11 +1107,11 @@ struct Ext2Inode {
      */
     uint32_t sectors() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 30);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 30);
     }
     void sectors(uint32_t n)
     {
-        *reinterpret_cast<uint32_t*>(data + 30) = n;
+        *reinterpret_cast<uint32_t*>(data.data() + 30) = n;
     }
 
     /**
@@ -1111,11 +1150,11 @@ struct Ext2Inode {
      */
     flags_t flags() const
     {
-        return *reinterpret_cast<flags_t*>(data + 32);
+        return *reinterpret_cast<const flags_t*>(data.data() + 32);
     }
-    void sectors(flags_t n)
+    void sectors(flags_t f)
     {
-        *reinterpret_cast<flags_t*>(data + 32) = f;
+        *reinterpret_cast<flags_t*>(data.data() + 32) = f;
     }
 
     /**
@@ -1126,11 +1165,11 @@ struct Ext2Inode {
      */
     uint32_t os_1() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 36);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 36);
     }
     void os_1(uint32_t v)
     {
-        *reinterpret_cast<uint32_t*>(data + 36) = v;
+        *reinterpret_cast<uint32_t*>(data.data() + 36) = v;
     }
 
 
@@ -1151,13 +1190,13 @@ struct Ext2Inode {
     {
         if (n >= no_direct)
             return 0;
-        return *reinterpret_cast<uint32_t*>(data + 40 + 4*n);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 40 + 4*n);
     }
     void direct(uint32_t bl, size_t n)
     {
         if (n >= no_direct)
             return;
-        *reinterpret_cast<uint32_t*>(data + 40 + 4*n) = bl;
+        *reinterpret_cast<uint32_t*>(data.data() + 40 + 4*n) = bl;
     }
 
     /**
@@ -1168,11 +1207,11 @@ struct Ext2Inode {
      */
     uint32_t s_indirect() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 88);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 88);
     }
     void s_indirect(uint32_t v)
     {
-        *reinterpret_cast<uint32_t*>(data + 88) = v;
+        *reinterpret_cast<uint32_t*>(data.data() + 88) = v;
     }
 
     /**
@@ -1183,11 +1222,11 @@ struct Ext2Inode {
      */
     uint32_t d_indirect() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 92);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 92);
     }
     void d_indirect(uint32_t v)
     {
-        *reinterpret_cast<uint32_t*>(data + 92) = v;
+        *reinterpret_cast<uint32_t*>(data.data() + 92) = v;
     }
 
     /**
@@ -1198,11 +1237,11 @@ struct Ext2Inode {
      */
     uint32_t t_indirect() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 96);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 96);
     }
     void t_indirect(uint32_t v)
     {
-        *reinterpret_cast<uint32_t*>(data + 96) = v;
+        *reinterpret_cast<uint32_t*>(data.data() + 96) = v;
     }
 
     /**
@@ -1213,11 +1252,11 @@ struct Ext2Inode {
      */
     uint32_t gen_no() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 100);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 100);
     }
     void gen_no(uint32_t v)
     {
-        *reinterpret_cast<uint32_t*>(data + 100) = v;
+        *reinterpret_cast<uint32_t*>(data.data() + 100) = v;
     }
 
     /**
@@ -1228,11 +1267,11 @@ struct Ext2Inode {
      */
     uint32_t file_acl() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 104);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 104);
     }
     void file_acl(uint32_t acl)
     {
-        *reinterpret_cast<uint32_t*>(data + 104) = acl;
+        *reinterpret_cast<uint32_t*>(data.data() + 104) = acl;
     }
 
     /**
@@ -1245,13 +1284,13 @@ struct Ext2Inode {
     {
         if (type() != directory)
             return 0;
-        return *reinterpret_cast<uint32_t*>(data + 108);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 108);
     }
     void directory_acl(uint32_t acl)
     {
         if (type() != directory)
             return;
-        *reinterpret_cast<uint32_t*>(data + 108) = acl;
+        *reinterpret_cast<uint32_t*>(data.data() + 108) = acl;
     }
 
     /**
@@ -1264,13 +1303,13 @@ struct Ext2Inode {
     {
         if (type() == directory)
             return 0;
-        return *reinterpret_cast<uint32_t*>(data + 108);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 108);
     }
     void upper_size(uint32_t usz)
     {
         if (type() == directory)
-            return 0;
-        *reinterpret_cast<uint32_t*>(data + 108) = usz;
+            return;
+        *reinterpret_cast<uint32_t*>(data.data() + 108) = usz;
     }
 
     /**
@@ -1281,11 +1320,11 @@ struct Ext2Inode {
      */
     uint32_t frag_addr() const
     {
-        return *reinterpret_cast<uint32_t*>(data + 112);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 112);
     }
     void frag_addr(uint32_t bl)
     {
-        *reinterpret_cast<uint32_t*>(data + 112) = bl;
+        *reinterpret_cast<uint32_t*>(data.data() + 112) = bl;
     }
 
     /**
@@ -1318,49 +1357,6 @@ protected:
     klib::array<uint8_t, data_size> data;
     // Size of the inode on disk. Read from the superblock.
     size_t disk_size;
-
-    // Types and permissions.
-    uint16_t type;
-    // User ID.
-    uint16_t uid;
-    // Lower 32 bits of file size in bytes.
-    uint32_t lower_size;
-    // Last access time.
-    uint32_t access_time;
-    // Creation time.
-    uint32_t creation_time;
-    // Last modification time.
-    uint32_t mod_time;
-    // Deletion time.
-    uint32_t del_time;
-    // Group id.
-    uint16_t gid;
-    // Count of hard links.
-    uint16_t hard_links;
-    // Number of disk sectors (not blocks) used, excluding inode sector.
-    uint32_t sectors;
-    // Flags.
-    uint32_t flags;
-    // First OS specific value.
-    uint32_t os_1;
-
-    klib::array<uint32_t, no_direct> direct;
-    // Singly indirect pointer.
-    uint32_t s_indirect;
-    // Doubly indirect pointer.
-    uint32_t d_indirect;
-    // Triply indirect pointer.
-    uint32_t t_indirect;
-    // Generation number (for NFS).
-    uint32_t gen_no;
-    // File ACL (reserved in older versions).
-    uint32_t file_acl;
-    // Directory ACL or upper 32 bits of file size.
-    uint32_t upper_size;
-    // Block address of fragment.
-    uint32_t frag_addr;
-
-    klib::array<uint8_t, os_2_size> os_2;
 };
 
 /**
@@ -1557,8 +1553,8 @@ public:
         correspond to the required features in the superblock. And that value
         with the complement of this and if it's not zero, we don't support it.
      */
-    static constexpr uint32_t ext2_required_supported =
-        static_cast<uint32_t>(required_features::directories_type);
+    static constexpr ext2_required_features required_supported =
+        ext2_required_features::directories_type;
 
     /**
         Features from the required for writing feature set currently supported.
@@ -1566,8 +1562,8 @@ public:
         superblock. And that value with the complement of this and if it's not
         zero, we don't support it.
      */
-    static constexpr uint32_t required_writing_supported =
-        static_cast<uint32_t>(required_writing_features::large_file_size);
+    static constexpr ext2_required_writing_features required_writing_supported =
+        ext2_required_writing_features::large_file_size;
 
     /**
         Constructor. Creates an ext2 driver for the given device or partition.
@@ -1614,7 +1610,7 @@ public:
      */
     size_t block_size() const override
     {
-        return 1024 << super_block.block_size_shift;
+        return 1024 << super_block.block_size_shift();
     }
 
     /**
@@ -1669,7 +1665,7 @@ public:
         @param bl Block to deallocate.
         @return 0 on success, -1 on failure.
      */
-    void deallocate(size_t bl);
+    int deallocate(size_t bl);
 
     /**
         Whether the file system is valid. Errors in the superblock or the device
@@ -1715,7 +1711,7 @@ protected:
      */
     uint64_t block_to_byte(size_t ba) const
     {
-        return ba * (1024 << super_block.block_size_shift);
+        return ba * (1024 << super_block.block_size_shift());
     }
 
     /**
@@ -1727,7 +1723,7 @@ protected:
     size_t byte_to_block(uint64_t off) const
     {
         return
-            static_cast<size_t>(off / (1024 << super_block.block_size_shift));
+            static_cast<size_t>(off / (1024 << super_block.block_size_shift()));
     }
 
     // Retrieve inode data, given its numerical address or file or directory

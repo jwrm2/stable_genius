@@ -36,7 +36,7 @@ FileSystem* create_ext(const klib::string& drv)
 Ext2SuperBlock::Ext2SuperBlock(klib::istream& in) : val {true}
 {
     // Read in the first 84 bytes, which are compulsory.
-    in.read(data, compulsory_size);
+    in.read(reinterpret_cast<char*>(data.data()), compulsory_size);
 
     // Check the amount read and the signature.
     if (!in || in.gcount() != compulsory_size || signature() != sig)
@@ -55,7 +55,8 @@ Ext2SuperBlock::Ext2SuperBlock(klib::istream& in) : val {true}
     // Check the major version and read the optional data.
     if (major_version() >= 1)
     {
-        in.read(data + compulsory_size, data_size - compulsory_size);
+        in.read(reinterpret_cast<char*>(data.data()) + compulsory_size,
+            data_size - compulsory_size);
         if (!in || in.gcount() != compulsory_size)
             val = false;
 
@@ -83,9 +84,9 @@ klib::ostream& Ext2SuperBlock::write(klib::ostream& dest) const
         return dest;
 
     if (major_version() >= 1)
-        dest.write(data, data_size);
+        dest.write(reinterpret_cast<const char*>(data.data()), data_size);
     else
-        dest.write(data, compulsory_size);
+        dest.write(reinterpret_cast<const char*>(data.data()), compulsory_size);
 
     return dest;
 }
@@ -95,7 +96,8 @@ klib::ostream& Ext2SuperBlock::write(klib::ostream& dest) const
 void Ext2SuperBlock::uuid(const klib::string& u)
 {
     if (major_version() >= 1)
-        klib::memcpy(data + 104, u.data(), uuid_length);
+        klib::memcpy(reinterpret_cast<char*>(data.data() + 104),
+            u.data(), uuid_length);
 }
 
 /******************************************************************************/
@@ -103,7 +105,7 @@ void Ext2SuperBlock::uuid(const klib::string& u)
 void Ext2SuperBlock::name(const klib::string& n)
 {
     if (major_version() >= 1)
-        klib::memcpy(data + 120, n.data(), name_length);
+        klib::memcpy(data.data() + 120, n.data(), name_length);
 }
 
 /******************************************************************************/
@@ -114,12 +116,13 @@ void Ext2SuperBlock::path(const klib::string& p)
     {
         if (p.size() < path_length)
         {
-            klib::memcpy(data + 136, n.data(), p.size());
-            klib::memset(data + 136 + p.size(), '\0', path_length - p.size());
+            klib::memcpy(data.data() + 136, p.data(), p.size());
+            klib::memset(data.data() + 136 + p.size(), '\0',
+                path_length - p.size());
         }
         else
         {
-            klib::memcpy(data + 136, n.data(), path_length - 1);
+            klib::memcpy(data.data() + 136, p.data(), path_length - 1);
             data[135 + path_length] = '\0';
         }
     }
@@ -131,7 +134,7 @@ void Ext2SuperBlock::path(const klib::string& p)
 BlockGroupDescriptor::BlockGroupDescriptor(klib::istream& in) : val {true}
 {
     // Read in the 18 bytes that actually contain data.
-    in.read(data, data_size);
+    in.read(reinterpret_cast<char*>(data.data()), data_size);
 
     // Check the amount read and the signature.
     if (!in || in.gcount() != data_size)
@@ -154,7 +157,7 @@ klib::ostream& BlockGroupDescriptor::write(klib::ostream& dest) const
     if (!dest)
         return dest;
 
-    dest.write(data, data_size);
+    dest.write(reinterpret_cast<const char*>(data.data()), data_size);
 
     return dest;
 }
@@ -181,7 +184,7 @@ Ext2Inode::Ext2Inode(klib::istream& in, size_t sz) :
     disk_size {sz}
 {
     // Read in the 128 bytes that actually contain data.
-    in.read(data, data_size);
+    in.read(reinterpret_cast<char*>(data.data()), data_size);
 
     // Check the amount read and the signature.
     if (!in || in.gcount() != data_size)
@@ -191,7 +194,7 @@ Ext2Inode::Ext2Inode(klib::istream& in, size_t sz) :
     }
 
     // Skip over any unused space, so the stream is positioned at the end of
-    // the descriptor reserved space.
+    // the reserved space.
     in.ignore(disk_size - data_size);
     if (!in || in.gcount() != disk_size - data_size)
         val = false;
@@ -199,28 +202,28 @@ Ext2Inode::Ext2Inode(klib::istream& in, size_t sz) :
 
 /******************************************************************************/
 
-klib::ostream& Ext2Inode::write(klib::ostream& dest)
+klib::ostream& Ext2Inode::write(klib::ostream& dest) const
 {
     if (!dest)
         return dest;
 
-    dest.write(data, data_size);
+    dest.write(reinterpret_cast<const char*>(data.data()), data_size);
 
     return dest;
 }
 
 /******************************************************************************/
 
-klib::array<uint8_t, os_2_size> Ext2Inode::os_2() const
+klib::array<uint8_t, Ext2Inode::os_2_size> Ext2Inode::os_2() const
 {
     klib::array<uint8_t, os_2_size> ret_val;
-    klib::memcpy(ret_val.data(), data + 116, os_2_size);
+    klib::memcpy(ret_val.data(), data.data() + 116, os_2_size);
     return ret_val;
 }
 
 void Ext2Inode::os_2(const klib::array<uint8_t, os_2_size>& v)
 {
-    klib::memcpy(data + 116, v.data(), os_2_size);
+    klib::memcpy(data.data() + 116, v.data(), os_2_size);
 }
 
 /******************************************************************************
@@ -232,11 +235,7 @@ Ext2File::Ext2File(const char* m, Ext2Inode& in, size_t indx,
     inode{in},
     inode_index{indx},
     ext2fs {fs}
-{
-    if (mode == "w" || mode == "w+")
-        // Truncate the file.
-        truncate();
-}
+{}
 
 /******************************************************************************/
 
@@ -475,10 +474,6 @@ int Ext2File::truncate()
     if (sz == 0)
         return 0;
 
-    // Store the block size.
-    size_t bl_sz = fs.block_size();
-    const size_t addr_per_block = bl_sz / sizeof(size_t);
-
     // Cycle through the blocks in the file and deallocate them in the block
     // table. Wipe the pointers. This doesn't feel very safe if the file is open
     // multiple times.
@@ -546,15 +541,16 @@ bool Ext2File::truncate_recursive(size_t bl, size_t depth)
 
     // Store the block size.
     size_t bl_sz = fs.block_size();
+    const size_t addr_per_block = bl_sz / sizeof(size_t);
 
     // Create a buffer to read the block.
-    unique_ptr<char> buf {new char[bl_sz]};
+    char* buf = new char[bl_sz];
     bool finished = false;
 
     // Read the singly indirect block.
     fs.read(bl * bl_sz, buf, bl_sz);
     size_t* buffer_blocks = reinterpret_cast<size_t*>(buf);
-    for (size_t i = 0; i < addr_per_block && !finsihed; ++i)
+    for (size_t i = 0; i < addr_per_block && !finished; ++i)
     {
         if (buffer_blocks[i] != 0)
         {
@@ -567,6 +563,7 @@ bool Ext2File::truncate_recursive(size_t bl, size_t depth)
             finished = true;
     }
 
+    delete[] buf;
     return finished;
 }
 
@@ -583,9 +580,9 @@ Ext2Directory::Ext2Directory(Ext2Inode& in, size_t indx, Ext2FileSystem& fs) :
         return;
 
     // Determine whether the directory has a type field.
-    bool type = (fs.get_super_block().required_features &
-        static_cast<uint32_t>(
-            Ext2FileSystem::required_features::directories_type));
+    bool type = (fs.get_super_block().required_features() &        
+            ext2_required_features::directories_type) !=
+            ext2_required_features::none;
 
     // Make a file stream for the directory data. We could do this through the
     // VFS, but that creates a lot of extra inode lookups, when we already have
@@ -696,28 +693,30 @@ Ext2FileSystem::Ext2FileSystem(const klib::string& drv) :
     in.seekg(superblock_loc);
     super_block = Ext2SuperBlock{in};
     in.close();
-    if (super_block.signature != signature)
+    if (super_block.signature() != signature)
     {
         val = false;
         return;
     }
 
-    if ((super_block.required_features & ~Ext2FileSystem::required_supported)
-        != 0)
+    if ((super_block.required_features() & ~Ext2FileSystem::required_supported)
+        != ext2_required_features::none)
     {
         val = false;
         return;
     }
-    if ((super_block.write_features &
-        ~Ext2FileSystem::required_writing_supported) != 0)
+    if ((super_block.required_writing_features() &
+        ~Ext2FileSystem::required_writing_supported) !=
+        ext2_required_writing_features::none)
         read_only = true;
 
     // Calculate and consistency check for number of block groups.
-    size_t no_bg = super_block.no_blocks / super_block.blocks_per_group;
+    size_t no_bg = super_block.no_blocks() / super_block.blocks_per_group();
     no_bg +=
-        (super_block.no_blocks % super_block.blocks_per_group == 0 ? 0 : 1);
-    size_t temp = super_block.no_inodes / super_block.inodes_per_group;
-    temp += (super_block.no_inodes % super_block.inodes_per_group == 0 ? 0 : 1);
+        (super_block.no_blocks() % super_block.blocks_per_group() == 0 ? 0 : 1);
+    size_t temp = super_block.no_inodes() / super_block.inodes_per_group();
+    temp += (super_block.no_inodes() % super_block.inodes_per_group() == 0
+        ? 0 : 1);
     if (no_bg != temp)
     {
         val = false;
@@ -727,8 +726,8 @@ Ext2FileSystem::Ext2FileSystem(const klib::string& drv) :
     // Read the block group decriptor table. This starts in the block after the
     // superblock.
     size_t bgdt_off = 0;
-    while (superblock_loc + super_block.size > bgdt_off)
-        bgdt_off += (1024 << super_block.block_size_shift);
+    while (superblock_loc + super_block.size() > bgdt_off)
+        bgdt_off += (1024 << super_block.block_size_shift());
     in = klib::ifstream {drv_name};
     in.seekg(bgdt_off);
     for (size_t i = 0; i < no_bg; ++i)
@@ -740,7 +739,7 @@ Ext2FileSystem::Ext2FileSystem(const klib::string& drv) :
 Directory* Ext2FileSystem::diropen(const klib::string& name)
 {
     klib::pair<size_t, Ext2Inode> dir = get_inode(name);
-    if (dir.first == 0 || dir.second.get_type() != Ext2Inode::directory)
+    if (dir.first == 0 || dir.second.type() != Ext2Inode::directory)
         return nullptr;
 
     return new Ext2Directory {dir.second, dir.first, *this};
@@ -775,8 +774,9 @@ klib::streamoff Ext2FileSystem::file_size(const Ext2Inode& inode) const
 {
     klib::streamoff ret_val = 0;
 
-    if ((super_block.write_features & static_cast<uint32_t>(
-        required_writing_features::large_file_size)) != 0 &&
+    if ((super_block.required_writing_features() & 
+        ext2_required_writing_features::large_file_size) !=
+        ext2_required_writing_features::none &&
         inode.type() == Ext2Inode::file)
     {
         ret_val = inode.upper_size();
@@ -816,7 +816,7 @@ size_t Ext2FileSystem::inode_lookup(const Ext2Inode& inode, size_t bl) const
         // Set up a reader for the block pointed to by the triply indirect
         // pointer.
         klib::ifstream in {drv_name};
-        in.seekg(block_to_byte(inode.t_indirect) +
+        in.seekg(block_to_byte(inode.t_indirect()) +
             (bl / (addr_per_block * addr_per_block)) * sizeof(bl));
         // Read the doubly indirect pointer.
         in.read(reinterpret_cast<klib::ifstream::char_type*>(&d_indirect),
@@ -855,7 +855,7 @@ size_t Ext2FileSystem::inode_lookup(const Ext2Inode& inode, size_t bl) const
         // Set up a reader for the block pointed to by the singly indirect
         // pointer.
         klib::ifstream in {drv_name};
-        in.seekg(block_to_byte(inode.s_indirect) + bl * sizeof(bl));
+        in.seekg(block_to_byte(inode.s_indirect()) + bl * sizeof(bl));
         // Read the block address.
         size_t ret_val;
         in.read(reinterpret_cast<klib::ifstream::char_type*>(&ret_val),
@@ -871,29 +871,29 @@ size_t Ext2FileSystem::inode_lookup(const Ext2Inode& inode, size_t bl) const
 int Ext2FileSystem::update_inode(const Ext2Inode& inode, size_t inode_index)
 {
     // Check the index is in the exisitng range.
-    if (inode_index > super_block.no_inodes || inode_index == 0)
+    if (inode_index > super_block.no_inodes() || inode_index == 0)
         return -1;
 
     // Determine the block group, by dividing by the number of inodes per block
     // group.
-    size_t bg = (index - 1) / super_block.inodes_per_group;
+    size_t bg = (inode_index - 1) / super_block.inodes_per_group();
 
     // Determine the offset within the block by modding by the number of inodes
     // per block group.
-    size_t offset = (index - 1) % super_block.inodes_per_group;
+    size_t offset = (inode_index - 1) % super_block.inodes_per_group();
 
     // Combine the offset and the block base address to get the inode start.
-    uint64_t loc = block_to_byte(bgdt[bg].inode_table) +
-        offset * super_block.inode_size;
+    uint64_t loc = block_to_byte(bgdt[bg].inode_table()) +
+        offset * super_block.inode_size();
 
     // Create a writer for the drive.
     klib::ofstream out {drv_name};
     if (out)
-        out.seekg(loc);
+        out.seekp(loc);
     else
         return -1;
     if (out)
-        return (inode.write(out, super_block.inode_size) ? 0 : 1);
+        return (inode.write(out) ? 0 : 1);
     else
         return -1;
 }
@@ -903,7 +903,7 @@ int Ext2FileSystem::update_inode(const Ext2Inode& inode, size_t inode_index)
 int Ext2FileSystem::flush_metadata()
 {
     return (flush_superblock() == 0) && (flush_bgdt() == 0) &&
-        (flush_block_alloc() == 0) ? 0 : -1);
+        (flush_block_alloc() == 0) ? 0 : -1;
 }
 
 /******************************************************************************/
@@ -912,7 +912,7 @@ int Ext2FileSystem::deallocate(size_t bl)
 {
     // Do nothing if the block index is larger than the number of blocks.
     if (bl >= super_block.no_blocks())
-        return;
+        return -1;
 
     // Find which block group the block is in, and the index in the group.
     size_t bl_grp = bl / (super_block.blocks_per_group());
@@ -924,7 +924,7 @@ int Ext2FileSystem::deallocate(size_t bl)
 
     // Check whether it was already deallocated.
     bool change =
-        block_alloc[bl_grp][bl_indx / 8] & (1 << (bl_indx % 8)) == 1;
+        (block_alloc[bl_grp][bl_indx / 8] & (1 << (bl_indx % 8))) == 1;
 
     if (change)
     {
@@ -946,23 +946,24 @@ klib::pair<size_t, Ext2Inode> Ext2FileSystem::get_inode(size_t index) const
     // Exit if index is greater than the number of inodes present. We can return
     // the default inode, with 0 type, as invalid. Inode indices start at 1. 0
     // is invalid.
-    if (index > super_block.no_inodes || index == 0)
+    if (index > super_block.no_inodes() || index == 0)
         return klib::pair<size_t, Ext2Inode> {0u, Ext2Inode{} };
 
     // Determine the block group, by dividing by the number of inodes per block
     // group.
-    size_t bg = (index - 1) / super_block.inodes_per_group;
+    size_t bg = (index - 1) / super_block.inodes_per_group();
 
     // Determine the offset within the block by modding by the number of inodes
     // per block group.
-    size_t offset = (index - 1) % super_block.inodes_per_group;
+    size_t offset = (index - 1) % super_block.inodes_per_group();
 
     // Combine the offset and the block base address to get the inode start.
-    uint64_t loc = block_to_byte(bgdt[bg].inode_table) +
-        offset * super_block.inode_size;
+    uint64_t loc = block_to_byte(bgdt[bg].inode_table()) +
+        offset * super_block.inode_size();
     klib::ifstream in {drv_name};
     in.seekg(loc);
-    return klib::pair<size_t, Ext2Inode> {index, Ext2Inode {in}};
+    return klib::pair<size_t, Ext2Inode> {index,
+        Ext2Inode {in, super_block.inode_size()}};
 }
 
 /******************************************************************************/

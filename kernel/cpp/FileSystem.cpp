@@ -96,13 +96,15 @@ klib::FILE* VirtualFileSystem::fopen(const klib::string& name, const char* mode)
 {
     klib::string tmp {name};
     FileSystem* fs = lookup(tmp);
-    klib::FILE* f {new fs->fopen(tmp, mode)};
+    klib::FILE* f = fs->fopen(tmp, mode);
 
     // Deal with mode specific actions.
-    if (mode == "w" || mode == "w+")
+    if (klib::strcmp(mode, "w") == 0|| klib::strcmp(mode, "w+") == 0)
         f->truncate();
-    if (mode == "a" || mode == "a+")
+    if (klib::strcmp(mode, "a") == 0 || klib::strcmp(mode, "a+") == 0)
         klib::fseek(f, 0, SEEK_END);
+
+    return f;
 }
 
 /******************************************************************************/
