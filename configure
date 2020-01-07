@@ -1576,6 +1576,37 @@ fi
   as_fn_set_status $ac_retval
 
 } # ac_fn_c_try_compile
+
+# ac_fn_c_check_header_compile LINENO HEADER VAR INCLUDES
+# -------------------------------------------------------
+# Tests whether HEADER exists and can be compiled using the include files in
+# INCLUDES, setting the cache variable VAR accordingly.
+ac_fn_c_check_header_compile ()
+{
+  as_lineno=${as_lineno-"$1"} as_lineno_stack=as_lineno_stack=$as_lineno_stack
+  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for $2" >&5
+$as_echo_n "checking for $2... " >&6; }
+if eval \${$3+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+$4
+#include <$2>
+_ACEOF
+if ac_fn_c_try_compile "$LINENO"; then :
+  eval "$3=yes"
+else
+  eval "$3=no"
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
+fi
+eval ac_res=\$$3
+	       { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_res" >&5
+$as_echo "$ac_res" >&6; }
+  eval $as_lineno_stack; ${as_lineno_stack:+:} unset as_lineno
+
+} # ac_fn_c_check_header_compile
 cat >config.log <<_ACEOF
 This file contains any messages produced by compilers while
 running configure, to aid debugging if configure makes a mistake.
@@ -3513,7 +3544,7 @@ fi
 
 CXXFLAGS=${user_cxxflags}
 
-# Check for the C++ compiler. We need the default flags to be freestanding, or
+# Check for the C compiler. We need the default flags to be freestanding, or
 # the test compilation will fail.
 user_cflags=${CFLAGS}
 : ${CFLAGS="-ffreestanding -nostdlib"}
@@ -4243,6 +4274,110 @@ else
 fi
 
 
+# Check for required compiler generated stanard headers
+
+for ac_header in stddef.h
+do :
+  ac_fn_c_check_header_compile "$LINENO" "stddef.h" "ac_cv_header_stddef_h" "
+"
+if test "x$ac_cv_header_stddef_h" = xyes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_STDDEF_H 1
+_ACEOF
+
+$as_echo "#define HAVE_STDDEF_H 1" >>confdefs.h
+
+else
+  as_fn_error $? "stddef.h not present" "$LINENO" 5
+fi
+
+done
+
+for ac_header in stdarg.h
+do :
+  ac_fn_c_check_header_compile "$LINENO" "stdarg.h" "ac_cv_header_stdarg_h" "
+"
+if test "x$ac_cv_header_stdarg_h" = xyes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_STDARG_H 1
+_ACEOF
+
+$as_echo "#define HAVE_STDARG_H 1" >>confdefs.h
+
+else
+  as_fn_error $? "stdarg.h not present" "$LINENO" 5
+fi
+
+done
+
+for ac_header in stdint.h
+do :
+  ac_fn_c_check_header_compile "$LINENO" "stdint.h" "ac_cv_header_stdint_h" "
+"
+if test "x$ac_cv_header_stdint_h" = xyes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_STDINT_H 1
+_ACEOF
+
+$as_echo "#define HAVE_STDINT_H 1" >>confdefs.h
+
+else
+  as_fn_error $? "stdint.h not present" "$LINENO" 5
+fi
+
+done
+
+for ac_header in unwind.h
+do :
+  ac_fn_c_check_header_compile "$LINENO" "unwind.h" "ac_cv_header_unwind_h" "
+"
+if test "x$ac_cv_header_unwind_h" = xyes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_UNWIND_H 1
+_ACEOF
+
+$as_echo "#define HAVE_UNWIND_H 1" >>confdefs.h
+
+else
+  as_fn_error $? "unwind.h not present" "$LINENO" 5
+fi
+
+done
+
+for ac_header in float.h
+do :
+  ac_fn_c_check_header_compile "$LINENO" "float.h" "ac_cv_header_float_h" "
+"
+if test "x$ac_cv_header_float_h" = xyes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_FLOAT_H 1
+_ACEOF
+
+$as_echo "#define HAVE_FLOAT_H 1" >>confdefs.h
+
+else
+  as_fn_error $? "float.h not present" "$LINENO" 5
+fi
+
+done
+
+for ac_header in limits.h
+do :
+  ac_fn_c_check_header_compile "$LINENO" "limits.h" "ac_cv_header_limits_h" "
+"
+if test "x$ac_cv_header_limits_h" = xyes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_LIMITS_H 1
+_ACEOF
+
+$as_echo "#define HAVE_LIMITS_H 1" >>confdefs.h
+
+else
+  as_fn_error $? "limits.h not present" "$LINENO" 5
+fi
+
+done
+
 CFLAGS=${user_cflags}
 
 # Common CXXFLAGS and specifics for components.
@@ -4576,7 +4711,6 @@ fi
 
 
 # Check for the archiver, then override ARFLAGS to get rid of the 'u' option.
-
 if test -n "$ac_tool_prefix"; then
   for ac_prog in ar lib "link -lib"
   do
