@@ -129,11 +129,18 @@ user_cxxflags=${CXXFLAGS}
 AC_PROG_CXX
 CXXFLAGS=${user_cxxflags}
 
-# Check for the C++ compiler. We need the default flags to be freestanding, or
+# Check for the C compiler. We need the default flags to be freestanding, or
 # the test compilation will fail.
 user_cflags=${CFLAGS}
 : ${CFLAGS="-ffreestanding -nostdlib"}
 AC_PROG_CC
+# Check for required compiler generated stanard headers
+AC_CHECK_HEADERS([stddef.h], [AC_DEFINE([HAVE_STDDEF_H], 1, [Define to 1 if stddef.h is present])], [AC_MSG_ERROR(stddef.h not present)], [ ])
+AC_CHECK_HEADERS([stdarg.h], [AC_DEFINE([HAVE_STDARG_H], 1, [Define to 1 if stdarg.h is present])], [AC_MSG_ERROR(stdarg.h not present)], [ ])
+AC_CHECK_HEADERS([stdint.h], [AC_DEFINE([HAVE_STDINT_H], 1, [Define to 1 if stdint.h is present])], [AC_MSG_ERROR(stdint.h not present)], [ ])
+AC_CHECK_HEADERS([unwind.h], [AC_DEFINE([HAVE_UNWIND_H], 1, [Define to 1 if unwind.h is present])], [AC_MSG_ERROR(unwind.h not present)], [ ])
+AC_CHECK_HEADERS([float.h], [AC_DEFINE([HAVE_FLOAT_H], 1, [Define to 1 if float.h is present])], [AC_MSG_ERROR(float.h not present)], [ ])
+AC_CHECK_HEADERS([limits.h], [AC_DEFINE([HAVE_LIMITS_H], 1, [Define to 1 if limits.h is present])], [AC_MSG_ERROR(limits.h not present)], [ ])
 CFLAGS=${user_cflags}
 
 # Common CXXFLAGS and specifics for components.

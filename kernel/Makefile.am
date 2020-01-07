@@ -12,7 +12,7 @@ kernel_includes = @kernel_include_dir@/AOut.h @kernel_include_dir@/Elf.h @kernel
     @kernel_include_dir@/Tty.h @kernel_include_dir@/VgaCursor.h @kernel_include_dir@/DiskPartition.h @kernel_include_dir@/FileSystem.h \
     @kernel_include_dir@/interrupt.h @kernel_include_dir@/KernelHeap.h @kernel_include_dir@/no_heap_util.h @kernel_include_dir@/Pci.h \
     @kernel_include_dir@/ProcTable.h @kernel_include_dir@/Serial.h @kernel_include_dir@/util.h @kernel_include_dir@/VgaIo.h
-kernel_cpp_sources = @kernel_cpp_dir@/AOut.cpp @kernel_cpp_dir@/Ext.cpp cpp/Idt.cpp @kernel_cpp_dir@/Keyboard.cpp @kernel_cpp_dir@/PageDescriptorTable.cpp \
+kernel_cpp_sources = @kernel_cpp_dir@/AOut.cpp @kernel_cpp_dir@/Ext.cpp @kernel_cpp_dir@/Idt.cpp @kernel_cpp_dir@/Keyboard.cpp @kernel_cpp_dir@/PageDescriptorTable.cpp \
     @kernel_cpp_dir@/Process.cpp @kernel_cpp_dir@/Serial.cpp @kernel_cpp_dir@/Vbe.cpp @kernel_cpp_dir@/DevFileSystem.cpp @kernel_cpp_dir@/File.cpp \
     @kernel_cpp_dir@/InterruptHandler.cpp @kernel_cpp_dir@/klib_cstdlib_impl.cpp @kernel_cpp_dir@/PageFrameAllocator.cpp @kernel_cpp_dir@/ProcTable.cpp \
     @kernel_cpp_dir@/SignalManager.cpp @kernel_cpp_dir@/VgaController.cpp @kernel_cpp_dir@/Device.cpp @kernel_cpp_dir@/FileSystem.cpp @kernel_cpp_dir@/Kernel.cpp \
