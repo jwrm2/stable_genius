@@ -12,8 +12,8 @@
 
 #include "File.h"
 #include "FileSystem.h"
-//#include "Kernel.h"
-//#include "Logger.h"
+#include "Kernel.h"
+#include "Logger.h"
 
 /******************************************************************************
  ******************************************************************************/
@@ -45,19 +45,12 @@ Ext2SuperBlock::Ext2SuperBlock(klib::istream& in) : val {true}
         return;
     }
 
-    // Check the inode size is at least 128 bytes.
-    if (inode_size() < 128)
-    {
-        val = false;
-        return;
-    }
-
     // Check the major version and read the optional data.
     if (major_version() >= 1)
     {
         in.read(reinterpret_cast<char*>(data.data()) + compulsory_size,
             data_size - compulsory_size);
-        if (!in || in.gcount() != compulsory_size)
+        if (!in || in.gcount() != data_size - compulsory_size)
             val = false;
 
         // Skip over any unused space, so the stream is positioned at the end of
@@ -73,6 +66,13 @@ Ext2SuperBlock::Ext2SuperBlock(klib::istream& in) : val {true}
         in.ignore(disk_size - compulsory_size);
         if (!in || in.gcount() != disk_size - compulsory_size)
             val = false;
+    }
+
+    // Check the inode size is at least 128 bytes.
+    if (inode_size() < 128)
+    {
+        val = false;
+        return;
     }
 }
 
@@ -693,7 +693,7 @@ Ext2FileSystem::Ext2FileSystem(const klib::string& drv) :
     in.seekg(superblock_loc);
     super_block = Ext2SuperBlock{in};
     in.close();
-    if (super_block.signature() != signature)
+    if (!super_block.valid() || super_block.signature() != signature)
     {
         val = false;
         return;
