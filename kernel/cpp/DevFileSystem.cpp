@@ -137,11 +137,9 @@ Device* DevFileSystem::get_device_driver(const klib::string& name) const
 
 void DevFileSystem::add_ide(klib::vector<IdeController>& ides)
 {
-    global_kernel->syslog()->info("add_ide: start\n");
     // Add a device for each raw disk.
     for (IdeController& ide : ides)
         ide.add_drivers(device_drivers);
-    global_kernel->syslog()->info("add_ide: added drivers\n");
 
     // Now we search the disks for partitions. We need to use raw disks only, so
     // make a list of disks to search before adding any partitions.
@@ -154,12 +152,10 @@ void DevFileSystem::add_ide(klib::vector<IdeController>& ides)
         if (it->second->get_type() == DeviceType::ata_disk)
             matches.push_back(it->first);
     }
-    global_kernel->syslog()->info("add_ide: checked for atas\n");
 
     // Read partitions for all the matches and add their drivers.
     for (const klib::string& m : matches)
         read_partition_table(m, device_drivers);
-    global_kernel->syslog()->info("add_ide: finished reading partition tables\n");
 
     // Dump the drive map.
     for (const klib::pair<klib::string, Device*> p : device_drivers)
