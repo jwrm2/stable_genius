@@ -1368,26 +1368,22 @@ class Ext2File : public DiskFile {
 public:
     /**
         Constructor. Calls the File constructor with the mode and size, and sets
-        the inode and file system pointer.
+        the inode index and file system pointer.
 
         @param m C-style mode to open the file in.
-        @param in Inode for the file.
-        @param indx Index in the file system of that inode.
+        @param indx Index in the file system of the inode.
         @param fs File system the file belongs to.
      */
-    Ext2File(const char* m, Ext2Inode& in, size_t indx, Ext2FileSystem& fs);
+    Ext2File(const char* m, size_t indx, Ext2FileSystem& fs);
 
     /**
         Closes the handle, freeing any resources used. Further accesses will
-        fail.
+        fail. Flushes the inode record and deletes it from the file system
+        cache.
 
         @return 0 if successful, otherwise EoF.
      */
-    virtual int close() override
-    {
-        inode_index = 0;
-        return DiskFile::close();
-    }
+    virtual int close() override;
 
     /**
         Writes to the file.
@@ -1455,12 +1451,8 @@ public:
     virtual int truncate() override;
 
 protected:
-    // Inode for this file.
-    Ext2Inode inode;
     // Inode index. Necessary for editing the inode.
     size_t inode_index;
-    // File system for ext2fs specific operations.
-    Ext2FileSystem& ext2fs;
 
 private:
     /**
@@ -1482,14 +1474,13 @@ private:
 class Ext2Directory : public Directory {
 public:
     /**
-        Constructor. Given an inode and a file system, process the inode as
-        a directory, creating a mapping from names to inode indices.
+        Constructor. Given an inode index and a file system, process the inode
+        as a directory, creating a mapping from names to inode indices.
 
-        @param In to process.
         @param indx Index in the file system of that inode.
         @param fs File system to work on.
      */
-    Ext2Directory(Ext2Inode& in, size_t indx, Ext2FileSystem& fs);
+    Ext2Directory(size_t indx, Ext2FileSystem& fs);
 
     /**
         Virtual destructor. Calls close() to free any resources.
@@ -1500,7 +1491,7 @@ public:
         Closes the handle, freeing any resources used. Further accesses will
         fail.
      */
-    virtual void close() override { contents.clear(); };
+    virtual void close() override;
 
     /**
         Returns the inode index of the file or directory matching the provided
@@ -1533,11 +1524,9 @@ protected:
         klib::string name;
     };
 
-    // Inode for this directory.
-    Ext2Inode inode;
     // Inode index. Necessary for editing the inode.
     size_t inode_index;
-    // File system for ext2fs specific operations.
+    // File system the directory resides on.
     Ext2FileSystem& ext2fs;
     // Vector of the entries.
     klib::vector<Entry> contents;
@@ -1547,6 +1536,17 @@ protected:
     Implementation of the abstract FileSystem base for ext2 file systems.
  */
 class Ext2FileSystem : public FileSystem {
+protected:
+    // Keep a cache of block allocation tables. Means we can deallocate lots of
+    // blocks without updating each table multiple times. The key is which block
+    // group the table is for. The data is the allocation table.
+    klib::map<size_t, klib::vector<char>> block_alloc;
+
+    // Keep a cache of inodes for files undergoing changes. Keep them centrally
+    // for the file system so that files open multiple times can be kept in sync
+    // without repeated disk writes and reads.
+    klib::map<size_t, Ext2Inode> inodes;
+
 public:
     /**
         Features from the required feature set currently supported. Bits set
@@ -1575,7 +1575,7 @@ public:
     /**
         Opens a directory, returning a pointer to the directory handle. nullptr
         is returned on errors, such as the directory not existing, or the name
-        referring to a file.
+        referring to a file. The directory inode will be cached.
 
         @param name Full path name from the root directory of the file system.
         @return Directory pointer. nullptr on error.
@@ -1586,7 +1586,7 @@ public:
         Opens a file, returning a pointer to the file handle. nullptr is
         returned on errors, such as the file not existing when reading is
         requested, asking for write when the file system is read only, or if the
-        file is a directory.
+        file is a directory. The file inode will be cached.
 
         @param name Full path name from the root directory of the file system.
         @param mode Mode in which to open the file.
@@ -1614,13 +1614,14 @@ public:
     }
 
     /**
-        Given an inode, return the file size. This depends on the type of the
-        file and the optional features specified in the superblock.
+        Given an inode index, return the file size. This depends on the type of
+        the file and the optional features specified in the superblock. The
+        inode will be cached if it isn't already.
 
-        @param inode Inode to check.
+        @param inode_index Inode index to check.
         @return Size of the file described by inode.
      */
-    klib::streamoff file_size(const Ext2Inode& inode) const;
+    klib::streamoff file_size(size_t inode_index);
 
     /**
         Get the super block.
@@ -1631,22 +1632,61 @@ public:
 
     /**
         Given an inode for a file and a block index in the file, get the block
-        address in the file system.
+        address in the file system. The inode will be cached.
 
-        @param inode Inode to use.
+        @param inode_index Inode index to use. Will be cached if it wasn't
+                already.
         @param bl Block index in the file.
         @return Block address in the file system.
      */
-    size_t inode_lookup(const Ext2Inode& inode, size_t bl) const;
+    size_t inode_lookup(size_t inode_index, size_t bl);
 
     /**
-        Update an inode record on disk.
+        Looks up the inode corresponding to the inode index and calls the
+        provided functor on it. The functor is expected to be of the form
+        ret_type operator()(Ext2Inode& in, Args&&... args)
+        { return in.func(args...); } where func is one of the inode functions.
+        This provides a way to access and change the properties of a cached
+        inode.
 
-        @param inode New data for the inode.
-        @param inode_index Index of the inode to update.
+        @param inode_index Index of the inode.
+        @param f Functor to call on the inode.
+        @param args Arguments to pass to the functor.
+        @return Whatever the functor returns.
+     */
+    template <typename F, typename... Args>
+    auto inode_call(size_t inode_index, F f, Args&&... args) ->
+        decltype(f(inodes[inode_index], klib::forward<Args>(args)...))
+    {
+        cache_inode(inode_index);
+        // It is still possible to fail here, if we get interrupted and then
+        // some other thread accessing the same inode closes the file. I think
+        // that's sufficiently unlikely that I'm not considering it. 
+        return f(inodes[inode_index], klib::forward<Args>(args)...);
+    }
+
+    /**
+        Writes the cached inode with the matching inode index back to disk.
+        Optionally deletes the cache record.
+
+        @param inode_index Index of the inode to flush. 0 is not a valid inode
+               index, so is used to indicate flushing all cached inodes.
+        @param free Whether to remove the record from the inode cache. Defaults
+               to false.
         @return 0 on success, -1 on failure.
      */
-    int update_inode(const Ext2Inode& inode, size_t inode_index);
+    int flush_inode(size_t inode_index, bool free = false);
+
+    /**
+        Gets or sets a bit in a cached block allocation table.
+
+        @param bg_index Index of the block group to access.
+        @param index Block index within the group.
+        @param alloc Whether the block should be allocated or not.
+        @return Whether the bit is allocated.
+     */
+    void access_block_alloc(size_t bg_index, size_t index, bool alloc);
+    bool access_block_alloc(size_t bg_index, size_t index);
 
     /**
         Writes all the metadata back to disk, including the superblock, the
@@ -1726,11 +1766,6 @@ protected:
             static_cast<size_t>(off / (1024 << super_block.block_size_shift()));
     }
 
-    // Retrieve inode data, given its numerical address or file or directory
-    // name.
-    klib::pair<size_t, Ext2Inode> get_inode(size_t index) const;
-    klib::pair<size_t, Ext2Inode> get_inode(const klib::string& name);
-
     // Writes the superblock back to the disk, after changes
     // in memory have been made. Return 0 on success, -1 on failure.
     int flush_superblock() const;
@@ -1739,11 +1774,6 @@ protected:
     // in memory have been made. Return 0 on success, -1 on failure.
     int flush_bgdt() const;
 
-    // Keep a cache of block allocation tables. Means we can deallocate lots of
-    // blocks without updating each table multiple times. The key is which block
-    // group the table is for. The data is the allocation table.
-    klib::map<size_t, klib::vector<char>> block_alloc;
-
     // Caches the block allocation table for a particular block group, by
     // reading it from the disk. Return 0 on success, -1 on failure.
     int cache_block_alloc(size_t bg_index);
@@ -1751,6 +1781,15 @@ protected:
     // Flush the cache of block allocation tables, writing them back to the
     // disk. Return 0 on success, -1 on failure.
     int flush_block_alloc();
+
+    // Caches the a particular inode, by reading it from the disk. Return 0 on
+    // success, -1 on failure.
+    int cache_inode(size_t inode_index);
+
+    // Lookup the inode corresponding to a file name and get back the index.
+    // Inodes for the file and its parent directories are all cached. 0 is not
+    // a valid inode index and is used for failure.
+    size_t get_inode_index(const klib::string& name);
 };
 
 /**
