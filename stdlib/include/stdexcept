@@ -122,25 +122,31 @@ public:
     explicit runtime_error(const char* str);
 
     /**
-        Copy constructor. Make a copy of the other exception.
+        Gives the message describing the error, as provided to the constructor.
 
-        @param other Exception to copy.
+        @return Message describing the error.
      */
-    runtime_error(const runtime_error& other) noexcept;
+    virtual const char* what() const noexcept override;
 
+protected:
+    // Message indicating the type of error.
+    helper::ref_count_str msg;
+};
+
+/**
+    Logic errors, the result of some error in the program violating
+    preconditions.
+ */
+class logic_error : public exception {
+public:
     /**
-        Copy assignment. Make a copy of the other exception.
+        Constructor. Takes a string describing the error.
 
-        @param other Exception to copy.
-        @return This exception.
+        @param s String describing the error.
+        @param str C-string describing the error.
      */
-    runtime_error& operator=(const runtime_error& other) noexcept;
-
-    /**
-        Destructor. Cleans up the message string if there aren't other refernces
-        to it.
-     */
-    virtual ~runtime_error();
+    explicit logic_error(const string& s);
+    explicit logic_error(const char* str);
 
     /**
         Gives the message describing the error, as provided to the constructor.
@@ -152,6 +158,15 @@ public:
 protected:
     // Message indicating the type of error.
     helper::ref_count_str msg;
+};
+
+/**
+    Error thrown when an out-of-bounds access is attempted on a library
+    container with a range-checked access function.
+ */
+class out_of_range : public logic_error {
+public:
+    using logic_error::logic_error;
 };
 
 } // end NMSP namespace

@@ -96,25 +96,20 @@ runtime_error::runtime_error(const string& s) : msg {s} {}
 
 runtime_error::runtime_error(const char* str) : msg {str} {}
 
-runtime_error::runtime_error(const runtime_error& other) noexcept :
-    msg {other.msg}
-{}
-
-/******************************************************************************/
-
-runtime_error& runtime_error::operator=(const runtime_error& other) noexcept
-{
-    msg = other.msg;
-    return *this;
-}
-
-/******************************************************************************/
-
-runtime_error::~runtime_error() {}
-
 /******************************************************************************/
 
 const char* runtime_error::what() const noexcept { return msg.get(); }
+
+/******************************************************************************
+ ******************************************************************************/
+
+logic_error::logic_error(const string& s) : msg {s} {}
+
+logic_error::logic_error(const char* str) : msg {str} {}
+
+/******************************************************************************/
+
+const char* logic_error::what() const noexcept { return msg.get(); }
 
 /******************************************************************************
  ******************************************************************************/
