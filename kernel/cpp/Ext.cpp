@@ -229,18 +229,28 @@ void Ext2Inode::os_2(const klib::array<uint8_t, os_2_size>& v)
 /******************************************************************************
  ******************************************************************************/
 
-Ext2File::Ext2File(const char* m, Ext2Inode& in, size_t indx,
-    Ext2FileSystem& fs) :
-    DiskFile{m, fs, fs.file_size(in)},
-    inode{in},
-    inode_index{indx},
-    ext2fs {fs}
+Ext2File::Ext2File(const char* m, size_t indx, Ext2FileSystem& fs) :
+    DiskFile{m, fs, fs.file_size(indx)},
+    inode_index{indx}
 {}
+
+/******************************************************************************/
+
+int Ext2File::close()
+{
+    Ext2FileSystem& ext2fs = dynamic_cast<Ext2FileSystem&>(fs);
+    ext2fs.flush_inode(inode_index, true);
+    inode_index = 0;
+    return DiskFile::close();
+}
 
 /******************************************************************************/
 
 size_t Ext2File::read(void* buf, size_t size, size_t count)
 {
+    // Turn the file system reference into a specific ext2fs reference.
+    Ext2FileSystem& ext2fs = dynamic_cast<Ext2FileSystem&>(fs);
+
     // Do nothing if we shouldn't be reading or we're at EOF.
     if (!reading || eof || size == 0 || count == 0)
         return 0;
@@ -279,8 +289,8 @@ size_t Ext2File::read(void* buf, size_t size, size_t count)
     {
         // Divide by block size to get the block of the file we're in.
         size_t block_no = static_cast<klib::streamoff>(position) / bl_sz;
-        // Use the inode to convert that to a real block address.
-        size_t block = ext2fs.inode_lookup(inode, block_no);
+        // Use the inode index to convert that to a real block address.
+        size_t block = ext2fs.inode_lookup(inode_index, block_no);
         if (block == 0)
             // We've run out of file.
             break;
@@ -295,8 +305,8 @@ size_t Ext2File::read(void* buf, size_t size, size_t count)
     {
         // Divide by block size to get the block of the file we're in.
         size_t block_no = static_cast<klib::streamoff>(position) / bl_sz;
-        // Use the inode to convert that to a real block address.
-        size_t block = ext2fs.inode_lookup(inode, block_no);
+        // Use the inode index to convert that to a real block address.
+        size_t block = ext2fs.inode_lookup(inode_index, block_no);
         if (block != 0)
         {
             // Work out the number of characters to read.
@@ -340,6 +350,9 @@ int Ext2File::flush()
 
 int Ext2File::seek(long offset, int origin)
 {
+    // Turn the file system reference into a specific ext2fs reference.
+    Ext2FileSystem& ext2fs = dynamic_cast<Ext2FileSystem&>(fs);
+
     // Flush current buffer.
     if (writing)
         if(flush() != 0)
@@ -373,8 +386,8 @@ int Ext2File::seek(long offset, int origin)
         if ((curr_buf_pos == 0 || curr_block != new_block) && new_buf_pos != 0)
         {
             // Starting position of the read is rounded down to the block start.
-            klib::streamoff read_start = ext2fs.inode_lookup(inode, new_block) *
-                fs.block_size();
+            klib::streamoff read_start =
+                ext2fs.inode_lookup(inode_index, new_block) * fs.block_size();
             // Work out the number of characters to read.
             size_t read_size = klib::min(
                 static_cast<klib::streamoff>(fs.block_size()), read_start);
@@ -410,8 +423,8 @@ int Ext2File::seek(long offset, int origin)
         if ((curr_buf_pos == 0 || curr_block != new_block) && new_buf_pos != 0)
         {
             // Starting position of the read is rounded down to the block start.
-            klib::streamoff read_start = ext2fs.inode_lookup(inode, new_block) *
-                fs.block_size();
+            klib::streamoff read_start =
+                ext2fs.inode_lookup(inode_index, new_block) * fs.block_size();
             // Work out the number of characters to read.
             size_t read_size = klib::min(
                 static_cast<klib::streamoff>(fs.block_size()), read_start);
@@ -447,8 +460,8 @@ int Ext2File::seek(long offset, int origin)
         if ((curr_buf_pos == 0 || curr_block != new_block) && new_buf_pos != 0)
         {
             // Starting position of the read is rounded down to the block start.
-            klib::streamoff read_start = ext2fs.inode_lookup(inode, new_block) *
-                fs.block_size();
+            klib::streamoff read_start =
+                ext2fs.inode_lookup(inode_index, new_block) * fs.block_size();
             // Work out the number of characters to read.
             size_t read_size = klib::min(
                 static_cast<klib::streamoff>(fs.block_size()), read_start);
@@ -468,6 +481,9 @@ int Ext2File::seek(long offset, int origin)
 
 int Ext2File::truncate()
 {
+    // Turn the file system reference into a specific ext2fs reference.
+    Ext2FileSystem& ext2fs = dynamic_cast<Ext2FileSystem&>(fs);
+
     // Do nothing if we shouldn't be writing or the size is already zero.
     if (!writing)
         return -1;
@@ -482,43 +498,56 @@ int Ext2File::truncate()
     bool finished = false;
     for (size_t i = 0; i < Ext2Inode::no_direct && !finished; ++i)
     {
-        finished = truncate_recursive(inode.direct(i), 0);
-        inode.direct(0, i);
+        finished = truncate_recursive(ext2fs.inode_call(inode_index,
+            [] (Ext2Inode& in, size_t n) { return in.direct(n); }, i), 0);
+        ext2fs.inode_call(inode_index,
+        [] (Ext2Inode& in, size_t bl, size_t n) { in.direct(bl, n); }, 0, i);
     }
 
     // Now the singly indirect pointer.
     if (!finished)
     {
-        finished = truncate_recursive(inode.s_indirect(), 1);
-        inode.s_indirect(0);
+        finished = truncate_recursive(ext2fs.inode_call(inode_index,
+            [] (Ext2Inode& in) { return in.s_indirect(); }), 1);
+        ext2fs.inode_call(inode_index,
+        [] (Ext2Inode& in, size_t v) { in.s_indirect(v); }, 0);
     }
 
     // The doubly indirect.
     if (!finished)
     {
-        finished = truncate_recursive(inode.d_indirect(), 2);
-        inode.d_indirect(0);
+        finished = truncate_recursive(ext2fs.inode_call(inode_index,
+            [] (Ext2Inode& in) { return in.d_indirect(); }), 2);
+        ext2fs.inode_call(inode_index,
+        [] (Ext2Inode& in, size_t v) { in.d_indirect(v); }, 0);
     }
 
     // The triply indirect.
     if (!finished)
     {
-        finished = truncate_recursive(inode.d_indirect(), 3);
-        inode.t_indirect(0);
+        finished = truncate_recursive(ext2fs.inode_call(inode_index,
+            [] (Ext2Inode& in) { return in.t_indirect(); }), 3);
+        ext2fs.inode_call(inode_index,
+        [] (Ext2Inode& in, size_t v) { in.t_indirect(v); }, 0);
     }
 
     // Set the file size to zero.
     sz = 0;
 
     // Update the inode.
-    inode.lower_size(0);
-    if (inode.type() == Ext2Inode::file)
-        inode.upper_size(0);
-    inode.sectors(0);
-    bool success = (ext2fs.update_inode(inode, inode_index) == 0);
+    ext2fs.inode_call(inode_index,
+    [] (Ext2Inode& in, size_t lsz) { in.lower_size(lsz); }, 0);
+    if (ext2fs.inode_call(inode_index,
+        [] (Ext2Inode& in) { return in.type(); }) == Ext2Inode::file)
+        ext2fs.inode_call(inode_index,
+        [] (Ext2Inode& in, size_t usz) { in.upper_size(usz); }, 0);
 
-    // Flush metadata cache.
-    success = (success && (ext2fs.flush_metadata() == 0));
+    // Flush metadata cache. Updates the superblock, BGDT and block allocation
+    // tables.
+    bool success = (ext2fs.flush_metadata() == 0);
+
+    // Flush the inode, but don't delete it from the cache.
+    success = (success && (ext2fs.flush_inode(inode_index) == 0));
 
     return (success ? 0 : -1);
 }
@@ -530,6 +559,9 @@ bool Ext2File::truncate_recursive(size_t bl, size_t depth)
     // Don't do anything if the block is zero. Return indicating finished.
     if (bl == 0)
         return true;
+
+    // Turn the file system reference into a specific ext2fs reference.
+    Ext2FileSystem& ext2fs = dynamic_cast<Ext2FileSystem&>(fs);
 
     // We can call this with depth 0, for the direct pointers, but we don't need
     // to do any loops.
@@ -547,7 +579,7 @@ bool Ext2File::truncate_recursive(size_t bl, size_t depth)
     char* buf = new char[bl_sz];
     bool finished = false;
 
-    // Read the singly indirect block.
+    // Read the current indirect block.
     fs.read(bl * bl_sz, buf, bl_sz);
     size_t* buffer_blocks = reinterpret_cast<size_t*>(buf);
     for (size_t i = 0; i < addr_per_block && !finished; ++i)
@@ -570,24 +602,24 @@ bool Ext2File::truncate_recursive(size_t bl, size_t depth)
 /******************************************************************************
  ******************************************************************************/
 
-Ext2Directory::Ext2Directory(Ext2Inode& in, size_t indx, Ext2FileSystem& fs) :
-    inode{in},
+Ext2Directory::Ext2Directory(size_t indx, Ext2FileSystem& fs) :
     inode_index{indx},
     ext2fs {fs}
 {
     // Check that this is actually a directory.
-    if (inode.type() != Ext2Inode::directory)
+    if (ext2fs.inode_call(inode_index,
+        [] (Ext2Inode& in) { return in.type(); }) != Ext2Inode::directory)
         return;
 
     // Determine whether the directory has a type field.
-    bool type = (fs.get_super_block().required_features() &        
+    bool type = (ext2fs.get_super_block().required_features() &        
             ext2_required_features::directories_type) !=
             ext2_required_features::none;
 
     // Make a file stream for the directory data. We could do this through the
     // VFS, but that creates a lot of extra inode lookups, when we already have
-    // the inode.
-    Ext2File ifs {"r", inode, inode_index, ext2fs};
+    // the inode index.
+    Ext2File ifs {"r", inode_index, ext2fs};
 
     // Process each entry.
     while (true)
@@ -664,6 +696,14 @@ Ext2Directory::Ext2Directory(Ext2Inode& in, size_t indx, Ext2FileSystem& fs) :
 
 /******************************************************************************/
 
+void Ext2Directory::close()
+{
+    ext2fs.flush_inode(inode_index, true);
+    contents.clear();
+};
+
+/******************************************************************************/
+
 size_t Ext2Directory::lookup(const klib::string& n) const
 {
     for (const Entry& p : contents)
@@ -687,7 +727,7 @@ klib::vector<klib::string> Ext2Directory::ls() const
  ******************************************************************************/
 
 Ext2FileSystem::Ext2FileSystem(const klib::string& drv) :
-    FileSystem {drv}, val {true}, block_alloc {}
+    FileSystem {drv}, val {true}
 {
     klib::ifstream in {drv_name};
     in.seekg(superblock_loc);
@@ -738,22 +778,23 @@ Ext2FileSystem::Ext2FileSystem(const klib::string& drv) :
 
 Directory* Ext2FileSystem::diropen(const klib::string& name)
 {
-    klib::pair<size_t, Ext2Inode> dir = get_inode(name);
-    if (dir.first == 0 || dir.second.type() != Ext2Inode::directory)
+    size_t dir = get_inode_index(name);
+    if (dir == 0 || inode_call(dir,
+        [] (Ext2Inode& in) { return in.type(); }) != Ext2Inode::directory)
         return nullptr;
 
-    return new Ext2Directory {dir.second, dir.first, *this};
+    return new Ext2Directory {dir, *this};
 }
 
 /******************************************************************************/
 
 klib::FILE* Ext2FileSystem::fopen(const klib::string& name, const char* mode)
 {
-    klib::pair<size_t, Ext2Inode> file = get_inode(name);
-    if (file.first != 0)
+    size_t file = get_inode_index(name);
+    if (file != 0)
     {
         // File already exists.
-        return new Ext2File{mode, file.second, file.first, *this};
+        return new Ext2File{mode, file, *this};
     }
 
     // TODO create new file.
@@ -770,33 +811,37 @@ void Ext2FileSystem::rename(const klib::string& f, const klib::string& n)
 
 /******************************************************************************/
 
-klib::streamoff Ext2FileSystem::file_size(const Ext2Inode& inode) const
+klib::streamoff Ext2FileSystem::file_size(size_t inode_index)
 {
     klib::streamoff ret_val = 0;
 
     if ((super_block.required_writing_features() & 
         ext2_required_writing_features::large_file_size) !=
         ext2_required_writing_features::none &&
-        inode.type() == Ext2Inode::file)
+        inode_call(inode_index, [] (Ext2Inode& in) { return in.type(); })
+        == Ext2Inode::file)
     {
-        ret_val = inode.upper_size();
+        ret_val = inode_call(inode_index, [] (Ext2Inode& in)
+            { return in.upper_size(); });
         ret_val <<= 32;
     }
 
-    ret_val += inode.lower_size();
+    ret_val += inode_call(inode_index, [] (Ext2Inode& in)
+            { return in.lower_size(); });
 
     return ret_val;
 }
 
 /******************************************************************************/
 
-size_t Ext2FileSystem::inode_lookup(const Ext2Inode& inode, size_t bl) const
+size_t Ext2FileSystem::inode_lookup(size_t inode_index, size_t bl)
 {
     const size_t addr_per_block = block_size() / sizeof(bl);
 
     // First check the direct pointers.
     if (bl < Ext2Inode::no_direct)
-        return inode.direct(bl);
+        return inode_call(inode_index, [] (Ext2Inode& in, size_t n)
+            { return in.direct(n); }, bl);
     bl -= Ext2Inode::no_direct;
 
     // Test for out of bounds.
@@ -810,13 +855,16 @@ size_t Ext2FileSystem::inode_lookup(const Ext2Inode& inode, size_t bl) const
     // Start by testing the triply indirect.
     if (bl >= addr_per_block * (addr_per_block + 1))
     {
+        // Fetch the triply indirect pointer value.
+        size_t t_indirect = inode_call(inode_index,
+            [](Ext2Inode& in) { return in.t_indirect(); });
         // Return 0 if the triply indirect pointer is invalid.
-        if (inode.t_indirect() == 0)
+        if (t_indirect == 0)
             return 0;
         // Set up a reader for the block pointed to by the triply indirect
         // pointer.
         klib::ifstream in {drv_name};
-        in.seekg(block_to_byte(inode.t_indirect()) +
+        in.seekg(block_to_byte(t_indirect) +
             (bl / (addr_per_block * addr_per_block)) * sizeof(bl));
         // Read the doubly indirect pointer.
         in.read(reinterpret_cast<klib::ifstream::char_type*>(&d_indirect),
@@ -824,7 +872,8 @@ size_t Ext2FileSystem::inode_lookup(const Ext2Inode& inode, size_t bl) const
         bl -= addr_per_block * addr_per_block * addr_per_block;
     }
     else
-        d_indirect = inode.d_indirect();
+        d_indirect = inode_call(inode_index,
+            [](Ext2Inode& in) { return in.d_indirect(); });
 
     // Next for the doubly indirect.
     if (bl >= addr_per_block &&
@@ -844,7 +893,8 @@ size_t Ext2FileSystem::inode_lookup(const Ext2Inode& inode, size_t bl) const
         bl -= addr_per_block * addr_per_block;
     }
     else
-        s_indirect = inode.s_indirect();
+        s_indirect = inode_call(inode_index,
+            [](Ext2Inode& in) { return in.s_indirect(); });
 
     // Finally resolve the singly indirect.
     if (bl < addr_per_block)
@@ -855,7 +905,7 @@ size_t Ext2FileSystem::inode_lookup(const Ext2Inode& inode, size_t bl) const
         // Set up a reader for the block pointed to by the singly indirect
         // pointer.
         klib::ifstream in {drv_name};
-        in.seekg(block_to_byte(inode.s_indirect()) + bl * sizeof(bl));
+        in.seekg(block_to_byte(s_indirect) + bl * sizeof(bl));
         // Read the block address.
         size_t ret_val;
         in.read(reinterpret_cast<klib::ifstream::char_type*>(&ret_val),
@@ -868,11 +918,12 @@ size_t Ext2FileSystem::inode_lookup(const Ext2Inode& inode, size_t bl) const
 
 /******************************************************************************/
 
-int Ext2FileSystem::update_inode(const Ext2Inode& inode, size_t inode_index)
+int Ext2FileSystem::flush_inode(size_t inode_index, bool free)
 {
-    // Check the index is in the exisitng range.
-    if (inode_index > super_block.no_inodes() || inode_index == 0)
-        return -1;
+    // Immediately suceed if the inode is not cached. This hopefully means
+    // it's already been freed by another process.
+    if (inodes.count(inode_index) == 0)
+        return 0;
 
     // Determine the block group, by dividing by the number of inodes per block
     // group.
@@ -892,10 +943,55 @@ int Ext2FileSystem::update_inode(const Ext2Inode& inode, size_t inode_index)
         out.seekp(loc);
     else
         return -1;
+
+    // Do the write. There is a small possibility that another process will
+    // have already flushed the inode, in which case the element in inodes won't
+    // exist. We use bounds checked access and catch the exception to deal with
+    // that. It counts as a success, as the work is already done.
+    bool success;
     if (out)
-        return (inode.write(out) ? 0 : 1);
+        try {
+            success = (inodes.at(inode_index).write(out) ? 0 : 1);
+        }
+        catch (klib::out_of_range&)
+        {
+            success = true;
+        }
     else
         return -1;
+
+    if (success && free)
+        // Delete the entry from the cached inodes.
+        inodes.erase(inode_index);
+
+    return (success ? 0 : -1);
+}
+
+/******************************************************************************/
+
+void Ext2FileSystem::access_block_alloc(size_t bg_index, size_t index,
+    bool alloc)
+{
+    // Cache the table.
+    if (cache_block_alloc(bg_index) != 0)
+        return;
+
+    // Edit the data.
+    if (alloc)
+        block_alloc[bg_index][index / 8] |= (1 << (index%8));
+    else
+        block_alloc[bg_index][index / 8] &= ~(1 << (index%8));
+}
+
+
+bool Ext2FileSystem::access_block_alloc(size_t bg_index, size_t index)
+{
+    // Cache the table.
+    if (cache_block_alloc(bg_index) != 0)
+        return true;
+
+    // Read the data.
+    return block_alloc[bg_index][index / 8] & (1 << (index%8));
 }
 
 /******************************************************************************/
@@ -918,18 +1014,13 @@ int Ext2FileSystem::deallocate(size_t bl)
     size_t bl_grp = bl / (super_block.blocks_per_group());
     size_t bl_indx = bl % (super_block.blocks_per_group());
 
-    // Cache the block allocation table.
-    if (cache_block_alloc(bl_grp) != 0)
-        return -1;
-
     // Check whether it was already deallocated.
-    bool change =
-        (block_alloc[bl_grp][bl_indx / 8] & (1 << (bl_indx % 8))) == 1;
+    bool change = access_block_alloc(bl_grp, bl_indx);
 
     if (change)
     {
         // Set the block to unalloctaed in the bitmap.
-        block_alloc[bl_grp][bl_indx / 8] &= ~(1 << (bl_indx % 8));
+        access_block_alloc(bl_grp, bl_indx, false);
         // Increase the number of unallocated blocks in the Block Descriptor.
         bgdt[bl_grp].unalloc_blocks(bgdt[bl_grp].unalloc_blocks() + 1);
         // Increase the number of unallocated blocks in the Superblock.
@@ -937,76 +1028,6 @@ int Ext2FileSystem::deallocate(size_t bl)
     }
 
     return 0;
-}
-
-/******************************************************************************/
-
-klib::pair<size_t, Ext2Inode> Ext2FileSystem::get_inode(size_t index) const
-{
-    // Exit if index is greater than the number of inodes present. We can return
-    // the default inode, with 0 type, as invalid. Inode indices start at 1. 0
-    // is invalid.
-    if (index > super_block.no_inodes() || index == 0)
-        return klib::pair<size_t, Ext2Inode> {0u, Ext2Inode{} };
-
-    // Determine the block group, by dividing by the number of inodes per block
-    // group.
-    size_t bg = (index - 1) / super_block.inodes_per_group();
-
-    // Determine the offset within the block by modding by the number of inodes
-    // per block group.
-    size_t offset = (index - 1) % super_block.inodes_per_group();
-
-    // Combine the offset and the block base address to get the inode start.
-    uint64_t loc = block_to_byte(bgdt[bg].inode_table()) +
-        offset * super_block.inode_size();
-    klib::ifstream in {drv_name};
-    in.seekg(loc);
-    return klib::pair<size_t, Ext2Inode> {index,
-        Ext2Inode {in, super_block.inode_size()}};
-}
-
-/******************************************************************************/
-
-klib::pair<size_t, Ext2Inode> Ext2FileSystem::get_inode(
-    const klib::string& name)
-{
-    // Names need to start with a /. The VFS should have provided us with a
-    // name relative to the root of this file system.
-    if (name[0] != '/')
-        return klib::pair<size_t, Ext2Inode> {0u, Ext2Inode {}};
-
-    // Our place in the string.
-    size_t pos;
-    // Skip over any /
-    for (pos = 0; pos < name.size() && name[pos] == '/'; ++pos) ;
-    // Inode of the directory currently being investigated.
-    size_t inode_indx = root_inode;
-    Ext2Inode dir_inode = get_inode(inode_indx).second;
-
-    while (pos < name.size())
-    {
-        // Find the next /
-        size_t end_pos = name.find('/', pos);
-        // Test for npos, which means we're at the end.
-        if (end_pos == klib::string::npos)
-            end_pos = name.size();
-        // Get the substring of the current file or directory to find.
-        klib::string current = name.substr(pos, end_pos - pos);
-        // Lookup the name in the current directory.
-        Ext2Directory dir {dir_inode, inode_indx, *this};
-        inode_indx = dir.lookup(current);
-        // Test whether the file exists or not.
-        if (inode_indx == 0)
-            return klib::pair<size_t, Ext2Inode> {0u, Ext2Inode {}};
-        // Descend to the new inode.
-        dir_inode = get_inode(inode_indx).second;
-        // Advance pos and skip over multiple /
-        pos = end_pos;
-        for (; pos < name.size() && name[pos] == '/'; ++pos) ;
-    }
-
-    return klib::pair<size_t, Ext2Inode> {inode_indx, dir_inode};
 }
 
 /******************************************************************************/
@@ -1140,6 +1161,77 @@ int Ext2FileSystem::flush_block_alloc()
 
     // Check whether we managed to flush all the allocation tables.
     return (block_alloc.empty() ? 0 : -1);
+}
+
+/******************************************************************************/
+
+int Ext2FileSystem::cache_inode(size_t index)
+{
+    // Exit with failure if index is greater than the number of inodes present.
+    if (index > super_block.no_inodes() || index == 0)
+        return -1;
+
+    // Exit with success if the inode is already cached.
+    if (inodes.count(index) != 0)
+        return 0;
+
+    // Determine the block group, by dividing by the number of inodes per block
+    // group.
+    size_t bg = (index - 1) / super_block.inodes_per_group();
+
+    // Determine the offset within the block by modding by the number of inodes
+    // per block group.
+    size_t offset = (index - 1) % super_block.inodes_per_group();
+
+    // Combine the offset and the block base address to get the inode start.
+    uint64_t loc = block_to_byte(bgdt[bg].inode_table()) +
+        offset * super_block.inode_size();
+    klib::ifstream in {drv_name};
+    in.seekg(loc);
+    klib::pair<klib::map<size_t, Ext2Inode>::iterator, bool> p =
+        inodes.emplace(index, Ext2Inode {in, super_block.inode_size()});
+    // p.second is a bool indicating whether the emplacement succeeded. If it
+    // did, p.first is an iterator to the new element.
+    return (p.second ? 0 : -1);
+}
+
+/******************************************************************************/
+
+size_t Ext2FileSystem::get_inode_index(const klib::string& name)
+{
+    // Names need to start with a /. The VFS should have provided us with a
+    // name relative to the root of this file system.
+    if (name[0] != '/')
+        return 0;
+
+    // Our place in the string.
+    size_t pos;
+    // Skip over any /
+    for (pos = 0; pos < name.size() && name[pos] == '/'; ++pos) ;
+    // Inode of the directory currently being investigated.
+    size_t inode_indx = root_inode;
+
+    while (pos < name.size())
+    {
+        // Find the next /
+        size_t end_pos = name.find('/', pos);
+        // Test for npos, which means we're at the end.
+        if (end_pos == klib::string::npos)
+            end_pos = name.size();
+        // Get the substring of the current file or directory to find.
+        klib::string current = name.substr(pos, end_pos - pos);
+        // Lookup the name in the current directory.
+        Ext2Directory dir {inode_indx, *this};
+        inode_indx = dir.lookup(current);
+        // Test whether the file exists or not.
+        if (inode_indx == 0)
+            return 0;
+        // Advance pos and skip over multiple /
+        pos = end_pos;
+        for (; pos < name.size() && name[pos] == '/'; ++pos) ;
+    }
+
+    return inode_indx;
 }
 
 /******************************************************************************
