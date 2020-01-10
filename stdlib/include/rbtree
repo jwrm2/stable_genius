@@ -10,6 +10,7 @@
 #include "../include/functional"
 #include "../include/iterator"
 #include "../include/memory"
+#include "../include/stdexcept"
 #include "../include/type_traits"
 #include "../include/utility"
 
@@ -1156,7 +1157,7 @@ public:
         }
     };
 
-    // Give children of rb_tree firect access to rb_iterator.current.
+    // Give children of rb_tree direct access to rb_iterator.current.
 protected:
     node_type* get_current(const iterator& it) const {return it.current;}
     node_type* get_current(const const_iterator& it) const {return it.current;}
@@ -1399,6 +1400,33 @@ public:
         @return Allocator used by the container.
      */
     virtual allocator_type get_allocator() const { return alloc; }
+
+    /**
+        Gives the (first) element matching the given key. Throws an exception
+        if there is no matching element.
+
+        @param key Key to search for.
+        @return Reference to the (first) value mapped to by the key.
+     */
+    virtual typename value_type::second_type& at(const Key& key)
+    {
+        iterator it = find(key);
+
+        if (it == end())
+            throw klib::out_of_range("rbtree::at key does not exist");
+
+        return it->second;
+    }
+
+    virtual const typename value_type::second_type& at(const Key& key) const
+    {
+        const_iterator it = find(key);
+
+        if (it == end())
+            throw klib::out_of_range("rbtree::at key does not exist");
+
+        return it->second;
+    }
 
     /**
         Gives an iterator to the first element.
