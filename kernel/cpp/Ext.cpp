@@ -78,15 +78,26 @@ Ext2SuperBlock::Ext2SuperBlock(klib::istream& in) : val {true}
 
 /******************************************************************************/
 
-klib::ostream& Ext2SuperBlock::write(klib::ostream& dest) const
+klib::ostream& Ext2SuperBlock::write(klib::ostream& dest, size_t bl) const
 {
     if (!dest)
         return dest;
 
+    // Write the first 20 bytes (before the field indicating the block number).
+    dest.write(reinterpret_cast<const char*>(data.data()), block_number_field);
+
+    // Write the block number field.
+    dest.write(reinterpret_cast<const char*>(&bl), block_number_size);
+
+    // Write the rest of the data.
+    const char* data_offset = reinterpret_cast<const char*>(data.data()) +
+        block_number_field + block_number_size;
     if (major_version() >= 1)
-        dest.write(reinterpret_cast<const char*>(data.data()), data_size);
+        dest.write(data_offset,
+            data_size - block_number_field - block_number_size);
     else
-        dest.write(reinterpret_cast<const char*>(data.data()), compulsory_size);
+        dest.write(data_offset,
+            compulsory_size - block_number_field - block_number_size);
 
     return dest;
 }
@@ -238,8 +249,15 @@ Ext2File::Ext2File(const char* m, size_t indx, Ext2FileSystem& fs) :
 
 int Ext2File::close()
 {
-    Ext2FileSystem& ext2fs = dynamic_cast<Ext2FileSystem&>(fs);
-    ext2fs.flush_inode(inode_index, true);
+    if (writing)
+    {
+        flush();
+
+        // Remove the inode from the filesystem cache.
+        Ext2FileSystem& ext2fs = dynamic_cast<Ext2FileSystem&>(fs);
+        ext2fs.flush_inode(inode_index, true);
+    }
+
     inode_index = 0;
     return DiskFile::close();
 }
@@ -333,16 +351,144 @@ size_t Ext2File::read(void* buf, size_t size, size_t count)
 
 size_t Ext2File::write(const void* buf, size_t size, size_t count)
 {
-    // TODO
-    (void)buf; (void)size; (void)count;
-    return 0;
+    // Turn the file system reference into a specific ext2fs reference.
+    Ext2FileSystem& ext2fs = dynamic_cast<Ext2FileSystem&>(fs);
+
+    // Do nothing if we shouldn't be writing.
+    if (!writing || size == 0 || count == 0)
+        return 0;
+
+    // Work out how many bytes to read.
+    klib::streamoff n = size * count;
+    const char* char_buf = static_cast<const char*>(buf);
+
+    // Store the block size.
+    size_t bl_sz = fs.block_size();
+    // Number of characters written.
+    klib::streamoff char_written = 0;
+
+    // Fill the current buffer.
+    size_t buf_pos = static_cast<klib::streamoff>(position) % bl_sz;
+    if (buf_pos != 0)
+    {
+        // Work out the number of characters to write.
+        size_t write_size = klib::min(
+            static_cast<klib::streamoff>(bl_sz - buf_pos),
+            static_cast<klib::streamoff>(n));
+        klib::memcpy(buffer + buf_pos, char_buf, write_size);
+        char_written = write_size;
+        position += write_size;
+
+        // If we've filled the buffer, write it.
+        if (static_cast<klib::streamoff>(position) % bl_sz == 0)
+        {
+            // Divide by block size to get the block of the file we're in.
+            size_t block_no = static_cast<klib::streamoff>(position) / bl_sz;
+            // Use the inode index to convert that to a real block address.
+            size_t block = ext2fs.inode_lookup(inode_index, block_no);
+            if (block == 0)
+                // We've run out of file, allocate a new block. I don't think
+                // this should happen here, but it doesn't really matter if it
+                // does.
+                block = ext2fs.allocate_new_block(inode_index, block_no);
+            if (block != 0)
+                fs.write(block * bl_sz, buffer, bl_sz);
+        }
+    }
+
+    // Write complete blocks (avoids a copy into the buffer then to the disk).
+    while (char_written + bl_sz < n)
+    {
+        // Divide by block size to get the block of the file we're in.
+        size_t block_no = static_cast<klib::streamoff>(position) / bl_sz;
+        // Use the inode index to convert that to a real block address.
+        size_t block = ext2fs.inode_lookup(inode_index, block_no);
+        if (block == 0)
+            // We've run out of file, allocate a new block.
+            block = ext2fs.allocate_new_block(inode_index, block_no);
+        if (block == 0)
+            // Allocation failed. Bail.
+            break;
+        // Write a whole block.
+        fs.write(block * bl_sz, char_buf + char_written, bl_sz);
+        char_written += bl_sz;
+        position += bl_sz;
+    }
+
+    // Write final characters into the buffer.
+    if (char_written < n)
+    {
+        // Divide by block size to get the block of the file we're in.
+        size_t block_no = static_cast<klib::streamoff>(position) / bl_sz;
+        // Use the inode index to convert that to a real block address.
+        size_t block = ext2fs.inode_lookup(inode_index, block_no);
+        if (block == 0)
+            // We've run out of file, allocate a new block. Not strictly
+            // necessary, but it helps avoid a nasty situation where no blocks
+            // would be available, but the write reports completion.
+            block = ext2fs.allocate_new_block(inode_index, block_no);
+        if (block != 0)
+        {
+            // Work out the number of characters to write.
+            size_t write_size = n - char_written;
+            // Write into the buffer.
+            klib::memcpy(buffer, char_buf + char_written, write_size);
+            char_written += write_size;
+            position += write_size;
+        }
+    }
+
+    // Update file size.
+    if (position > sz)
+    {
+        sz = position;
+        ext2fs.inode_call(inode_index,
+            [] (Ext2Inode& in, size_t lsz)
+            { in.lower_size(lsz); }, static_cast<size_t>(sz));
+        if (ext2fs.inode_call(inode_index,
+            [] (Ext2Inode& in) { return in.type(); }) == Ext2Inode::file &&
+            (ext2fs.get_super_block().required_writing_features() &
+            ext2_required_writing_features::large_file_size) !=
+            ext2_required_writing_features::none)
+            ext2fs.inode_call(inode_index,
+                [] (Ext2Inode& in, size_t usz)
+                { in.upper_size(usz); }, static_cast<size_t>(sz >> 32));
+    }
+
+    return char_written / size;
 }
 
 /******************************************************************************/
 
 int Ext2File::flush()
 {
-    // TODO
+    if (writing)
+    {
+        Ext2FileSystem& ext2fs = dynamic_cast<Ext2FileSystem&>(fs);
+
+        // Flush the writing buffer.
+        size_t bl_sz = fs.block_size();
+        size_t buf_pos = static_cast<klib::streamoff>(position) % bl_sz;
+        if (buf_pos != 0)
+        {
+            // Divide by block size to get the block of the file we're in.
+            size_t block_no = static_cast<klib::streamoff>(position) / bl_sz;
+            // Use the inode index to convert that to a real block address.
+            size_t block = ext2fs.inode_lookup(inode_index, block_no);
+            if (block == 0)
+                // We've run out of file, allocate a new block. I don't think
+                // this should happen here, but it doesn't really matter if it
+                // does.
+                block = ext2fs.allocate_new_block(inode_index, block_no);
+            if (block != 0)
+                fs.write(block * bl_sz, buffer, buf_pos);
+        }
+
+        // Flush filesystem metadata.
+        ext2fs.flush_inode(inode_index);
+        ext2fs.flush_metadata();
+    }
+
     return 0;
 }
 
@@ -491,8 +637,7 @@ int Ext2File::truncate()
         return 0;
 
     // Cycle through the blocks in the file and deallocate them in the block
-    // table. Wipe the pointers. This doesn't feel very safe if the file is open
-    // multiple times.
+    // table. Wipe the pointers.
 
     // Start with the direct pointers.
     bool finished = false;
@@ -538,18 +683,14 @@ int Ext2File::truncate()
     ext2fs.inode_call(inode_index,
     [] (Ext2Inode& in, size_t lsz) { in.lower_size(lsz); }, 0);
     if (ext2fs.inode_call(inode_index,
-        [] (Ext2Inode& in) { return in.type(); }) == Ext2Inode::file)
+        [] (Ext2Inode& in) { return in.type(); }) == Ext2Inode::file &&
+        (ext2fs.get_super_block().required_writing_features() &
+            ext2_required_writing_features::large_file_size) !=
+            ext2_required_writing_features::none)
         ext2fs.inode_call(inode_index,
         [] (Ext2Inode& in, size_t usz) { in.upper_size(usz); }, 0);
 
-    // Flush metadata cache. Updates the superblock, BGDT and block allocation
-    // tables.
-    bool success = (ext2fs.flush_metadata() == 0);
-
-    // Flush the inode, but don't delete it from the cache.
-    success = (success && (ext2fs.flush_inode(inode_index) == 0));
-
-    return (success ? 0 : -1);
+    return 0;
 }
 
 /******************************************************************************/
@@ -596,6 +737,10 @@ bool Ext2File::truncate_recursive(size_t bl, size_t depth)
     }
 
     delete[] buf;
+
+    // Free the block storing the indirect information.
+    ext2fs.deallocate(bl);
+
     return finished;
 }
 
@@ -748,15 +893,16 @@ Ext2FileSystem::Ext2FileSystem(const klib::string& drv) :
     if ((super_block.required_writing_features() &
         ~Ext2FileSystem::required_writing_supported) !=
         ext2_required_writing_features::none)
+    {
+        global_kernel->syslog()->warn("Ext2FileSystem required writing features = %u, but supported = %u\n", super_block.required_writing_features(), Ext2FileSystem::required_writing_supported);
         read_only = true;
+    }
 
     // Calculate and consistency check for number of block groups.
-    size_t no_bg = super_block.no_blocks() / super_block.blocks_per_group();
-    no_bg +=
-        (super_block.no_blocks() % super_block.blocks_per_group() == 0 ? 0 : 1);
-    size_t temp = super_block.no_inodes() / super_block.inodes_per_group();
-    temp += (super_block.no_inodes() % super_block.inodes_per_group() == 0
-        ? 0 : 1);
+    size_t no_bg = 1 + (super_block.no_blocks() - 1) /
+        super_block.blocks_per_group();
+    size_t temp = 1 + (super_block.no_inodes() - 1) /
+        super_block.inodes_per_group();
     if (no_bg != temp)
     {
         val = false;
@@ -765,11 +911,9 @@ Ext2FileSystem::Ext2FileSystem(const klib::string& drv) :
 
     // Read the block group decriptor table. This starts in the block after the
     // superblock.
-    size_t bgdt_off = 0;
-    while (superblock_loc + super_block.size() > bgdt_off)
-        bgdt_off += (1024 << super_block.block_size_shift());
+    size_t block_addr = (block_size() == 1024 ? 2 : 1);
     in = klib::ifstream {drv_name};
-    in.seekg(bgdt_off);
+    in.seekg(block_addr * block_size());
     for (size_t i = 0; i < no_bg; ++i)
         bgdt.emplace_back(in);
 }
@@ -797,7 +941,7 @@ klib::FILE* Ext2FileSystem::fopen(const klib::string& name, const char* mode)
         return new Ext2File{mode, file, *this};
     }
 
-    // TODO create new file.
+    // TODO create new file, depending on mode.
     return nullptr;
 }
 
@@ -918,6 +1062,172 @@ size_t Ext2FileSystem::inode_lookup(size_t inode_index, size_t bl)
 
 /******************************************************************************/
 
+int Ext2FileSystem::inode_set(size_t inode_index, size_t bl_index,
+    size_t bl_addr)
+{
+    // Fail immediately if the file system is read only.
+    if (ro())
+        return -1;
+
+    const size_t addr_per_block = block_size() / sizeof(bl_index);
+
+    // First check the direct pointers.
+    if (bl_index < Ext2Inode::no_direct)
+    {
+        inode_call(inode_index, [] (Ext2Inode& in, size_t bl, size_t n)
+            { in.direct(bl, n); }, bl_addr, bl_index);
+        return 0;
+    }
+    bl_index -= Ext2Inode::no_direct;
+
+
+    // Test for out of bounds.
+    if (bl_index >=
+        addr_per_block * (addr_per_block * (addr_per_block + 1) + 1))
+        return -1;
+
+    // Pointer address to be filled.
+    size_t t_indirect = 0;
+    size_t d_indirect = 0;
+    size_t s_indirect = 0;
+
+    // Start by testing the triply indirect.
+    if (bl_index >= addr_per_block * (addr_per_block + 1))
+    {
+        // Fetch the triply indirect pointer value.
+        t_indirect = inode_call(inode_index,
+            [](Ext2Inode& in) { return in.t_indirect(); });
+        if (t_indirect == 0)
+        {
+            // We need to allocate a new block of doubly-indirect pointers.
+            t_indirect = allocate_new_block(inode_index, 0, true);
+            if (t_indirect == 0)
+                // The allocation failed. Return failure.
+                return -1;
+            // Update the inode record with the new indirect block.
+            inode_call(inode_index,
+                [](Ext2Inode& in, size_t t) { in.t_indirect(t); }, t_indirect);
+            // Write zeroes to the new block so that we don't accidentally
+            // hijack other file's blocks.
+            // Set up a writer for the new block.
+            klib::ofstream out {drv_name};
+            out.seekp(block_to_byte(t_indirect));
+            if (!out)
+                return -1;
+            // Write the zeroes.
+            for (size_t i = 0;
+                i < block_size() / sizeof(klib::ofstream::char_type); ++i)
+                out.put(0);
+            if (!out)
+                return -1;
+        }
+        // Set up a reader for the block pointed to by the triply indirect
+        // pointer.
+        klib::ifstream in {drv_name};
+        in.seekg(block_to_byte(t_indirect) +
+            (bl_index / (addr_per_block * addr_per_block)) * sizeof(bl_index));
+        // Read the doubly indirect pointer.
+        in.read(reinterpret_cast<klib::ifstream::char_type*>(&d_indirect),
+            sizeof(d_indirect) / sizeof(klib::ifstream::char_type));
+        bl_index -= addr_per_block * addr_per_block * addr_per_block;
+    }
+    else
+        d_indirect = inode_call(inode_index,
+            [](Ext2Inode& in) { return in.d_indirect(); });
+
+    // Next for the doubly indirect.
+    if (bl_index >= addr_per_block &&
+        bl_index < addr_per_block * (addr_per_block + 1))
+    {
+        if (d_indirect == 0)
+        {
+            // We need to allocate a new block of singly-indirect pointers.
+            d_indirect = allocate_new_block(inode_index, 0, true);
+            if (d_indirect == 0)
+                // The allocation failed. Return failure.
+                return -1;
+            if (t_indirect == 0)
+                // Update the inode record with the new indirect block.
+                inode_call(inode_index, [](Ext2Inode& in, size_t d)
+                    { in.d_indirect(d); }, d_indirect);
+            else {}
+                // TODO write the new d_indirect to the t_indirect block.
+            // Write zeroes to the new block so that we don't accidentally
+            // hijack other file's blocks.
+            // Set up a writer for the new block.
+            klib::ofstream out {drv_name};
+            out.seekp(block_to_byte(d_indirect));
+            if (!out)
+                return -1;
+            // Write the zeroes.
+            for (size_t i = 0;
+                i < block_size() / sizeof(klib::ofstream::char_type); ++i)
+                out.put(0);
+            if (!out)
+                return -1;
+        }
+        // Set up a reader for the block pointed to by the doubly indirect
+        // pointer.
+        klib::ifstream in {drv_name};
+        in.seekg(block_to_byte(d_indirect) +
+            (bl_index / addr_per_block) * sizeof(bl_index));
+        // Read the singly indirect pointer.
+        in.read(reinterpret_cast<klib::ifstream::char_type*>(&s_indirect),
+            sizeof(s_indirect)/ sizeof(klib::ifstream::char_type));
+        bl_index -= addr_per_block * addr_per_block;
+    }
+    else
+        s_indirect = inode_call(inode_index,
+            [](Ext2Inode& in) { return in.s_indirect(); });
+
+    // Finally resolve the singly indirect.
+    if (bl_index < addr_per_block)
+    {
+        if (s_indirect == 0)
+        {
+            // We need to allocate a new block of direct pointers.
+            s_indirect = allocate_new_block(inode_index, 0, true);
+            if (s_indirect == 0)
+                // The allocation failed. Return failure.
+                return -1;
+            if (d_indirect == 0)
+                // Update the inode record with the new indirect block.
+                inode_call(inode_index, [](Ext2Inode& in, size_t s)
+                    { in.s_indirect(s); }, s_indirect);
+            else {}
+                // TODO write the new s_indirect to the d_indirect block.
+            // Write zeroes to the new block so that we don't accidentally
+            // hijack other file's blocks.
+            // Set up a writer for the new block.
+            klib::ofstream out {drv_name};
+            out.seekp(block_to_byte(s_indirect));
+            if (!out)
+                return -1;
+            // Write the zeroes.
+            for (size_t i = 0;
+                i < block_size() / sizeof(klib::ofstream::char_type); ++i)
+                out.put(0);
+            if (!out)
+                return -1;
+        }
+        // Set up a writer for the block pointed to by the singly indirect
+        // pointer.
+        klib::ofstream out {drv_name};
+        out.seekp(block_to_byte(s_indirect) + bl_index * sizeof(bl_index));
+        if (!out)
+            return -1;
+        // Write the block address.
+        out.write(reinterpret_cast<klib::ofstream::char_type*>(&bl_addr),
+            sizeof(bl_addr) / sizeof(klib::ofstream::char_type));
+        if (!out)
+            return -1;
+    }
+
+    return 0;
+}
+
+/******************************************************************************/
+
 int Ext2FileSystem::flush_inode(size_t inode_index, bool free)
 {
     // Immediately suceed if the inode is not cached. This hopefully means
@@ -1004,15 +1314,189 @@ int Ext2FileSystem::flush_metadata()
 
 /******************************************************************************/
 
+size_t Ext2FileSystem::allocate_new_block(size_t inode_index, size_t bl_index,
+    bool indirect_block)
+{
+    // Fail immediately if the superblock says the file system is full or the
+    // file system is read only.
+    if (ro() || super_block.unalloc_blocks() == 0)
+        return 0;
+
+    // Find the block group the inode is in.
+    size_t inode_bl_grp = (inode_index - 1) / super_block.inodes_per_group();
+
+    size_t search_start = 0;
+    size_t search_start_bl_grp = 0;
+    if (bl_index != 0 && !indirect_block)
+    {
+        // Use the provided bl_index (which is for the new block), to work out
+        // the location of the previous block. The conditional + 1 is because
+        // the zeroth block does not count as part of the zeroth block group if
+        // it only contains the boot block. 
+        search_start = inode_lookup(inode_index, bl_index - 1);
+        search_start_bl_grp = (bl_index + (block_size() == 1024 ? 1 : 0)) /
+            super_block.blocks_per_group();
+    }
+
+    // If we find a free block, new_block gets set to the index within the block
+    // group and new_block_group gets set to the block group.
+    bool found = false;
+    size_t new_block = 0;
+    size_t new_block_group = 0;
+    if (search_start_bl_grp == inode_bl_grp &&
+        bgdt[inode_bl_grp].unalloc_blocks() != 0)
+    {
+        // The two block groups match. We start searching at the previous
+        // allocated block.
+        for (new_block = search_start + 1;
+            new_block < super_block.blocks_per_group(); ++new_block)
+        {
+            if (!access_block_alloc(inode_bl_grp, new_block))
+            {
+                found = true;
+                new_block_group = inode_bl_grp;
+                break;
+            }
+        }
+        // If we haven't found a free one, wrap to the start of the block group.
+        if (!found)
+        {
+            for (new_block = 0; new_block < search_start; ++new_block)
+            {
+                if (!access_block_alloc(inode_bl_grp, new_block))
+                {
+                    found = true;
+                    new_block_group = inode_bl_grp;
+                    break;
+                }
+            }
+
+        }
+    }
+    else
+    {
+        // The two block groups do not match. Search the block group of the
+        // inode first.
+        if (bgdt[inode_bl_grp].unalloc_blocks() != 0)
+        {
+            for (new_block = 0;
+                new_block < super_block.blocks_per_group(); ++new_block)
+            {
+                if (!access_block_alloc(inode_bl_grp, new_block))
+                {
+                    found = true;
+                    new_block_group = inode_bl_grp;
+                    break;
+                }
+            }
+        }
+        // If we haven't found a free one, search the rest of the group the last
+        // allocated block was in.
+        if (bgdt[search_start_bl_grp].unalloc_blocks() != 0)
+        {
+            for (new_block = search_start + 1;
+                new_block < super_block.blocks_per_group(); ++new_block)
+            {
+                if (!access_block_alloc(search_start_bl_grp, new_block))
+                {
+                    found = true;
+                    new_block_group = search_start_bl_grp;
+                    break;
+                }
+            }
+            // If we still haven't found a free one, wrap to the start of the
+            // block group.
+            for (new_block = 0; new_block < search_start; ++new_block)
+            {
+                if (!access_block_alloc(search_start_bl_grp, new_block))
+                {
+                    found = true;
+                    new_block_group = search_start_bl_grp;
+                    break;
+                }
+            }
+        }
+    }
+
+    // If we've got here without finding a free block, start searching the rest
+    // of the block groups.
+    if (!found)
+    {
+        size_t no_bg = 1 + (super_block.no_blocks() - 1) /
+            super_block.blocks_per_group();
+        for (size_t bg = 0; bg < no_bg; ++bg)
+        {
+            // Skip if we've already searched it.
+            if (bg == inode_bl_grp || bg == search_start_bl_grp)
+                continue;
+
+            // Skip if the block group is full.
+            if (bgdt[bg].unalloc_blocks() == 0)
+                continue;
+
+            // Search the table for a free block.
+            for (new_block = 0;
+                new_block < super_block.blocks_per_group(); ++new_block)
+            {
+                if (!access_block_alloc(bg, new_block))
+                {
+                    found = true;
+                    new_block_group = bg;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!found)
+        // We've tried everything and failed to find an unallocated block. Bail.
+        return 0;
+
+    // We've found something. Update the allocation table, group descriptor,
+    // superblock. We must do this before setting the inode, as the inode might
+    // need more blocks for indirect pointers.
+    access_block_alloc(new_block_group, new_block, true);
+    bgdt[new_block_group].unalloc_blocks(
+        bgdt[new_block_group].unalloc_blocks() - 1);
+    super_block.unalloc_blocks(super_block.unalloc_blocks() - 1);
+
+    // Set the inode pointer. Change new_block to the actual block address,
+    // rather than the index within the group. The conditional + 1 is because
+    // the zeroth block does not count as part of the zeroth block group if it
+    // only contains the boot block. It is possible to fail this, if the set
+    // requires additional indirect blocks that there is not space for. We don't
+    // do this for an indirect block allocation, as the indirect pointers will
+    // be set by inode_set().
+    new_block = new_block * super_block.blocks_per_group() +
+        (block_size() == 1024 ? 1 : 0);
+    if (!indirect_block && inode_set(inode_index, bl_index, new_block) == -1)
+    {
+        // The inode set failed. Change the allocation back to unused.
+        access_block_alloc(new_block_group, new_block, false);
+        bgdt[new_block_group].unalloc_blocks(
+            bgdt[new_block_group].unalloc_blocks() + 1);
+        super_block.unalloc_blocks(super_block.unalloc_blocks() + 1);
+        return 0;
+    }
+
+    return new_block;
+}
+
+/******************************************************************************/
+
 int Ext2FileSystem::deallocate(size_t bl)
 {
     // Do nothing if the block index is larger than the number of blocks.
     if (bl >= super_block.no_blocks())
         return -1;
 
-    // Find which block group the block is in, and the index in the group.
-    size_t bl_grp = bl / (super_block.blocks_per_group());
-    size_t bl_indx = bl % (super_block.blocks_per_group());
+    // Find which block group the block is in, and the index in the group. The
+    // conditional + 1 is because the zeroth block does not count as part of the
+    // zeroth block group if it only contains the boot block. 
+    size_t bl_grp = (bl + (block_size() == 1024 ? 1 : 0)) /
+        super_block.blocks_per_group();
+    size_t bl_indx = (bl + (block_size() == 1024 ? 1 : 0)) %
+        super_block.blocks_per_group();
 
     // Check whether it was already deallocated.
     bool change = access_block_alloc(bl_grp, bl_indx);
@@ -1034,21 +1518,49 @@ int Ext2FileSystem::deallocate(size_t bl)
 
 int Ext2FileSystem::flush_superblock() const
 {
-    // Create a writer and shift to the start of the superblock.
+    // Create a writer.
     klib::ofstream out {drv_name};
     if (!out)
         return -1;
-    out.seekp(superblock_loc);
-    if (!out)
-        return -1;
 
-    // Write the data.
-    super_block.write(out);
+    // Cycle over the block groups.
+    for (size_t i = 0;
+        i < 1 + (super_block.no_blocks() - 1) /  super_block.blocks_per_group();
+        ++i)
+    {
+        // If using the sparse feature, backups are only present for i = 0, 1
+        // and powers of 3, 5 and 7. Skip this block groups if using sparse and
+        // the block group doesn't match.
+        if ((super_block.required_writing_features() &
+            ext2_required_writing_features::sparse) !=
+            ext2_required_writing_features::none && !backup_group(i))
+            continue;
 
-    // TODO we should really be writing the back up versions here too.
+        size_t block_addr = 0;
+        if (i == 0)
+            // The first superblock is always located at 1024 bytes.
+            out.seekp(superblock_loc);
+        else
+        {
+            // The superblock backup is the first block of the block group. The
+            // conditional +1 comes from the presence of the boot block before
+            // the start of the first block group. If the block size is 1024,
+            // that's a whole block. If the block size is anything else (which
+            // must be larger) the first superblock is still in block 0 and
+            // block 0 counts as part of the first block group.
+            block_addr = i * super_block.blocks_per_group() +
+                (block_size() == 1024 ? 1 : 0);
+            out.seekp(block_addr * block_size());
+        }
+        if (!out)
+            return -1;
 
-    if (!out)
-        return -1;
+        // Write the data. Provide the block number, for editing the superblock
+        // address.
+        super_block.write(out, block_addr);
+        if (!out)
+            return -1;
+    }
 
     return 0;
 }
@@ -1057,30 +1569,46 @@ int Ext2FileSystem::flush_superblock() const
 
 int Ext2FileSystem::flush_bgdt() const
 {
-    // Locate the start of the BGDT, which is in the block after the super
-    // block.
-    size_t bgdt_off = 0;
-    while (superblock_loc + super_block.size() > bgdt_off)
-        bgdt_off += (1024 << super_block.block_size_shift());
-
-    // Create a writer and shift to the start of the BGDT.
+    // Create a writer.
     klib::ofstream out {drv_name};
     if (!out)
         return -1;
-    out.seekp(bgdt_off);
-    if (!out)
-        return -1;
 
-    // Write each entry. Write them unformatted.
-    for (size_t i = 0; i < bgdt.size(); ++i)
+    // Cycle over the block groups.
+    for (size_t i = 0;
+        i < 1 + (super_block.no_blocks() - 1) /  super_block.blocks_per_group();
+        ++i)
     {
-        bgdt[i].write(out);
-        if (!out)
-            break;
-    }
+        // If using the sparse feature, backups are only present for i = 0, 1
+        // and powers of 3, 5 and 7. Skip this block groups if using sparse and
+        // the block group doesn't match.
+        if ((super_block.required_writing_features() &
+            ext2_required_writing_features::sparse) !=
+            ext2_required_writing_features::none && !backup_group(i))
+            continue;
 
-    if (!out)
-        return -1;
+        // Locate the start of the BGDT, which is in the block after the
+        // superblock. The conditional +1 comes from the presence of the boot
+        // block before the start of the first block group. If the block size
+        // is 1024, that's a whole block. If the block size is anything else
+        // (which must be larger) the first superblock is still in block 0 and
+        // sblock 0 counts as part of the first block group.
+        size_t block_addr = i * super_block.blocks_per_group() + 1 +
+            (block_size() == 1024 ? 1 : 0);
+
+        // Shift the stream to the right location.
+        out.seekp(block_addr * block_size());
+        if (!out)
+            return -1;
+
+        // Write each entry. Write them unformatted.
+        for (size_t j = 0; j < bgdt.size(); ++j)
+        {
+            bgdt[j].write(out);
+            if (!out)
+                return -1;
+        }
+    }
 
     return 0;
 }
@@ -1089,7 +1617,7 @@ int Ext2FileSystem::flush_bgdt() const
 
 int Ext2FileSystem::cache_block_alloc(size_t bg_index)
 {
-    // Check whether the block allocation table is already cahced.
+    // Check whether the block allocation table is already cached.
     if (block_alloc.count(bg_index) != 0)
         return 0;
 
@@ -1133,14 +1661,17 @@ int Ext2FileSystem::flush_block_alloc()
     auto it = block_alloc.begin();
     while (it != block_alloc.end()) 
     {
-        // Create a writer and shift to the start of the allocation table.
+        // Create a writer.
         klib::ofstream out {drv_name};
         if (!out)
         {
             ++it;
             continue;
         }
-        out.seekp(it->first * block_size());
+        // Get the block address of the start of the table.
+        size_t block_addr = bgdt[it->first].block_map();
+        // Shift the stream to the start of the table.
+        out.seekp(block_addr * block_size());
         if (!out)
         {
             ++it;
@@ -1173,7 +1704,9 @@ int Ext2FileSystem::cache_inode(size_t index)
 
     // Exit with success if the inode is already cached.
     if (inodes.count(index) != 0)
+    {
         return 0;
+    }
 
     // Determine the block group, by dividing by the number of inodes per block
     // group.
@@ -1232,6 +1765,40 @@ size_t Ext2FileSystem::get_inode_index(const klib::string& name)
     }
 
     return inode_indx;
+}
+
+/******************************************************************************/
+
+bool Ext2FileSystem::backup_group(size_t bg) const
+{
+    // 0 and 1 are backup blocks.
+    if (bg == 0 || bg == 1)
+        return true;
+
+    // Powers of 3 are backup groups.
+    size_t n = bg;
+    while (n % 3 == 0)
+        n /= 3;
+    if (n == 1)
+        return true;
+
+    // Powers of 5 are backup groups.
+    n = bg;
+    while (n % 5 == 0)
+        n /= 5;
+    if (n == 1)
+        return true;
+
+    // Powers of 7 are backup groups.
+    n = bg;
+    while (n % 7 == 0)
+        n /= 7;
+    if (n == 1)
+        return true;
+
+    // If we've got here, all the matches have failed and it's not a backup
+    // group.
+    return false;
 }
 
 /******************************************************************************

@@ -120,9 +120,27 @@ FileTable::FileDescription::FileDescription(const klib::string& n,
     klib::ios_base::openmode mode) :
     name {n},
     count {1},
-    dev {global_kernel->get_vfs()->get_dev()->get_device_driver(name)},
+    dev {nullptr},
     fs {name, mode}
 {
+    // The file name could be a /dev device, in which case we simply need to ask
+    // the dev file system for the device, or it might be from a mounted file
+    // system, in which case we first need to translate to a dev device. We can
+    // find out by asking the VFS what file system the file resides on.
+    klib::string s = global_kernel->get_vfs()->lookup(n)->get_drv_name();
+
+    if (s == "")
+        // If the drive name is blank, it's some sort of virtual file system,
+        // maybe dev, maybe not. It it's dev, we can just look up the original
+        // name. If it's not, the dev lookup will return nothing, which is fine
+        // cos there's no underlying device for a virtual fs.
+        dev = global_kernel->get_vfs()->get_dev()->get_device_driver(n);
+    else
+        // If the drive name is not blank, it's been set to a dev name, so now
+        // we can look it up.
+        dev = global_kernel->get_vfs()->get_dev()->get_device_driver(s);
+
+//    global_kernel->syslog()->info("FileDescription name = %s, count = %u, dev at %p\n", name.c_str(), count, dev);
     // Set count to zero on failure to open.
     if (!fs)
         count = 0;

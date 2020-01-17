@@ -31,7 +31,7 @@ extern "C"
 void abort()
 {
     global_kernel->default_disable();
-    global_kernel->syslog()->error("Abort called\n");
+    global_kernel->panic("Abort called");
     while (true) ;
 }
 

@@ -2642,7 +2642,7 @@ kernel_asm_dir="asm"
 
 
 # Ask for the creation of Makefiles from the templates.
-ac_config_files="$ac_config_files Makefile kernel/Makefile stdlib/Makefile user/src/Makefile user/src/init/Makefile user/src/sgsh/Makefile disks/Makefile"
+ac_config_files="$ac_config_files Makefile kernel/Makefile stdlib/Makefile user/Makefile user/etc/Makefile user/src/Makefile user/src/init/Makefile user/src/sgsh/Makefile disks/Makefile"
 
 
 # Check for the GRUB tools.
@@ -4274,7 +4274,7 @@ else
 fi
 
 
-# Check for required compiler generated stanard headers
+# Check for required compiler generated standard headers
 
 for ac_header in stddef.h
 do :
@@ -6026,6 +6026,8 @@ do
     "Makefile") CONFIG_FILES="$CONFIG_FILES Makefile" ;;
     "kernel/Makefile") CONFIG_FILES="$CONFIG_FILES kernel/Makefile" ;;
     "stdlib/Makefile") CONFIG_FILES="$CONFIG_FILES stdlib/Makefile" ;;
+    "user/Makefile") CONFIG_FILES="$CONFIG_FILES user/Makefile" ;;
+    "user/etc/Makefile") CONFIG_FILES="$CONFIG_FILES user/etc/Makefile" ;;
     "user/src/Makefile") CONFIG_FILES="$CONFIG_FILES user/src/Makefile" ;;
     "user/src/init/Makefile") CONFIG_FILES="$CONFIG_FILES user/src/init/Makefile" ;;
     "user/src/sgsh/Makefile") CONFIG_FILES="$CONFIG_FILES user/src/sgsh/Makefile" ;;

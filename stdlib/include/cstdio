@@ -295,6 +295,16 @@ public:
     }
 
     /**
+        Checks whether a file has been closed. Since files are closed if they
+        fail to open, this is can also be used to check whether the open was
+        successful.
+
+        @return True if the file is open for reading and/or writing, false
+                otherwise.
+     */
+    virtual int closed() { return !(reading || writing); }
+
+    /**
         Writes to the file.
 
         @param buf Location of the first object to be written.

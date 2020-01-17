@@ -98,6 +98,19 @@ klib::FILE* VirtualFileSystem::fopen(const klib::string& name, const char* mode)
     FileSystem* fs = lookup(tmp);
     klib::FILE* f = fs->fopen(tmp, mode);
 
+    // The filesystem might return nullptr on error.
+    if (f == nullptr)
+        return nullptr;
+
+    // If there was some reason the file could not be opened, it may be in a
+    // valid, but closed, state. In that case we need to delete it and fail.
+    if (f->closed())
+    {
+        global_kernel->syslog()->warn("VFS::fopen %s file is closed after open\n", name.c_str());
+        delete f;
+        return nullptr;
+    }
+
     // Deal with mode specific actions.
     if (klib::strcmp(mode, "w") == 0|| klib::strcmp(mode, "w+") == 0)
         f->truncate();
@@ -108,6 +121,13 @@ klib::FILE* VirtualFileSystem::fopen(const klib::string& name, const char* mode)
 }
 
 /******************************************************************************/
+
+FileSystem* VirtualFileSystem::lookup(const klib::string& fname) const
+{
+    // Copy contructing a new string is not ideal, but is unlikely to be
+    // overly burdensome.
+    return lookup(klib::string {fname});
+}
 
 FileSystem* VirtualFileSystem::lookup(klib::string& fname) const
 {
@@ -151,10 +171,7 @@ DevFileSystem* VirtualFileSystem::get_dev() const
     if (it == mtab.end())
         return nullptr;
 
-    // Strictly unsafe, but I hope I haven't been foolish enough to mount
-    // something else at /dev. Can't dynamic cast as the vmi_class_type_info
-    // not exist.
-    return static_cast<DevFileSystem*>(it->second);
+    return dynamic_cast<DevFileSystem*>(it->second);
 }
 
 /******************************************************************************/

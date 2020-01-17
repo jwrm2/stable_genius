@@ -1,5 +1,5 @@
 # User space subdirectory and kernel must be built after the standard library.
-SUBDIRS = stdlib kernel user/src disks
+SUBDIRS = stdlib kernel user disks
 
 # Extra steps to make the disks.
 disks: @HDA@ @HDB@
