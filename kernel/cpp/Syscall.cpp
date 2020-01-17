@@ -168,6 +168,8 @@ int32_t fork(const InterruptRegisters& ir, const InterruptStack& is)
 
 int32_t read(int fd, char* buf, size_t count)
 {
+    global_kernel->syslog()->info("read: fd = %d, buf at %p, count = %u\n", fd, buf, count);
+
     // We require the whole string to be in user space.
     if (reinterpret_cast<size_t>(buf) + count >= kernel_virtual_base)
     {
@@ -184,8 +186,7 @@ int32_t read(int fd, char* buf, size_t count)
     int key = p->get_fd_key(fd);
     if (key == 0)
     {
-        global_kernel->syslog()->warn(
-            "read syscall was given a file descriptor that does not exist for the process\n");
+        global_kernel->syslog()->warn("read syscall was given a file descriptor that does not exist for the process\n");
         return -1;
     }
     klib::fstream& f = global_kernel->get_file_table().get_stream(key);
@@ -200,13 +201,14 @@ int32_t read(int fd, char* buf, size_t count)
     SignalManager::pollfd pfd {fd, PollType::pollin, PollType::pollnone};
     if(global_kernel->get_signal_manager()->poll(&pfd, 1, -1) <= 0)
     {
-        global_kernel->syslog()->warn( "read syscall poll failed\n");
+        global_kernel->syslog()->warn("read syscall poll failed\n");
         return -1;
     }
 
     // Read from file.
     f.read(buf, count);
     int32_t ret_val = f.gcount();
+    global_kernel->syslog()->info("read gcount() is %d\n", ret_val);
 
     // Read sets fail on eof, but eof here is ok.
     if (f.eof())
@@ -225,6 +227,8 @@ int32_t read(int fd, char* buf, size_t count)
 
 int32_t write(int fd, const char* buf, size_t count)
 {
+    global_kernel->syslog()->info("write: fd = %d, buf at %p, count = %u\n", fd, buf, count);
+
     // We require the whole string to be in user space.
     if (reinterpret_cast<size_t>(buf) + count >= kernel_virtual_base)
     {
@@ -241,8 +245,7 @@ int32_t write(int fd, const char* buf, size_t count)
     int key = p->get_fd_key(fd);
     if (key == 0)
     {
-        global_kernel->syslog()->warn(
-            "write syscall was given a file descriptor that does not exist for the process\n");
+        global_kernel->syslog()->warn( "write syscall was given a file descriptor that does not exist for the process\n");
         return -1;
     }
     klib::fstream& f = global_kernel->get_file_table().get_stream(key);
@@ -273,6 +276,7 @@ int32_t write(int fd, const char* buf, size_t count)
 int32_t open(const char* filename, open_flags flags, int mode)
 {
     (void)mode;
+    global_kernel->syslog()->info("open: filename = %s, open_flags = %u, mode = %d\n", filename, flags, mode);
 
     // We require the file name string to be in user space.
     size_t len = klib::strlen(filename);
@@ -302,7 +306,8 @@ int32_t open(const char* filename, open_flags flags, int mode)
     int32_t ret_val = p->open_file(filename, m);
 
     if (ret_val == -1)
-        global_kernel->syslog()->warn( "open syscall process file open failed\n");
+        global_kernel->syslog()->
+            warn("open syscall process file open failed\n");
 
     return ret_val;
 }
@@ -312,6 +317,7 @@ int32_t open(const char* filename, open_flags flags, int mode)
 
 int32_t close(int fd)
 {
+    global_kernel->syslog()->info("close: fd = %d\n", fd);
     // Get the active process.
     Process* p = global_kernel->get_proc_table().get_process(
         global_kernel->get_scheduler().get_last());

@@ -31,7 +31,7 @@ AC_CONFIG_SRCDIR([kernel/asm/loader.s])
 AC_CONFIG_SRCDIR([stdlib/cpp/cstdio.cpp])
 
 # Ask for the creation of Makefiles from the templates.
-AC_CONFIG_FILES([Makefile kernel/Makefile stdlib/Makefile user/src/Makefile user/src/init/Makefile user/src/sgsh/Makefile disks/Makefile])
+AC_CONFIG_FILES([Makefile kernel/Makefile stdlib/Makefile user/Makefile user/etc/Makefile user/src/Makefile user/src/init/Makefile user/src/sgsh/Makefile disks/Makefile])
 
 # Check for the GRUB tools.
 AC_ARG_WITH([grubdir], [AS_HELP_STRING([--with-grubdir=DIR], [location of the GRUB tools for making the bootable image])], [grubdir=$(readlink -f "${withval}")], [grubdir="not found"])
@@ -134,7 +134,7 @@ CXXFLAGS=${user_cxxflags}
 user_cflags=${CFLAGS}
 : ${CFLAGS="-ffreestanding -nostdlib"}
 AC_PROG_CC
-# Check for required compiler generated stanard headers
+# Check for required compiler generated standard headers
 AC_CHECK_HEADERS([stddef.h], [AC_DEFINE([HAVE_STDDEF_H], 1, [Define to 1 if stddef.h is present])], [AC_MSG_ERROR(stddef.h not present)], [ ])
 AC_CHECK_HEADERS([stdarg.h], [AC_DEFINE([HAVE_STDARG_H], 1, [Define to 1 if stdarg.h is present])], [AC_MSG_ERROR(stdarg.h not present)], [ ])
 AC_CHECK_HEADERS([stdint.h], [AC_DEFINE([HAVE_STDINT_H], 1, [Define to 1 if stdint.h is present])], [AC_MSG_ERROR(stdint.h not present)], [ ])

@@ -191,9 +191,10 @@ public:
         adjusted to be relative to the root of the device.
 
         @param f Absolute path name to look up. Gets modified to the file name
-               relative to the root of the device.
+               relative to the root of the device in the non-const version.
         @return File system the requested file resides on.
      */
+    FileSystem* lookup(const klib::string& f) const;
     FileSystem* lookup(klib::string& f) const;
     FileSystem* lookup(klib::string&& f) const;
 

@@ -213,13 +213,24 @@ class DiskFile : public klib::FILE {
 public:
     /**
         Constructor. Calls the base to work out the mode. Sets the file system
-        and size. TODO should truncate the file, depending on mode.
+        and size.
 
         @param m C-style file open mode.
         @param f File system the file is on.
         @param s Size of the file.
      */
     DiskFile(const char* m, FileSystem& f, klib::streamoff s);
+
+    /**
+        Flushes the buffer to disk. Doesn't actually do anything here, as it's
+        specific to each disk type. However, it's called by klib::FILE::close(),
+        which can be called from the constructor and it's pure virtual in the
+        parent, so we need an implementation here.
+
+        @param pos Pointer to a position indicator that will be set.
+        @return 0 on success, nonzero otherwise.
+     */
+    virtual int flush() override { return 0; }
 
 protected:
     // Reference to the file system. Used for reads and writes.

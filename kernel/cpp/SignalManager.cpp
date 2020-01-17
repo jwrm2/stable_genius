@@ -58,10 +58,20 @@ int SignalManager::poll(pollfd* fds, size_t nfds, int timeout)
         // Reset return events.
         fds[i].revents = PollType::pollnone;
 
-        // Check whether the condition already exists.
+        // Fetch the physical device driver the file resides on.
         Device* dev = global_kernel->get_file_table().get_dev(key);
-        PollType ret_mask =
-            dev->poll_check(fds[i].events & PollType::pollrequestable);
+
+        PollType ret_mask {PollType::pollnone};
+        if (dev != nullptr)
+            // Check the current state of the device.
+            ret_mask =
+                dev->poll_check(fds[i].events & PollType::pollrequestable);
+        else
+            // There may not be a physical device for the file, in which case
+            // dev is currently a nullptr. In this case, the file exists in
+            // memory and we'll assume it's ready for access.
+            ret_mask = fds[i].events;
+
         if (ret_mask != PollType::pollnone)
         {
             ++ret_count;

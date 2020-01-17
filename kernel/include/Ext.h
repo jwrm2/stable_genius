@@ -53,7 +53,7 @@ namespace klib {
 enum class ext2_required_writing_features : uint32_t {
     /** None. */
     none = 0x0,
-    /** Sparse superblocks and group decriptor tables. */
+    /** Sparse superblocks and group descriptor tables. */
     sparse = 0x1,
     /** File system uses 64-bit file size. */
     large_file_size = 0x2,
@@ -117,12 +117,19 @@ struct Ext2SuperBlock {
     explicit Ext2SuperBlock(klib::istream& in);
 
     /**
-        Write the data unformatted to the provided stream.
+        Write the data unformatted to the provided stream, at the current
+        position in the stream. The data sent to the disk is adjusted to
+        indicate the provided block address in the superblock_no field. The data
+        in memory is unaffected and continues to be correct for the primary
+        superblock.
 
         @param dest The stream to write to.
+        @param bl Block address to write to. The position data is written to is
+               determined by the position of the dest stream, but one of the
+               superblock fields is the block address it's occupying.
         @return The stream after writing.
      */
-    klib::ostream& write(klib::ostream& dest) const;
+    klib::ostream& write(klib::ostream& dest, size_t bl) const;
 
     /**
         Gets or sets the total number of inodes.
@@ -617,9 +624,9 @@ struct Ext2SuperBlock {
     }
 
     /**
-        Required features in use in the file system. The implementation does
-        must support these for reading or writing. For major version 1 or
-        higher only.
+        Required features in use in the file system. The implementation must
+        support these for reading or writing. For major version 1 or higher
+        only.
 
         @param feat Required features to set.
         @return Required features.
@@ -756,6 +763,10 @@ protected:
     static constexpr size_t name_length = 16;
     // Length of the path last mounted as.
     static constexpr size_t path_length = 64;
+    // Location of the field indicating the block number.
+    static constexpr size_t block_number_field = 20;
+    // Size of the field indicating the block number.
+    static constexpr size_t block_number_size = 4;
 };
 
 /**
@@ -865,7 +876,7 @@ struct BlockGroupDescriptor {
     }
 
     /**
-        Number of directories inodes in the block group.
+        Number of directory inodes in the block group.
 
         @param n Number of directories to set.
         @return Number of directories.
@@ -1563,7 +1574,8 @@ public:
         zero, we don't support it.
      */
     static constexpr ext2_required_writing_features required_writing_supported =
-        ext2_required_writing_features::large_file_size;
+        ext2_required_writing_features::large_file_size |
+        ext2_required_writing_features::sparse;
 
     /**
         Constructor. Creates an ext2 driver for the given device or partition.
@@ -1642,6 +1654,18 @@ public:
     size_t inode_lookup(size_t inode_index, size_t bl);
 
     /**
+        Given an inode for a file and a block index in the file, set the block
+        address in the file system. The inode will be cached.
+
+        @param inode_index Inode index to use. Will be cached if it wasn't
+                already.
+        @param bl_index Block index in the file.
+        @param bl_addr Block address in the file system.
+        @return 0 on success, -1 on failure.
+     */
+    int inode_set(size_t inode_index, size_t bl_index, size_t bl_addr);
+
+    /**
         Looks up the inode corresponding to the inode index and calls the
         provided functor on it. The functor is expected to be of the form
         ret_type operator()(Ext2Inode& in, Args&&... args)
@@ -1695,6 +1719,30 @@ public:
         @return 0 on success, -1 on failure.
      */
     int flush_metadata();
+
+    /**
+        Allocate a new block. Looks through the block allocation tables to find
+        an unused block. If it finds one, update the block allocation table and
+        the inode. Does not flush metadata back to disk. Fails if no blocks are
+        free. A block within the same block group as the inode will be allocated
+        if possible. The search will begin at the last existing allocated block
+        in the file, unless that is not in the same block group as the inode, in
+        which case that block group will be searched first.
+
+        @param inode_index Inode to find a new block for.
+        @param bl_index Block index the new block will be in the file. Because
+               of the way the write works, the inode file size may be out of
+               step, so we can't use that to get this information. We could
+               follow the pointers in the inode, but that would be tedious.
+        @param indirect_block If true, this block will be used for storing
+               block pointers to be folloowed from the inode indirect pointers.
+               In this case, the bl_index is ignored. Defualts to false, meaning
+               the block will be used for storing file data.
+        @return Block number on success, or 0 on failure (which is an invalid
+                block).
+     */
+    size_t allocate_new_block(size_t inode_index, size_t bl_index,
+        bool indirect_block = false);
 
     /**
         Deallocate a block, setting it to unused in the block group usage table.
@@ -1790,6 +1838,11 @@ protected:
     // Inodes for the file and its parent directories are all cached. 0 is not
     // a valid inode index and is used for failure.
     size_t get_inode_index(const klib::string& name);
+
+    // Determines whether the block group with index bg should contain backup
+    // copies of the superblock and BDGT, if the sparse backups feature is in
+    // use/
+    bool backup_group(size_t bg) const;
 };
 
 /**

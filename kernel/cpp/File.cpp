@@ -7,6 +7,8 @@
 #include <string>
 
 #include "FileSystem.h"
+#include "Kernel.h"
+#include "Logger.h"
 
 /******************************************************************************
  ******************************************************************************/
@@ -279,13 +281,15 @@ DiskFile::DiskFile(const char* m, FileSystem& f, klib::streamoff s) :
 {
     // Fail if read-only and open for writing.
     if (writing && fs.ro())
+    {
         close();
-
-    // Create the buffer.
-    buffered = true;
-    buffer = new char[fs.block_size()];
-
-    // TODO should truncate, depending on mode.
+    }
+    else
+    {
+        // Create the buffer.
+        buffered = true;
+        buffer = new char[fs.block_size()];
+    }
 }
 
 /******************************************************************************

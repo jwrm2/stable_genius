@@ -7,10 +7,6 @@ then
     exit 1
 fi
 
-mkdir ${mnt_dir}/etc
-echo "abc" > ${mnt_dir}/etc/foo.conf
-echo "123" > ${mnt_dir}/etc/bar.conf
-
 disk_dir=${PWD}
 
 (cd ${user_dir} && find . -type f -exec install -D "{}" "${disk_dir}/${mnt_dir}/{}" \;)
