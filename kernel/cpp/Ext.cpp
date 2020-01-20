@@ -993,12 +993,16 @@ size_t Ext2FileSystem::inode_lookup(size_t inode_index, size_t bl)
         return 0;
 
     // Pointer address to be filled.
-    size_t d_indirect;
-    size_t s_indirect;
+    size_t t_indirect = 0;
+    size_t d_indirect = 0;
+    size_t s_indirect = 0;
 
     // Start by testing the triply indirect.
     if (bl >= addr_per_block * (addr_per_block + 1))
     {
+        // Get rid of the sinlgy and double indirect blocks from the index.
+        bl -= addr_per_block * (addr_per_block + 1);
+
         // Fetch the triply indirect pointer value.
         size_t t_indirect = inode_call(inode_index,
             [](Ext2Inode& in) { return in.t_indirect(); });
@@ -1008,21 +1012,26 @@ size_t Ext2FileSystem::inode_lookup(size_t inode_index, size_t bl)
         // Set up a reader for the block pointed to by the triply indirect
         // pointer.
         klib::ifstream in {drv_name};
-        in.seekg(block_to_byte(t_indirect) +
-            (bl / (addr_per_block * addr_per_block)) * sizeof(bl));
+        in.seekg(block_to_byte(t_indirect) + bl /
+            (addr_per_block * addr_per_block) * sizeof(bl));
         // Read the doubly indirect pointer.
         in.read(reinterpret_cast<klib::ifstream::char_type*>(&d_indirect),
             sizeof(d_indirect) / sizeof(klib::ifstream::char_type));
-        bl -= addr_per_block * addr_per_block * addr_per_block;
+        bl %= (addr_per_block * addr_per_block);
     }
     else
         d_indirect = inode_call(inode_index,
             [](Ext2Inode& in) { return in.d_indirect(); });
 
     // Next for the doubly indirect.
-    if (bl >= addr_per_block &&
-        bl < addr_per_block * (addr_per_block + 1))
+    if ((bl >= addr_per_block &&
+        bl < addr_per_block * (addr_per_block + 1)) || t_indirect != 0)
     {
+        // If we didn't have a triply indirect, get rid of the singly indirect
+        // blocks from the index.
+        if (t_indirect == 0)
+            bl -= addr_per_block;
+
         // Return 0 if the doubly indirect pointer is invalid.
         if (d_indirect == 0)
             return 0;
@@ -1034,28 +1043,25 @@ size_t Ext2FileSystem::inode_lookup(size_t inode_index, size_t bl)
         // Read the singly indirect pointer.
         in.read(reinterpret_cast<klib::ifstream::char_type*>(&s_indirect),
             sizeof(s_indirect)/ sizeof(klib::ifstream::char_type));
-        bl -= addr_per_block * addr_per_block;
+        bl %= addr_per_block;
     }
     else
         s_indirect = inode_call(inode_index,
             [](Ext2Inode& in) { return in.s_indirect(); });
 
     // Finally resolve the singly indirect.
-    if (bl < addr_per_block)
-    {
-        // Return 0 if the singly indirect pointer is invalid.
-        if (s_indirect == 0)
-            return 0;
-        // Set up a reader for the block pointed to by the singly indirect
-        // pointer.
-        klib::ifstream in {drv_name};
-        in.seekg(block_to_byte(s_indirect) + bl * sizeof(bl));
-        // Read the block address.
-        size_t ret_val;
-        in.read(reinterpret_cast<klib::ifstream::char_type*>(&ret_val),
-            sizeof(ret_val) / sizeof(klib::ifstream::char_type));
-        return ret_val;
-    }
+    // Return 0 if the singly indirect pointer is invalid.
+    if (s_indirect == 0)
+        return 0;
+    // Set up a reader for the block pointed to by the singly indirect
+    // pointer.
+    klib::ifstream in {drv_name};
+    in.seekg(block_to_byte(s_indirect) + bl * sizeof(bl));
+    // Read the block address.
+    size_t ret_val;
+    in.read(reinterpret_cast<klib::ifstream::char_type*>(&ret_val),
+        sizeof(ret_val) / sizeof(klib::ifstream::char_type));
+    return ret_val;
 
     return 0;
 }
@@ -1091,9 +1097,16 @@ int Ext2FileSystem::inode_set(size_t inode_index, size_t bl_index,
     size_t d_indirect = 0;
     size_t s_indirect = 0;
 
+    // Save the intermediate indices in case we need to allocate new pointers.
+    size_t d_index = 0;
+    size_t s_index = 0;
+
     // Start by testing the triply indirect.
     if (bl_index >= addr_per_block * (addr_per_block + 1))
     {
+        // Get rid of the sinlgy and double indirect blocks from the index.
+        bl_index -= addr_per_block * (addr_per_block + 1);
+
         // Fetch the triply indirect pointer value.
         t_indirect = inode_call(inode_index,
             [](Ext2Inode& in) { return in.t_indirect(); });
@@ -1124,21 +1137,26 @@ int Ext2FileSystem::inode_set(size_t inode_index, size_t bl_index,
         // Set up a reader for the block pointed to by the triply indirect
         // pointer.
         klib::ifstream in {drv_name};
-        in.seekg(block_to_byte(t_indirect) +
-            (bl_index / (addr_per_block * addr_per_block)) * sizeof(bl_index));
+        d_index = bl_index / (addr_per_block * addr_per_block);
+        in.seekg(block_to_byte(t_indirect) + d_index * sizeof(bl_index));
         // Read the doubly indirect pointer.
         in.read(reinterpret_cast<klib::ifstream::char_type*>(&d_indirect),
             sizeof(d_indirect) / sizeof(klib::ifstream::char_type));
-        bl_index -= addr_per_block * addr_per_block * addr_per_block;
+        bl_index %= (addr_per_block * addr_per_block);
     }
     else
         d_indirect = inode_call(inode_index,
             [](Ext2Inode& in) { return in.d_indirect(); });
 
     // Next for the doubly indirect.
-    if (bl_index >= addr_per_block &&
-        bl_index < addr_per_block * (addr_per_block + 1))
+    if ((bl_index >= addr_per_block &&
+        bl_index < addr_per_block * (addr_per_block + 1)) || t_indirect != 0)
     {
+        // If we didn't have a triply indirect, get rid of the singly indirect
+        // blocks from the index.
+        if (t_indirect == 0)
+            bl_index -= addr_per_block;
+
         if (d_indirect == 0)
         {
             // We need to allocate a new block of singly-indirect pointers.
@@ -1150,8 +1168,19 @@ int Ext2FileSystem::inode_set(size_t inode_index, size_t bl_index,
                 // Update the inode record with the new indirect block.
                 inode_call(inode_index, [](Ext2Inode& in, size_t d)
                     { in.d_indirect(d); }, d_indirect);
-            else {}
-                // TODO write the new d_indirect to the t_indirect block.
+            else
+            {
+                // Update the triply indirect block with the new doubly indirect
+                // pointer.
+                // Set up a writer for the device.
+                klib::ofstream out {drv_name};
+                // Offset to the correct block.
+                out.seekp(block_to_byte(t_indirect) +
+                    d_index * sizeof(bl_index));
+                if (!out)
+                    // The write failed. Return failure.
+                    return -1;
+            }
             // Write zeroes to the new block so that we don't accidentally
             // hijack other file's blocks.
             // Set up a writer for the new block.
@@ -1169,59 +1198,67 @@ int Ext2FileSystem::inode_set(size_t inode_index, size_t bl_index,
         // Set up a reader for the block pointed to by the doubly indirect
         // pointer.
         klib::ifstream in {drv_name};
-        in.seekg(block_to_byte(d_indirect) +
-            (bl_index / addr_per_block) * sizeof(bl_index));
+        size_t s_index = bl_index / addr_per_block;
+        in.seekg(block_to_byte(d_indirect) + s_index * sizeof(bl_index));
         // Read the singly indirect pointer.
         in.read(reinterpret_cast<klib::ifstream::char_type*>(&s_indirect),
             sizeof(s_indirect)/ sizeof(klib::ifstream::char_type));
-        bl_index -= addr_per_block * addr_per_block;
+        bl_index %= addr_per_block;
     }
     else
         s_indirect = inode_call(inode_index,
             [](Ext2Inode& in) { return in.s_indirect(); });
 
     // Finally resolve the singly indirect.
-    if (bl_index < addr_per_block)
+    if (s_indirect == 0)
     {
+        // We need to allocate a new block of direct pointers.
+        s_indirect = allocate_new_block(inode_index, 0, true);
         if (s_indirect == 0)
+            // The allocation failed. Return failure.
+            return -1;
+        if (d_indirect == 0)
+            // Update the inode record with the new indirect block.
+            inode_call(inode_index, [](Ext2Inode& in, size_t s)
+                { in.s_indirect(s); }, s_indirect);
+        else
         {
-            // We need to allocate a new block of direct pointers.
-            s_indirect = allocate_new_block(inode_index, 0, true);
-            if (s_indirect == 0)
-                // The allocation failed. Return failure.
-                return -1;
-            if (d_indirect == 0)
-                // Update the inode record with the new indirect block.
-                inode_call(inode_index, [](Ext2Inode& in, size_t s)
-                    { in.s_indirect(s); }, s_indirect);
-            else {}
-                // TODO write the new s_indirect to the d_indirect block.
-            // Write zeroes to the new block so that we don't accidentally
-            // hijack other file's blocks.
-            // Set up a writer for the new block.
+            // Update the dobly indirect block with the new singly indirect
+            // pointer.
+            // Set up a writer for the device.
             klib::ofstream out {drv_name};
-            out.seekp(block_to_byte(s_indirect));
+            // Offset to the correct block.
+            out.seekp(block_to_byte(d_indirect) +
+                s_index * sizeof(bl_index));
             if (!out)
-                return -1;
-            // Write the zeroes.
-            for (size_t i = 0;
-                i < block_size() / sizeof(klib::ofstream::char_type); ++i)
-                out.put(0);
-            if (!out)
+                // The write failed. Return failure.
                 return -1;
         }
-        // Set up a writer for the block pointed to by the singly indirect
-        // pointer.
+        // Write zeroes to the new block so that we don't accidentally
+        // hijack other file's blocks.
+        // Set up a writer for the new block.
         klib::ofstream out {drv_name};
-        out.seekp(block_to_byte(s_indirect) + bl_index * sizeof(bl_index));
+        out.seekp(block_to_byte(s_indirect));
         if (!out)
             return -1;
-        // Write the block address.
-        out.write(reinterpret_cast<klib::ofstream::char_type*>(&bl_addr),
-            sizeof(bl_addr) / sizeof(klib::ofstream::char_type));
+        // Write the zeroes.
+        for (size_t i = 0;
+            i < block_size() / sizeof(klib::ofstream::char_type); ++i)
+            out.put(0);
         if (!out)
             return -1;
     }
+    // Set up a writer for the block pointed to by the singly indirect
+    // pointer.
+    klib::ofstream out {drv_name};
+    out.seekp(block_to_byte(s_indirect) + bl_index * sizeof(bl_index));
+    if (!out)
+        return -1;
+    // Write the block address.
+    out.write(reinterpret_cast<klib::ofstream::char_type*>(&bl_addr),
+        sizeof(bl_addr) / sizeof(klib::ofstream::char_type));
+    if (!out)
+        return -1;
 
     return 0;
 }
