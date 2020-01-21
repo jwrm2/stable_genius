@@ -614,10 +614,11 @@ protected:
                     return traits_type::eof();
 
                 // Flush the write.
-                ret_val = NMSP::fflush(open_file);
-
-                if (ret_val != 0)
-                    return traits_type::eof();
+                // This is unnecessary. If the FILE object does have an internal
+                // buffer, there is no need for it to be flushed here.
+//                ret_val = NMSP::fflush(open_file);
+//                if (ret_val != 0)
+//                    return traits_type::eof();
 
                 // Reset pointers.
                 streambuf_type::setp(streambuf_type::pbase(),

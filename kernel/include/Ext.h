@@ -1490,8 +1490,9 @@ public:
 
         @param indx Index in the file system of that inode.
         @param fs File system to work on.
+        @param w Whether the directory is open for writing. Defaults to false.
      */
-    Ext2Directory(size_t indx, Ext2FileSystem& fs);
+    Ext2Directory(size_t indx, Ext2FileSystem& fs, bool w = false);
 
     /**
         Virtual destructor. Calls close() to free any resources.
@@ -1555,8 +1556,9 @@ protected:
 
     // Keep a cache of inodes for files undergoing changes. Keep them centrally
     // for the file system so that files open multiple times can be kept in sync
-    // without repeated disk writes and reads.
-    klib::map<size_t, Ext2Inode> inodes;
+    // without repeated disk writes and reads. The boolean is used to keep track
+    // of whether the inode has been modified.
+    klib::map<size_t, klib::pair<Ext2Inode, bool>> inodes;
 
 public:
     /**
@@ -1674,24 +1676,33 @@ public:
         inode.
 
         @param inode_index Index of the inode.
+        @param mod Whether the function call will modify the inode. When
+               flushed, the inode information will not be written back to disk
+               unless an inode call with mod set to tru has been made. I guess
+               it might be possible to deduce this from whether the type of the
+               arguments of F has a const Ext2Inode& or an Ext2Inode, but that
+               sounds difficult.
         @param f Functor to call on the inode.
         @param args Arguments to pass to the functor.
         @return Whatever the functor returns.
      */
     template <typename F, typename... Args>
-    auto inode_call(size_t inode_index, F f, Args&&... args) ->
-        decltype(f(inodes[inode_index], klib::forward<Args>(args)...))
+    auto inode_call(size_t inode_index, bool mod, F f, Args&&... args) ->
+        decltype(f(inodes[inode_index].first, klib::forward<Args>(args)...))
     {
         cache_inode(inode_index);
+        // Set the inode to changed, if necessary.
+        if (mod)
+            inodes[inode_index].second = true;
         // It is still possible to fail here, if we get interrupted and then
         // some other thread accessing the same inode closes the file. I think
         // that's sufficiently unlikely that I'm not considering it. 
-        return f(inodes[inode_index], klib::forward<Args>(args)...);
+        return f(inodes[inode_index].first, klib::forward<Args>(args)...);
     }
 
     /**
-        Writes the cached inode with the matching inode index back to disk.
-        Optionally deletes the cache record.
+        Writes the cached inode with the matching inode index back to disk, but
+        only if it's been modified. Optionally deletes the cache record.
 
         @param inode_index Index of the inode to flush. 0 is not a valid inode
                index, so is used to indicate flushing all cached inodes.

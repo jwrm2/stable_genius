@@ -249,23 +249,33 @@ Ext2File::Ext2File(const char* m, size_t indx, Ext2FileSystem& fs) :
 
 int Ext2File::close()
 {
-    if (writing)
-    {
-        flush();
+    // Call the parent close, which will flush the writing buffer, including
+    // flushing the inode, but only if it was open for writing. It will also set
+    // writing to false, so we'll take a copy of that to determine whether we'll
+    // we'll need to flush metadata.
+    bool temp_writing = writing;
+    int ret_val = DiskFile::close();
 
-        // Remove the inode from the filesystem cache.
-        Ext2FileSystem& ext2fs = dynamic_cast<Ext2FileSystem&>(fs);
-        ext2fs.flush_inode(inode_index, true);
+    Ext2FileSystem& ext2fs = dynamic_cast<Ext2FileSystem&>(fs);
+    if (temp_writing)
+    {
+        // Open for writing, so we need to flush the metadata.
+        ret_val = (ext2fs.flush_metadata() == -1 ? -1 : ret_val);
     }
+    else
+        // Open for reading. We still need to call the inode flush (which wasn't
+        // done by the parent close) to remove it from the cache.
+        ret_val = (ext2fs.flush_inode(inode_index, true) == -1 ? -1 : ret_val);
 
     inode_index = 0;
-    return DiskFile::close();
+    return ret_val;
 }
 
 /******************************************************************************/
 
 size_t Ext2File::read(void* buf, size_t size, size_t count)
 {
+//    global_kernel->syslog()->info("Ext2File::read begin\n");
     // Turn the file system reference into a specific ext2fs reference.
     Ext2FileSystem& ext2fs = dynamic_cast<Ext2FileSystem&>(fs);
 
@@ -344,6 +354,8 @@ size_t Ext2File::read(void* buf, size_t size, size_t count)
     if (static_cast<klib::streamoff>(position) >= sz)
         eof = true;
 
+//    global_kernel->syslog()->info("Ext2File::read end with %u characters read\n", char_read / size);
+
     return char_read / size;
 }
 
@@ -351,6 +363,8 @@ size_t Ext2File::read(void* buf, size_t size, size_t count)
 
 size_t Ext2File::write(const void* buf, size_t size, size_t count)
 {
+    global_kernel->syslog()->info("Ext2File::write begin\n");
+
     // Turn the file system reference into a specific ext2fs reference.
     Ext2FileSystem& ext2fs = dynamic_cast<Ext2FileSystem&>(fs);
 
@@ -379,21 +393,23 @@ size_t Ext2File::write(const void* buf, size_t size, size_t count)
         char_written = write_size;
         position += write_size;
 
-        // If we've filled the buffer, write it.
-        if (static_cast<klib::streamoff>(position) % bl_sz == 0)
+        // Divide by block size to get the block of the file we're in.
+        size_t block_index = static_cast<klib::streamoff>(position) / bl_sz;
+        // Use the inode index to convert that to a real block address.
+        size_t block_addr = ext2fs.inode_lookup(inode_index, block_index);
+        if (block_addr == 0)
         {
-            // Divide by block size to get the block of the file we're in.
-            size_t block_no = static_cast<klib::streamoff>(position) / bl_sz;
-            // Use the inode index to convert that to a real block address.
-            size_t block = ext2fs.inode_lookup(inode_index, block_no);
-            if (block == 0)
-                // We've run out of file, allocate a new block. I don't think
-                // this should happen here, but it doesn't really matter if it
-                // does.
-                block = ext2fs.allocate_new_block(inode_index, block_no);
-            if (block != 0)
-                fs.write(block * bl_sz, buffer, bl_sz);
+            // We've run out of file, allocate a new block. Not strictly
+            // necessary, but it helps avoid a nasty situation where no blocks
+            // would be available, but the write reports completion.
+            block_addr = ext2fs.allocate_new_block(inode_index, block_index);
+            global_kernel->syslog()->info("Ext2File::write allocating new block for buffer, block_index = %u, block_addr = %u\n", block_index, block_addr);
         }
+
+        // If we've filled the buffer, write it.
+        if (static_cast<klib::streamoff>(position) % bl_sz == 0 &&
+            block_addr != 0)
+                fs.write(block_addr * bl_sz, buffer, bl_sz);
     }
 
     // Write complete blocks (avoids a copy into the buffer then to the disk).
@@ -442,19 +458,21 @@ size_t Ext2File::write(const void* buf, size_t size, size_t count)
     if (position > sz)
     {
         sz = position;
-        ext2fs.inode_call(inode_index,
+        ext2fs.inode_call(inode_index, true,
             [] (Ext2Inode& in, size_t lsz)
             { in.lower_size(lsz); }, static_cast<size_t>(sz));
-        if (ext2fs.inode_call(inode_index,
+        if (ext2fs.inode_call(inode_index, false,
             [] (Ext2Inode& in) { return in.type(); }) == Ext2Inode::file &&
             (ext2fs.get_super_block().required_writing_features() &
             ext2_required_writing_features::large_file_size) !=
             ext2_required_writing_features::none)
-            ext2fs.inode_call(inode_index,
+            ext2fs.inode_call(inode_index, true,
                 [] (Ext2Inode& in, size_t usz)
                 { in.upper_size(usz); }, static_cast<size_t>(sz >> 32));
     }
 
+    global_kernel->syslog()->info("Ext2File::write end with %u characters written\n", char_written / size);
+    global_kernel->syslog()->info("Ext2File::write, buffer contents are %s\n", buffer);
     return char_written / size;
 }
 
@@ -471,17 +489,40 @@ int Ext2File::flush()
         size_t buf_pos = static_cast<klib::streamoff>(position) % bl_sz;
         if (buf_pos != 0)
         {
+            global_kernel->syslog()->info("Ext2File::flush non-empty buffer, contents: %s\n", buffer);
             // Divide by block size to get the block of the file we're in.
-            size_t block_no = static_cast<klib::streamoff>(position) / bl_sz;
+            size_t block_index = static_cast<klib::streamoff>(position) / bl_sz;
             // Use the inode index to convert that to a real block address.
-            size_t block = ext2fs.inode_lookup(inode_index, block_no);
-            if (block == 0)
+            size_t block_addr = ext2fs.inode_lookup(inode_index, block_index);
+            global_kernel->syslog()->info("Ext2File::flush buf_pos = %u, block_index = %u, block_addr = %u\n", buf_pos, block_index, block_addr);
+            if (block_addr == 0)
                 // We've run out of file, allocate a new block. I don't think
                 // this should happen here, but it doesn't really matter if it
                 // does.
-                block = ext2fs.allocate_new_block(inode_index, block_no);
-            if (block != 0)
-                fs.write(block * bl_sz, buffer, buf_pos);
+                block_addr =
+                    ext2fs.allocate_new_block(inode_index, block_index);
+            if (block_addr != 0)
+                fs.write(block_addr * bl_sz, buffer, buf_pos);
+
+            // Update file position and size.
+            position += buf_pos;
+
+            if (position > sz)
+            {
+                sz = position;
+                ext2fs.inode_call(inode_index, true,
+                    [] (Ext2Inode& in, size_t lsz)
+                    { in.lower_size(lsz); }, static_cast<size_t>(sz));
+                if (ext2fs.inode_call(inode_index, false,
+                    [] (Ext2Inode& in) { return in.type(); }) ==
+                    Ext2Inode::file &&
+                    (ext2fs.get_super_block().required_writing_features() &
+                    ext2_required_writing_features::large_file_size) !=
+                    ext2_required_writing_features::none)
+                    ext2fs.inode_call(inode_index, true,
+                        [] (Ext2Inode& in, size_t usz)
+                        { in.upper_size(usz); }, static_cast<size_t>(sz >> 32));
+            }
         }
 
         // Flush filesystem metadata.
@@ -643,36 +684,36 @@ int Ext2File::truncate()
     bool finished = false;
     for (size_t i = 0; i < Ext2Inode::no_direct && !finished; ++i)
     {
-        finished = truncate_recursive(ext2fs.inode_call(inode_index,
+        finished = truncate_recursive(ext2fs.inode_call(inode_index, false,
             [] (Ext2Inode& in, size_t n) { return in.direct(n); }, i), 0);
-        ext2fs.inode_call(inode_index,
+        ext2fs.inode_call(inode_index, true,
         [] (Ext2Inode& in, size_t bl, size_t n) { in.direct(bl, n); }, 0, i);
     }
 
     // Now the singly indirect pointer.
     if (!finished)
     {
-        finished = truncate_recursive(ext2fs.inode_call(inode_index,
+        finished = truncate_recursive(ext2fs.inode_call(inode_index, false,
             [] (Ext2Inode& in) { return in.s_indirect(); }), 1);
-        ext2fs.inode_call(inode_index,
+        ext2fs.inode_call(inode_index, true,
         [] (Ext2Inode& in, size_t v) { in.s_indirect(v); }, 0);
     }
 
     // The doubly indirect.
     if (!finished)
     {
-        finished = truncate_recursive(ext2fs.inode_call(inode_index,
+        finished = truncate_recursive(ext2fs.inode_call(inode_index, false,
             [] (Ext2Inode& in) { return in.d_indirect(); }), 2);
-        ext2fs.inode_call(inode_index,
+        ext2fs.inode_call(inode_index, true,
         [] (Ext2Inode& in, size_t v) { in.d_indirect(v); }, 0);
     }
 
     // The triply indirect.
     if (!finished)
     {
-        finished = truncate_recursive(ext2fs.inode_call(inode_index,
+        finished = truncate_recursive(ext2fs.inode_call(inode_index, false,
             [] (Ext2Inode& in) { return in.t_indirect(); }), 3);
-        ext2fs.inode_call(inode_index,
+        ext2fs.inode_call(inode_index, true,
         [] (Ext2Inode& in, size_t v) { in.t_indirect(v); }, 0);
     }
 
@@ -680,14 +721,14 @@ int Ext2File::truncate()
     sz = 0;
 
     // Update the inode.
-    ext2fs.inode_call(inode_index,
+    ext2fs.inode_call(inode_index, true,
     [] (Ext2Inode& in, size_t lsz) { in.lower_size(lsz); }, 0);
-    if (ext2fs.inode_call(inode_index,
+    if (ext2fs.inode_call(inode_index, false,
         [] (Ext2Inode& in) { return in.type(); }) == Ext2Inode::file &&
         (ext2fs.get_super_block().required_writing_features() &
             ext2_required_writing_features::large_file_size) !=
             ext2_required_writing_features::none)
-        ext2fs.inode_call(inode_index,
+        ext2fs.inode_call(inode_index, true,
         [] (Ext2Inode& in, size_t usz) { in.upper_size(usz); }, 0);
 
     return 0;
@@ -747,12 +788,13 @@ bool Ext2File::truncate_recursive(size_t bl, size_t depth)
 /******************************************************************************
  ******************************************************************************/
 
-Ext2Directory::Ext2Directory(size_t indx, Ext2FileSystem& fs) :
+Ext2Directory::Ext2Directory(size_t indx, Ext2FileSystem& fs, bool w) :
+    Directory {w},
     inode_index{indx},
     ext2fs {fs}
 {
     // Check that this is actually a directory.
-    if (ext2fs.inode_call(inode_index,
+    if (ext2fs.inode_call(inode_index, false,
         [] (Ext2Inode& in) { return in.type(); }) != Ext2Inode::directory)
         return;
 
@@ -843,6 +885,9 @@ Ext2Directory::Ext2Directory(size_t indx, Ext2FileSystem& fs) :
 
 void Ext2Directory::close()
 {
+    if (writing)
+        ext2fs.flush_metadata();
+
     ext2fs.flush_inode(inode_index, true);
     contents.clear();
 };
@@ -894,7 +939,6 @@ Ext2FileSystem::Ext2FileSystem(const klib::string& drv) :
         ~Ext2FileSystem::required_writing_supported) !=
         ext2_required_writing_features::none)
     {
-        global_kernel->syslog()->warn("Ext2FileSystem required writing features = %u, but supported = %u\n", super_block.required_writing_features(), Ext2FileSystem::required_writing_supported);
         read_only = true;
     }
 
@@ -923,7 +967,7 @@ Ext2FileSystem::Ext2FileSystem(const klib::string& drv) :
 Directory* Ext2FileSystem::diropen(const klib::string& name)
 {
     size_t dir = get_inode_index(name);
-    if (dir == 0 || inode_call(dir,
+    if (dir == 0 || inode_call(dir, false,
         [] (Ext2Inode& in) { return in.type(); }) != Ext2Inode::directory)
         return nullptr;
 
@@ -962,15 +1006,15 @@ klib::streamoff Ext2FileSystem::file_size(size_t inode_index)
     if ((super_block.required_writing_features() & 
         ext2_required_writing_features::large_file_size) !=
         ext2_required_writing_features::none &&
-        inode_call(inode_index, [] (Ext2Inode& in) { return in.type(); })
+        inode_call(inode_index, false, [] (Ext2Inode& in) { return in.type(); })
         == Ext2Inode::file)
     {
-        ret_val = inode_call(inode_index, [] (Ext2Inode& in)
+        ret_val = inode_call(inode_index, false, [] (Ext2Inode& in)
             { return in.upper_size(); });
         ret_val <<= 32;
     }
 
-    ret_val += inode_call(inode_index, [] (Ext2Inode& in)
+    ret_val += inode_call(inode_index, false, [] (Ext2Inode& in)
             { return in.lower_size(); });
 
     return ret_val;
@@ -984,7 +1028,7 @@ size_t Ext2FileSystem::inode_lookup(size_t inode_index, size_t bl)
 
     // First check the direct pointers.
     if (bl < Ext2Inode::no_direct)
-        return inode_call(inode_index, [] (Ext2Inode& in, size_t n)
+        return inode_call(inode_index, false, [] (Ext2Inode& in, size_t n)
             { return in.direct(n); }, bl);
     bl -= Ext2Inode::no_direct;
 
@@ -1004,7 +1048,7 @@ size_t Ext2FileSystem::inode_lookup(size_t inode_index, size_t bl)
         bl -= addr_per_block * (addr_per_block + 1);
 
         // Fetch the triply indirect pointer value.
-        size_t t_indirect = inode_call(inode_index,
+        size_t t_indirect = inode_call(inode_index, false,
             [](Ext2Inode& in) { return in.t_indirect(); });
         // Return 0 if the triply indirect pointer is invalid.
         if (t_indirect == 0)
@@ -1020,7 +1064,7 @@ size_t Ext2FileSystem::inode_lookup(size_t inode_index, size_t bl)
         bl %= (addr_per_block * addr_per_block);
     }
     else
-        d_indirect = inode_call(inode_index,
+        d_indirect = inode_call(inode_index, false,
             [](Ext2Inode& in) { return in.d_indirect(); });
 
     // Next for the doubly indirect.
@@ -1046,7 +1090,7 @@ size_t Ext2FileSystem::inode_lookup(size_t inode_index, size_t bl)
         bl %= addr_per_block;
     }
     else
-        s_indirect = inode_call(inode_index,
+        s_indirect = inode_call(inode_index, false,
             [](Ext2Inode& in) { return in.s_indirect(); });
 
     // Finally resolve the singly indirect.
@@ -1080,7 +1124,7 @@ int Ext2FileSystem::inode_set(size_t inode_index, size_t bl_index,
     // First check the direct pointers.
     if (bl_index < Ext2Inode::no_direct)
     {
-        inode_call(inode_index, [] (Ext2Inode& in, size_t bl, size_t n)
+        inode_call(inode_index, true, [] (Ext2Inode& in, size_t bl, size_t n)
             { in.direct(bl, n); }, bl_addr, bl_index);
         return 0;
     }
@@ -1108,7 +1152,7 @@ int Ext2FileSystem::inode_set(size_t inode_index, size_t bl_index,
         bl_index -= addr_per_block * (addr_per_block + 1);
 
         // Fetch the triply indirect pointer value.
-        t_indirect = inode_call(inode_index,
+        t_indirect = inode_call(inode_index, false,
             [](Ext2Inode& in) { return in.t_indirect(); });
         if (t_indirect == 0)
         {
@@ -1118,7 +1162,7 @@ int Ext2FileSystem::inode_set(size_t inode_index, size_t bl_index,
                 // The allocation failed. Return failure.
                 return -1;
             // Update the inode record with the new indirect block.
-            inode_call(inode_index,
+            inode_call(inode_index, true,
                 [](Ext2Inode& in, size_t t) { in.t_indirect(t); }, t_indirect);
             // Write zeroes to the new block so that we don't accidentally
             // hijack other file's blocks.
@@ -1145,7 +1189,7 @@ int Ext2FileSystem::inode_set(size_t inode_index, size_t bl_index,
         bl_index %= (addr_per_block * addr_per_block);
     }
     else
-        d_indirect = inode_call(inode_index,
+        d_indirect = inode_call(inode_index, false,
             [](Ext2Inode& in) { return in.d_indirect(); });
 
     // Next for the doubly indirect.
@@ -1166,7 +1210,7 @@ int Ext2FileSystem::inode_set(size_t inode_index, size_t bl_index,
                 return -1;
             if (t_indirect == 0)
                 // Update the inode record with the new indirect block.
-                inode_call(inode_index, [](Ext2Inode& in, size_t d)
+                inode_call(inode_index, true, [](Ext2Inode& in, size_t d)
                     { in.d_indirect(d); }, d_indirect);
             else
             {
@@ -1206,7 +1250,7 @@ int Ext2FileSystem::inode_set(size_t inode_index, size_t bl_index,
         bl_index %= addr_per_block;
     }
     else
-        s_indirect = inode_call(inode_index,
+        s_indirect = inode_call(inode_index, false,
             [](Ext2Inode& in) { return in.s_indirect(); });
 
     // Finally resolve the singly indirect.
@@ -1219,7 +1263,7 @@ int Ext2FileSystem::inode_set(size_t inode_index, size_t bl_index,
             return -1;
         if (d_indirect == 0)
             // Update the inode record with the new indirect block.
-            inode_call(inode_index, [](Ext2Inode& in, size_t s)
+            inode_call(inode_index, true, [](Ext2Inode& in, size_t s)
                 { in.s_indirect(s); }, s_indirect);
         else
         {
@@ -1272,44 +1316,51 @@ int Ext2FileSystem::flush_inode(size_t inode_index, bool free)
     if (inodes.count(inode_index) == 0)
         return 0;
 
-    // Determine the block group, by dividing by the number of inodes per block
-    // group.
-    size_t bg = (inode_index - 1) / super_block.inodes_per_group();
+    bool success = true;
 
-    // Determine the offset within the block by modding by the number of inodes
-    // per block group.
-    size_t offset = (inode_index - 1) % super_block.inodes_per_group();
+    // We only need to write back to disk if the inode has been modified.
+    if (inodes[inode_index].second)
+    {
+        // Determine the block group, by dividing by the number of inodes per
+        // block group.
+        size_t bg = (inode_index - 1) / super_block.inodes_per_group();
 
-    // Combine the offset and the block base address to get the inode start.
-    uint64_t loc = block_to_byte(bgdt[bg].inode_table()) +
-        offset * super_block.inode_size();
+        // Determine the offset within the block by modding by the number of
+        // inodes per block group.
+        size_t offset = (inode_index - 1) % super_block.inodes_per_group();
 
-    // Create a writer for the drive.
-    klib::ofstream out {drv_name};
-    if (out)
+        // Combine the offset and the block base address to get the inode start.
+        uint64_t loc = block_to_byte(bgdt[bg].inode_table()) +
+            offset * super_block.inode_size();
+
+//        global_kernel->syslog()->info("Ext2File::flush_inode bg = %u, offset = %u, loc = %llu\n", bg, offset, loc);
+
+        // Create a writer for the drive.
+        klib::ofstream out {drv_name};
         out.seekp(loc);
-    else
-        return -1;
+        if (!out)
+            return -1;
 
-    // Do the write. There is a small possibility that another process will
-    // have already flushed the inode, in which case the element in inodes won't
-    // exist. We use bounds checked access and catch the exception to deal with
-    // that. It counts as a success, as the work is already done.
-    bool success;
-    if (out)
-        try {
-            success = (inodes.at(inode_index).write(out) ? 0 : 1);
-        }
-        catch (klib::out_of_range&)
-        {
-            success = true;
-        }
-    else
-        return -1;
+        // Do the write. There is a small possibility that another process will
+        // have already flushed the inode, in which case the element in inodes
+        // won't exist. We use bounds checked access and catch the exception to
+        // deal with that. It counts as a success, as the work is already done.
+        if (out)
+            try {
+                success = inodes.at(inode_index).first.write(out).good();
+            }
+            catch (klib::out_of_range&)
+            {}
+        else
+            return -1;
+    }
 
     if (success && free)
         // Delete the entry from the cached inodes.
         inodes.erase(inode_index);
+    else if (success)
+        // Set the inode to unmodified.
+        inodes[inode_index].second = false;
 
     return (success ? 0 : -1);
 }
@@ -1758,8 +1809,9 @@ int Ext2FileSystem::cache_inode(size_t index)
         offset * super_block.inode_size();
     klib::ifstream in {drv_name};
     in.seekg(loc);
-    klib::pair<klib::map<size_t, Ext2Inode>::iterator, bool> p =
-        inodes.emplace(index, Ext2Inode {in, super_block.inode_size()});
+    klib::pair<klib::map<size_t, klib::pair<Ext2Inode, bool>>::iterator,
+        bool> p = inodes.emplace(index, klib::pair<Ext2Inode, bool>
+        {Ext2Inode {in, super_block.inode_size()}, false});
     // p.second is a bool indicating whether the emplacement succeeded. If it
     // did, p.first is an iterator to the new element.
     return (p.second ? 0 : -1);

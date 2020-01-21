@@ -248,6 +248,7 @@ int32_t write(int fd, const char* buf, size_t count)
         global_kernel->syslog()->warn( "write syscall was given a file descriptor that does not exist for the process\n");
         return -1;
     }
+
     klib::fstream& f = global_kernel->get_file_table().get_stream(key);
     if (!f)
     {
@@ -266,7 +267,6 @@ int32_t write(int fd, const char* buf, size_t count)
 
     klib::string tmp {buf, count};
     f << tmp;
-    f.flush();
     return tmp.size();
 }
 
