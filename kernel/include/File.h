@@ -343,6 +343,18 @@ protected:
 class Directory {
 public:
     /**
+        Default constructor. The directory is not open for writing.
+     */
+    Directory() : writing {false} {}
+
+    /**
+        Constructor. Sets the value of writing.
+
+        @param w Whether the diectory is open for writing.
+     */
+    explicit Directory(bool w) : writing {w} {}
+
+    /**
         Closes the handle, freeing any resources used. Further accesses will
         fail.
      */
@@ -359,6 +371,10 @@ public:
         Virtual destructor. Calls close() to free any resources.
      */
     virtual ~Directory() { close(); }
+
+protected:
+    // Whether the directory is open for writing (ie renaming/creating files).
+    bool writing;
 };
 
 /**

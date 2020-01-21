@@ -8,7 +8,9 @@ tty_string: .string "/dev/tty"
 prompt: .string "belegost$ "
 test_file: .string "/etc/foo.conf"
 test_read_string: .string "Characters read from /etc/foo.conf: "
+test_write_string: .string "12345"
 test_error_read: .string "Unable to read from /etc/foo.conf\n"
+test_error_write: .string "Unable to write to /etc/foo.conf\n"
 test_error_open: .string "Unable to open /etc/foo.conf\n"
 
 .section .bss
@@ -60,7 +62,49 @@ _start:
     call print_register
     pop %eax
 
-# Open the file /etc/foo.conf for reading.
+# Open the file /etc/foo.conf for writing, which should truncate the file.
+    mov $5, %eax
+    mov $test_file, %ebx
+    mov $2, %ecx
+    mov $0, %edx
+    int $0x80
+
+# If there was an error on open, print and jump to the prompt.
+    cmp $-1, %eax
+    jne 1f
+    mov $4, %eax
+    mov $1, %ebx
+    mov $test_error_open, %ecx
+    mov $29, %edx
+    int $0x80
+    jmp 0f
+1:
+    push %eax
+
+# Write 5 characters to /etc/foo.conf
+    mov $4, %eax
+    mov (%esp), %ebx
+    mov $test_write_string, %ecx
+    mov $5, %edx
+    int $0x80
+
+# If there was an error on write, print and jump to the prompt.
+    cmp $-1, %eax
+    jne 1f
+    mov $4, %eax
+    mov $1, %ebx
+    mov $test_error_write, %ecx
+    mov $33, %edx
+    int $0x80
+    jmp 0f
+1:
+
+# Close /etc/foo.conf
+    mov $6, %eax
+    pop %ebx
+    int $0x80
+
+# Open /etc/foo.conf for reading. We should get back what we just wrote.
     mov $5, %eax
     mov $test_file, %ebx
     mov $1, %ecx
@@ -120,7 +164,7 @@ _start:
     pop %ebx
     int $0x80
 
-# Now open /etc/foo.conf for writing, which should truncate the file.
+# Now open /etc/foo.conf for writing again, which should truncate the file.
     mov $5, %eax
     mov $test_file, %ebx
     mov $2, %ecx
