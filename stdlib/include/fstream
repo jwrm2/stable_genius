@@ -314,7 +314,7 @@ public:
      */
     basic_filebuf* close()
     {
-        // Check whether there is an associated to close.
+        // Check whether there is an associated buffer to close.
         if (!isopen)
             return nullptr;
 
@@ -602,23 +602,22 @@ protected:
                         return traits_type::eof();
                 }
 
-                // Write the buffer.
-                int_type ret_val = NMSP::fwrite(streambuf_type::pbase(),
-                    sizeof(char_type),
-                    streambuf_type::pptr() - streambuf_type::pbase(),
-                    open_file);
-                last_underflow = false;
+                // Write the buffer, if there is anything in it.
+                if (streambuf_type::pptr() - streambuf_type::pbase() != 0)
+                {
+                    int_type ret_val = NMSP::fwrite(streambuf_type::pbase(),
+                        sizeof(char_type),
+                        streambuf_type::pptr() - streambuf_type::pbase(),
+                        open_file);
+                    last_underflow = false;
 
-                if (ret_val !=
-                    streambuf_type::pptr() - streambuf_type::pbase())
-                    return traits_type::eof();
+                    if (ret_val !=
+                        streambuf_type::pptr() - streambuf_type::pbase())
+                        return traits_type::eof();
+                }
 
-                // Flush the write.
-                // This is unnecessary. If the FILE object does have an internal
-                // buffer, there is no need for it to be flushed here.
-//                ret_val = NMSP::fflush(open_file);
-//                if (ret_val != 0)
-//                    return traits_type::eof();
+                // No need to flush the write. If the FILE has an internal
+                // buffer, it doesn't need to be flushed now.
 
                 // Reset pointers.
                 streambuf_type::setp(streambuf_type::pbase(),

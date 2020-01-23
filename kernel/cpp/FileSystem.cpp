@@ -16,11 +16,12 @@
 /******************************************************************************
  ******************************************************************************/
 
-void FileSystem::read(uint64_t offset, char* buf, size_t n)
+size_t FileSystem::read(uint64_t offset, char* buf, size_t n)
 {
     klib::ifstream in {drv_name};
     in.seekg(offset);
     in.read(buf, n);
+    return in.gcount();
 }
 
 /******************************************************************************/

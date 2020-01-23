@@ -81,8 +81,9 @@ public:
         @param offset Position on the disk to start reading from.
         @param buf Character buffer to read into.
         @param n Number of characters to read.
+        @return Number of character actually read.
      */
-    virtual void read(uint64_t offset, char* buf, size_t n);
+    virtual size_t read(uint64_t offset, char* buf, size_t n);
 
     /**
         Rename the given file to the new given name.
