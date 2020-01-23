@@ -41,7 +41,7 @@ size_t CharacterFile::read(void* buffer, size_t size, size_t count)
     char* buf = static_cast<char*>(buffer);
     size_t n = size * count;
 
-    klib::string tmp = dev.read_chars(n);
+    klib::string tmp {dev.read_chars(n)};
     klib::memcpy(buf, tmp.c_str(), tmp.size());
     return tmp.size();
 }

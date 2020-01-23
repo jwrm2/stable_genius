@@ -1551,14 +1551,23 @@ class Ext2FileSystem : public FileSystem {
 protected:
     // Keep a cache of block allocation tables. Means we can deallocate lots of
     // blocks without updating each table multiple times. The key is which block
-    // group the table is for. The data is the allocation table.
-    klib::map<size_t, klib::vector<char>> block_alloc;
+    // group the table is for. The data is the allocation table, with a boolean
+    // inidicating whether it's been modified.
+    klib::map<size_t, klib::pair<klib::vector<char>, bool>> block_alloc;
 
     // Keep a cache of inodes for files undergoing changes. Keep them centrally
     // for the file system so that files open multiple times can be kept in sync
     // without repeated disk writes and reads. The boolean is used to keep track
     // of whether the inode has been modified.
     klib::map<size_t, klib::pair<Ext2Inode, bool>> inodes;
+
+    // The contents of the superblock, along with a flag for whether it's
+    // been modified.
+    klib::pair<Ext2SuperBlock, bool> super_block;
+
+    // Table of block group descriptors, along with a flag for each indicating
+    // whether it has been modified.
+    klib::vector<klib::pair<BlockGroupDescriptor, bool>> bgdt;
 
 public:
     /**
@@ -1624,7 +1633,7 @@ public:
      */
     size_t block_size() const override
     {
-        return 1024 << super_block.block_size_shift();
+        return 1024 << super_block.first.block_size_shift();
     }
 
     /**
@@ -1638,11 +1647,67 @@ public:
     klib::streamoff file_size(size_t inode_index);
 
     /**
-        Get the super block.
+        Calls the provided functor on the superblock. Access through this
+        method allows the file system to keep track of whether the superblock
+        has been modified and therefore whether it needs to be written back to
+        disk on the next flush call. Member methods of Ext2FileSystem are
+        permitted to call const functions of the superblock directly. Non-member
+        methods and member methods that need to modify the superblock must
+        always use this method.
 
-        @return Reference to the superblock.
+        @param mod Whether the function call will modify the superblock. When
+               flushed, the superblock will not be written back to disk unless
+               a superblock call with mod set to true has been made. I guess
+               it might be possible to deduce this from whether the functor is
+               const or not, but I haven't worked out how to do that.
+        @param f Functor to call on the superblock.
+        @param args Arguments to pass to the functor.
+        @return Whatever the functor returns.
      */
-    const Ext2SuperBlock& get_super_block() const { return super_block; }
+    template <typename F, typename... Args>
+    auto superblock_call(bool mod, F f, Args&&... args) ->
+        decltype(f(super_block.first, klib::forward<Args>(args)...))
+    {
+        // Set the inode to changed, if necessary.
+        if (mod)
+            super_block.second = true;
+        // It is still possible to fail here, if we get interrupted and then
+        // some other thread accessing the same inode closes the file. I think
+        // that's sufficiently unlikely that I'm not considering it. 
+        return f(super_block.first, klib::forward<Args>(args)...);
+    }
+
+    /**
+        Calls the provided functor on the block group descriptor with the given
+        index. Access through this method allows the file system to keep track
+        of whether the descriptor has been modified and therefore whether it
+        needs to be written back to disk on the next flush call. Member methods
+        of Ext2FileSystem are permitted to call const functions of the
+        descriptor directly. Non-member methods and member methods that need to
+        modify the descriptor must always use this method.
+
+        @param blg_index Index of the descriptor in the BGDT.
+        @param mod Whether the function call will modify the descriptor. When
+               flushed, the descriptor will not be written back to disk unless
+               a superblock call with mod set to true has been made. I guess
+               it might be possible to deduce this from whether the functor is
+               const or not, but I haven't worked out how to do that.
+        @param f Functor to call on the descriptor.
+        @param args Arguments to pass to the functor.
+        @return Whatever the functor returns.
+     */
+    template <typename F, typename... Args>
+    auto bgdt_call(size_t blg_index, bool mod, F f, Args&&... args) ->
+        decltype(f(bgdt[blg_index].first, klib::forward<Args>(args)...))
+    {
+        // Set the inode to changed, if necessary.
+        if (mod)
+            bgdt[blg_index].second = true;
+        // It is still possible to fail here, if we get interrupted and then
+        // some other thread accessing the same inode closes the file. I think
+        // that's sufficiently unlikely that I'm not considering it. 
+        return f(bgdt[blg_index].first, klib::forward<Args>(args)...);
+    }
 
     /**
         Given an inode for a file and a block index in the file, get the block
@@ -1678,7 +1743,7 @@ public:
         @param inode_index Index of the inode.
         @param mod Whether the function call will modify the inode. When
                flushed, the inode information will not be written back to disk
-               unless an inode call with mod set to tru has been made. I guess
+               unless an inode call with mod set to true has been made. I guess
                it might be possible to deduce this from whether the type of the
                arguments of F has a const Ext2Inode& or an Ext2Inode, but that
                sounds difficult.
@@ -1795,10 +1860,6 @@ public:
 protected:
     // Whether this seems to be a valid ext2 file system.
     bool val;
-    // The contents of the superblock.
-    Ext2SuperBlock super_block;
-    // Table of block group descriptors.
-    klib::vector<BlockGroupDescriptor> bgdt;
     // Inode index for the root directory.
     static constexpr size_t root_inode = 2;
 
@@ -1810,7 +1871,7 @@ protected:
      */
     uint64_t block_to_byte(size_t ba) const
     {
-        return ba * (1024 << super_block.block_size_shift());
+        return ba * block_size();
     }
 
     /**
@@ -1822,16 +1883,16 @@ protected:
     size_t byte_to_block(uint64_t off) const
     {
         return
-            static_cast<size_t>(off / (1024 << super_block.block_size_shift()));
+            static_cast<size_t>(off / block_size());
     }
 
     // Writes the superblock back to the disk, after changes
     // in memory have been made. Return 0 on success, -1 on failure.
-    int flush_superblock() const;
+    int flush_superblock();
 
     // Writes the block group descriptor table back to the disk, after changes
     // in memory have been made. Return 0 on success, -1 on failure.
-    int flush_bgdt() const;
+    int flush_bgdt();
 
     // Caches the block allocation table for a particular block group, by
     // reading it from the disk. Return 0 on success, -1 on failure.

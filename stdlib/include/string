@@ -1795,7 +1795,7 @@ public:
      */
     size_type find(const_pointer s, size_type pos, size_type count) const
     {
-        if (size() == 0 || pos + count >= size())
+        if (size() == 0 || pos + count > size())
             return npos;
 
         if (count == 0)
