@@ -1355,9 +1355,11 @@ struct Ext2Inode {
     /**
         Whether the record seems to be valid.
 
+        @param v Set whether the record is valid.
         @return True if the record seems to be valid, false otherwise.
      */
     bool valid() const { return val; }
+    void valid(bool v) { val = v; }
 
 protected:
     // Whether we seem to have a valid record.
@@ -1521,6 +1523,28 @@ public:
      */
     virtual klib::vector<klib::string> ls() const override;
 
+    /**
+        Values for the type field.
+     */
+    enum type_t : uint8_t {
+        /** Unknown type. */
+        unknown = 0x0,
+        /** Regular file. */
+        file = 0x1,
+        /** Directory. */
+        directory = 0x2,
+        /** Character device. */
+        char_dev = 0x3,
+        /** Block device. */
+        block_dev = 0x4,
+        /** FIFO pipe. */
+        fifo = 0x5,
+        /** Unix socket. */
+        socket = 0x6,
+        /** Symbolic link. */
+        sym_link = 0x7
+    };
+
 protected:
     // Struct for the data in a single entry.
     struct Entry {
@@ -1552,8 +1576,13 @@ protected:
     // Keep a cache of block allocation tables. Means we can deallocate lots of
     // blocks without updating each table multiple times. The key is which block
     // group the table is for. The data is the allocation table, with a boolean
-    // inidicating whether it's been modified.
+    // indicating whether it's been modified.
     klib::map<size_t, klib::pair<klib::vector<char>, bool>> block_alloc;
+
+    // Keep a cache of inode allocation tables. The key is which block group the
+    // table is for. The data is the allocation table, with a boolean indicating
+    // whether it's been modified.
+    klib::map<size_t, klib::pair<klib::vector<char>, bool>> inode_alloc;
 
     // Keep a cache of inodes for files undergoing changes. Keep them centrally
     // for the file system so that files open multiple times can be kept in sync
@@ -1778,17 +1807,6 @@ public:
     int flush_inode(size_t inode_index, bool free = false);
 
     /**
-        Gets or sets a bit in a cached block allocation table.
-
-        @param bg_index Index of the block group to access.
-        @param index Block index within the group.
-        @param alloc Whether the block should be allocated or not.
-        @return Whether the bit is allocated.
-     */
-    void access_block_alloc(size_t bg_index, size_t index, bool alloc);
-    bool access_block_alloc(size_t bg_index, size_t index);
-
-    /**
         Writes all the metadata back to disk, including the superblock, the
         BGDT and any cached allocation tables.
 
@@ -1829,7 +1847,56 @@ public:
         @param bl Block to deallocate.
         @return 0 on success, -1 on failure.
      */
-    int deallocate(size_t bl);
+    int deallocate_block(size_t bl);
+
+    /**
+        Gets or sets a bit in a cached block allocation table.
+
+        @param bg_index Index of the block group to access.
+        @param index Block index within the group.
+        @param alloc Whether the block should be allocated or not.
+        @return Whether the bit is allocated.
+     */
+    void access_block_alloc(size_t bg_index, size_t index, bool alloc);
+    bool access_block_alloc(size_t bg_index, size_t index);
+
+    /**
+        Allocate a new inode. Looks through the inode allocation tables to find
+        an unused inode. If it finds one, update the inode allocation table. The
+        inode data structure is initialised in an invalid state. Data must be
+        entered via inode_call, then the state set to valid. The inode is put in
+        the cache and is not written to disk until flush_inode is called on it.
+        The search begins in the same block group as the parent directory, if
+        provided.
+
+        @param inode_index Inode of the parent directory for the new file. The
+               search for a free inode begins here. Defualts to 1.
+        @return Index of the new inode on success. 0 (whihc is not a valid inode
+                index) on failure.
+     */
+    size_t allocate_new_inode(size_t inode_index = 1);
+
+    /**
+        Deallocate an inode, setting it to unused in the block group usage table.
+        Updates the entry for number of unused inodes in the block group
+        descriptor table and superblock too. Does not flush the information
+        back to the disk. Does not change any directory entries.
+
+        @param indx Inode to deallocate.
+        @return 0 on success, -1 on failure.
+     */
+    int deallocate_inode(size_t indx);
+
+    /**
+        Gets or sets a bit in a cached inode allocation table.
+
+        @param bg_index Index of the block group to access.
+        @param index Inode index within the group.
+        @param alloc Whether the inode should be allocated or not.
+        @return Whether the bit is allocated.
+     */
+    void access_inode_alloc(size_t bg_index, size_t index, bool alloc);
+    bool access_inode_alloc(size_t bg_index, size_t index);
 
     /**
         Whether the file system is valid. Errors in the superblock or the device
@@ -1901,6 +1968,14 @@ protected:
     // Flush the cache of block allocation tables, writing them back to the
     // disk. Return 0 on success, -1 on failure.
     int flush_block_alloc();
+
+    // Caches the inode allocation table for a particular block group, by
+    // reading it from the disk. Return 0 on success, -1 on failure.
+    int cache_inode_alloc(size_t bg_index);
+
+    // Flush the cache of inode allocation tables, writing them back to the
+    // disk. Return 0 on success, -1 on failure.
+    int flush_inode_alloc();
 
     // Caches the a particular inode, by reading it from the disk. Return 0 on
     // success, -1 on failure.

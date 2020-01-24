@@ -726,7 +726,7 @@ bool Ext2File::truncate_recursive(size_t bl, size_t depth)
     // to do any loops.
     if (depth == 0)
     {
-        ext2fs.deallocate(bl);
+        ext2fs.deallocate_block(bl);
         return false;
     }
 
@@ -746,7 +746,7 @@ bool Ext2File::truncate_recursive(size_t bl, size_t depth)
         if (buffer_blocks[i] != 0)
         {
             if (depth == 1)
-                ext2fs.deallocate(buffer_blocks[i]);
+                ext2fs.deallocate_block(buffer_blocks[i]);
             else
                 finished = truncate_recursive(buffer_blocks[i], depth - 1);
         }
@@ -757,7 +757,7 @@ bool Ext2File::truncate_recursive(size_t bl, size_t depth)
     delete[] buf;
 
     // Free the block storing the indirect information.
-    ext2fs.deallocate(bl);
+    ext2fs.deallocate_block(bl);
 
     return finished;
 }
@@ -961,10 +961,53 @@ klib::FILE* Ext2FileSystem::fopen(const klib::string& name, const char* mode)
     if (file != 0)
     {
         // File already exists.
-        return new Ext2File{mode, file, *this};
+        return new Ext2File {mode, file, *this};
     }
 
-    // TODO create new file, depending on mode.
+    // If the file does not exist, opening in "r" or "r+" is an error.
+    if (klib::strcmp(mode, "r") == 0 || klib::strcmp(mode, "r+") == 0)
+        return nullptr;
+
+    // Otherwise we need to create a new file. Start by getting the directory
+    // under which to make it.
+    size_t last_slash = name.find_last_of('/'); 
+    klib::string dir_name {name.substr(0, last_slash)};
+    klib::string file_name {name.substr(last_slash + 1)};
+    size_t dir = get_inode_index(dir_name);
+
+    if (dir == 0)
+        // The inode lookup failed, probably because the parent directory does
+        // not exist. This is an error.
+        return nullptr;
+
+    // Create a new inode for the file.
+    size_t new_inode_index = allocate_new_inode(dir);
+    if (new_inode_index == 0)
+        // We failed to create a new inode, probably because the file system is
+        // full. This is an error.
+        return nullptr;
+
+    // Add starting data to the new inode. Every field was default initialised
+    // to zero.
+    inode_call(new_inode_index, true, [] (Ext2Inode& in, Ext2Inode::type_t t)
+        { in.type(t); }, Ext2Inode::file);
+    inode_call(new_inode_index, true, [] (Ext2Inode& in, uint16_t n)
+        { in.hard_links(n); }, 1);
+    inode_call(new_inode_index, true, [] (Ext2Inode& in, bool v)
+        { in.valid(v); }, true);
+
+    // Open the directory and add the new entry.
+    Ext2Directory ext2dir {dir, *this, true};
+    int ret_val = ext2dir.new_entry(new_inode_index, file_name,
+        Ext2Directory::file);
+
+    // Adding the file to the directory could still fail, if for example a new
+    // block needs to be allocated and we've run out of room.
+    if (ret_val == 0)
+        // Success. Return the new file.
+        return new Ext2File {mode, new_inode_index, *this};
+
+    // If we've got here without returning, we've failed.
     return nullptr;
 }
 
@@ -1375,10 +1418,40 @@ bool Ext2FileSystem::access_block_alloc(size_t bg_index, size_t index)
 
 /******************************************************************************/
 
+void Ext2FileSystem::access_inode_alloc(size_t bg_index, size_t index,
+    bool alloc)
+{
+    // Cache the table.
+    if (cache_inode_alloc(bg_index) != 0)
+        return;
+
+    // Set the table to modified.
+    inode_alloc[bg_index].second = true;
+
+    // Edit the data.
+    if (alloc)
+        inode_alloc[bg_index].first[index / 8] |= (1 << (index%8));
+    else
+        inode_alloc[bg_index].first[index / 8] &= ~(1 << (index%8));
+}
+
+
+bool Ext2FileSystem::access_inode_alloc(size_t bg_index, size_t index)
+{
+    // Cache the table.
+    if (cache_inode_alloc(bg_index) != 0)
+        return true;
+
+    // Read the data.
+    return inode_alloc[bg_index].first[index / 8] & (1 << (index%8));
+}
+
+/******************************************************************************/
+
 int Ext2FileSystem::flush_metadata()
 {
     return (flush_superblock() == 0) && (flush_bgdt() == 0) &&
-        (flush_block_alloc() == 0) ? 0 : -1;
+        (flush_block_alloc() == 0) && (flush_inode_alloc() == 0) ? 0 : -1;
 }
 
 /******************************************************************************/
@@ -1537,7 +1610,7 @@ size_t Ext2FileSystem::allocate_new_block(size_t inode_index, size_t bl_index,
         return 0;
     }
 
-    // We've found something. Update the allocation table, group descriptor,
+    // We've found something. Update the allocation table, group descriptor and
     // superblock. We must do this before setting the inode, as the inode might
     // need more blocks for indirect pointers.
     access_block_alloc(new_block_group, new_block, true);
@@ -1566,7 +1639,7 @@ size_t Ext2FileSystem::allocate_new_block(size_t inode_index, size_t bl_index,
 
 /******************************************************************************/
 
-int Ext2FileSystem::deallocate(size_t bl)
+int Ext2FileSystem::deallocate_block(size_t bl)
 {
     // Do nothing if the block index is larger than the number of blocks.
     if (bl >= super_block.first.no_blocks())
@@ -1593,6 +1666,118 @@ int Ext2FileSystem::deallocate(size_t bl)
         // Increase the number of unallocated blocks in the Superblock.
         superblock_call(true, [] (Ext2SuperBlock& sb)
             { sb.unalloc_blocks(sb.unalloc_blocks() + 1); });
+    }
+
+    return 0;
+}
+
+/******************************************************************************/
+
+size_t Ext2FileSystem::allocate_new_inode(size_t inode_index)
+{
+    // Fail immediately if the superblock says the file system is full or the
+    // file system is read only.
+    if (ro() || super_block.first.unalloc_inodes() == 0)
+        return 0;
+
+    // Determine which block group the parent inode is in, remembering that
+    // inode 0 does not exist.
+    size_t ipg = super_block.first.inodes_per_group();
+    size_t no_bg = 1 + (super_block.first.no_inodes() - 1) / ipg;
+    size_t inode_bl_grp = (inode_index - 1) / ipg;
+        
+    // found is set to true when we find something. new_index becomes the offset
+    // within the group of the new inode. new_index_group becomes the group of
+    // the new inode.
+    bool found = false;
+    size_t new_index = 0;
+    size_t new_block_group = inode_bl_grp;
+
+    // Loop over the block groups from the search start to the end, then from 0
+    // to the search start.
+    while (!found)
+    {
+        // Skip if there are no free inodes in this group.
+        if (bgdt[new_block_group].first.unalloc_inodes() == 0)
+            continue;
+
+        // Search the allocation table. Start the search at the first
+        // non-reserved inode for the first group, or 0 for other groups.
+        new_index =
+            (new_block_group == 0 ? super_block.first.first_inode() : 0);
+        for (; new_index < ipg; ++new_index)
+        {
+
+            if (!access_inode_alloc(new_block_group, new_index))
+            {
+                found = true;
+                break;
+            }
+        }
+
+        // If we found something, we need to break before changing the group.
+        if (found)
+            break;
+
+        ++new_block_group;
+        new_block_group %= no_bg;
+        if (new_block_group == inode_bl_grp)
+            break;
+    }
+
+    // Return failure if we didn't find anything.
+    if (!found)
+        return 0;
+
+    // We've found something. Update the allocation table, group descriptor and
+    // superblock.
+    access_inode_alloc(new_block_group, new_index, true);
+    bgdt_call(new_block_group, true, [] (BlockGroupDescriptor& bgd)
+        { bgd.unalloc_inodes(bgd.unalloc_inodes() - 1); });
+    superblock_call(true, [] (Ext2SuperBlock& sb)
+        { sb.unalloc_inodes(sb.unalloc_inodes() - 1); });
+
+    // Work out the index. Remember to add 1, since 0 is not a valid inode.
+    size_t ret_val = new_block_group * ipg + new_index + 1;
+
+    // Default initialise an inode and add it to the cache table. The inode is
+    // created in an invalid state. It is up to the caller to set initial data
+    // appropriately.
+    inodes.emplace(ret_val, klib::pair<Ext2Inode, bool> {Ext2Inode{}, false});
+
+    return ret_val;
+}
+
+/******************************************************************************/
+
+int Ext2FileSystem::deallocate_inode(size_t indx)
+{
+    // Do nothing if the inode index is larger than the number of inodes.
+    if (indx >= super_block.first.no_inodes())
+        return -1;
+
+    // Find which block group the block is in, and the index in the group. The
+    // -1 is because the zroth inode does ot exist.
+    size_t bl_grp = (indx - 1) / super_block.first.inodes_per_group();
+    size_t bl_indx = (indx - 1) % super_block.first.inodes_per_group();
+    // Check whether it was already deallocated.
+    bool change = access_inode_alloc(bl_grp, bl_indx);
+
+    if (change)
+    {
+        // Open the file in "w" mode, which truncates it and ensures all the
+        // file's data blocks get deallocated.
+        Ext2File f {"w", indx, *this};
+        f.close();
+
+        // Set the inode to unalloctaed in the bitmap.
+        access_inode_alloc(bl_grp, bl_indx, false);
+        // Increase the number of unallocated inodes in the Block Descriptor.
+        bgdt_call(bl_grp, true, [] (BlockGroupDescriptor& bgd)
+            { bgd.unalloc_inodes(bgd.unalloc_blocks() - 1); });
+        // Increase the number of unallocated blocks in the Superblock.
+        superblock_call(true, [] (Ext2SuperBlock& sb)
+            { sb.unalloc_inodes(sb.unalloc_inodes() + 1); });
     }
 
     return 0;
@@ -1796,6 +1981,92 @@ int Ext2FileSystem::flush_block_alloc()
 
     // Check whether we managed to flush all the allocation tables.
     return (block_alloc.empty() ? 0 : -1);
+}
+
+/******************************************************************************/
+
+int Ext2FileSystem::cache_inode_alloc(size_t bg_index)
+{
+    // Check whether the inode allocation table is already cached.
+    if (inode_alloc.count(bg_index) != 0)
+        return 0;
+
+    // Get the block address of the allocation table.
+    size_t block_addr = bgdt[bg_index].first.inode_map();
+
+    // Create a reader and shift to the start of the allocation table.
+    klib::ifstream in {drv_name};
+    if (!in)
+        return -1;
+    in.seekg(block_addr * block_size());
+    if (!in)
+        return -1;
+
+    // Create a cache entry of the right size.
+    klib::pair<typename klib::map<size_t,
+        klib::pair<klib::vector<char>, bool>>::iterator, bool> p
+        = inode_alloc.emplace(bg_index, klib::pair<klib::vector<char>, bool> {
+        klib::vector<char> (block_size()), false});
+    // p.second is a bool indicating whether the emplacement succeeded. If it
+    // did, p.first is an iterator to the new element.
+    if (!p.second)
+        return -1;
+
+    // Read the data into the new element.
+    in.read(p.first->second.first.data(), block_size());
+
+    // Check for success.
+    if (!in || in.gcount() != block_size())
+    {
+        inode_alloc.erase(p.first);
+        return -1;
+    }
+
+    return 0;
+}
+
+/******************************************************************************/
+
+int Ext2FileSystem::flush_inode_alloc()
+{
+    // Cycle through the cached inode allocation tables.
+    auto it = inode_alloc.begin();
+    while (it != inode_alloc.end()) 
+    {
+        // Only write if the table has been modified.
+        if (it->second.second)
+        {
+            // Create a writer.
+            klib::ofstream out {drv_name};
+            if (!out)
+            {
+                ++it;
+                continue;
+            }
+            // Get the block address of the start of the table.
+            size_t block_addr = bgdt[it->first].first.inode_map();
+            // Shift the stream to the start of the table.
+            out.seekp(block_addr * block_size());
+            if (!out)
+            {
+                ++it;
+                continue;
+            }
+
+            // Do the write.
+            out.write(it->second.first.data(), block_size());
+            if (!out)
+            {
+                ++it;
+                continue;
+            }
+        }
+        // Erase the entry.
+        it = inode_alloc.erase(it);
+    }
+
+    // Check whether we managed to flush all the allocation tables.
+    return (inode_alloc.empty() ? 0 : -1);
 }
 
 /******************************************************************************/
