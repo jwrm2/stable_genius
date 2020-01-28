@@ -90,14 +90,21 @@ size_t BlockFile::write(const void* buf, size_t size, size_t count)
 
         klib::memcpy(buffer + buf_pos, char_buf + written,
             dev.sector_size() - buf_pos);
-        position += dev.sector_size() - buf_pos;
         written += dev.sector_size() - buf_pos;
 
         if (flush() != 0)
             return written;
 
+        position += dev.sector_size() - buf_pos;
+
         buf_pos = 0;
     }
+
+    // Update the buffer, so we can modify the active block without destroying
+    // the whole block.
+    if (dev.read_block(static_cast<klib::streamoff>(position), buffer) !=
+        dev.sector_size())
+        return written;
 
     // Write any remaining characters.
     klib::memcpy(buffer + buf_pos, char_buf + written, n - written);
@@ -163,6 +170,10 @@ size_t BlockFile::read(void* buf, size_t size, size_t count)
 
 int BlockFile::flush()
 {
+    // Return failure immediately if we're not writing.
+    if (!writing)
+        return EOF;
+
     // We just need to overwrite the current sector with the current buffer.
     klib::streamoff buf_pos =
         static_cast<klib::streamoff>(position) % dev.sector_size();

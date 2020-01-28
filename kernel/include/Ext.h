@@ -1487,43 +1487,6 @@ private:
 class Ext2Directory : public Directory {
 public:
     /**
-        Constructor. Given an inode index and a file system, process the inode
-        as a directory, creating a mapping from names to inode indices.
-
-        @param indx Index in the file system of that inode.
-        @param fs File system to work on.
-        @param w Whether the directory is open for writing. Defaults to false.
-     */
-    Ext2Directory(size_t indx, Ext2FileSystem& fs, bool w = false);
-
-    /**
-        Virtual destructor. Calls close() to free any resources.
-     */
-    virtual ~Ext2Directory() { close(); }
-
-    /**
-        Closes the handle, freeing any resources used. Further accesses will
-        fail.
-     */
-    virtual void close() override;
-
-    /**
-        Returns the inode index of the file or directory matching the provided
-        string, or 0 if it does not exist in this directory.
-
-        @param n Name to look up.
-        @return Inode index matching n, or 0 if it doesn't exist.
-     */
-    size_t lookup(const klib::string& n) const;
-
-    /**
-        Returns a list of the contents of the directory.
-
-        @return Contents of the directory.
-     */
-    virtual klib::vector<klib::string> ls() const override;
-
-    /**
         Values for the type field.
      */
     enum type_t : uint8_t {
@@ -1544,6 +1507,82 @@ public:
         /** Symbolic link. */
         sym_link = 0x7
     };
+
+    /**
+        Constructor. Given an inode index and a file system, process the inode
+        as a directory, creating a mapping from names to inode indices.
+
+        @param indx Index in the file system of that inode.
+        @param fs File system to work on.
+        @param w Whether the directory is open for writing. Defaults to false.
+     */
+    Ext2Directory(size_t indx, Ext2FileSystem& fs, bool w = false);
+
+    /**
+        Virtual destructor. Calls close() to free any resources.
+     */
+    virtual ~Ext2Directory() { close(); }
+
+    /**
+        If the directory data has been changed, write it back to disk. This will
+        delete the entire directory entry and rewrite it from scratch. That's
+        seems like overkill, but the alignment requirements of the entries mean
+        we can't just add new entries to the ends.
+
+        @return 0 on sucess, -1 on failure.
+     */
+    virtual int flush() override;
+
+    /**
+        Closes the handle, freeing any resources used. Further accesses will
+        fail.
+
+        @return 0 on sucess, -1 on failure.
+     */
+    virtual int close() override;
+
+    /**
+        Adds a new entry to the directory. This method is not responsible for
+        allocating any blocks for the new inode and does not flush file system
+        metadata.
+
+        @param indx Inode of the new entry.
+        @param name Name of the new entry.
+        @param type Type of the new entry. Ignored if the file system does not
+               have directory types. Defaults to regular file.
+        @return 0 on success, -1 on failure.
+     */
+    int new_entry(size_t indx, const klib::string& name,
+        type_t type = type_t::file);
+
+    /**
+        Deletes an entry from the directory. This method does not access the
+        inode of the entry to be deleted, so does not change its number of hard
+        links or deallocate any blocks. It also does not flush file system
+        metadata. Returns failure if the entry does not exist.
+
+        @param indx Index of the inode to delete.
+        @param name Name of the entry to delete.
+        @return 0 on sucess, -1 on failure.
+     */
+    int delete_entry(size_t indx);
+    int delete_entry(const klib::string& name);
+
+    /**
+        Returns the inode index of the file or directory matching the provided
+        string, or 0 if it does not exist in this directory.
+
+        @param n Name to look up.
+        @return Inode index matching n, or 0 if it doesn't exist.
+     */
+    size_t lookup(const klib::string& n) const;
+
+    /**
+        Returns a list of the contents of the directory.
+
+        @return Contents of the directory.
+     */
+    virtual klib::vector<klib::string> ls() const override;
 
 protected:
     // Struct for the data in a single entry.
@@ -1566,6 +1605,11 @@ protected:
     Ext2FileSystem& ext2fs;
     // Vector of the entries.
     klib::vector<Entry> contents;
+    // Whether the directory contents have been edited since the last read.
+    bool edited;
+    // Whether the directory has a type field. Determined on construction from
+    // the superblock.
+    bool has_type;
 };
 
 /**
