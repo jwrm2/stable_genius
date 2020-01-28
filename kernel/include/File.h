@@ -355,10 +355,19 @@ public:
     explicit Directory(bool w) : writing {w} {}
 
     /**
+        If the directory data has been changed, write it back to the disk.
+
+        @return 0 on success, -1 on failure.
+     */
+    virtual int flush() { return 0; }
+
+    /**
         Closes the handle, freeing any resources used. Further accesses will
         fail.
+
+        @return 0 on success, -1 on failure.
      */
-    virtual void close() {};
+    virtual int close() { return 0; }
 
     /**
         Returns a list of the contents of the directory.
@@ -368,13 +377,16 @@ public:
     virtual klib::vector<klib::string> ls() const = 0;
 
     /**
-        Virtual destructor. Calls close() to free any resources.
+        Virtual destructor. Calls close() to free resources.
      */
     virtual ~Directory() { close(); }
 
 protected:
     // Whether the directory is open for writing (ie renaming/creating files).
     bool writing;
+    // Whether the directory data has been edited. Used to determine whether a
+    // flush is necessary.
+    bool changed = false;
 };
 
 /**
