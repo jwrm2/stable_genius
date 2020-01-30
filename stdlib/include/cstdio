@@ -272,16 +272,13 @@ public:
     virtual ~File() { close(); }
 
     /**
-        Closes a file. Implements fclose. Base version flushes and frees the
-        buffer.
+        Closes a file. Implements fclose. Base version frees the buffer.
 
         @return 0 if successful, otherwise EoF.
      */
     virtual int close()
     {
-        // Flush the buffer.
-        if (writing)
-            flush();
+        int ret_val = File::flush();
 
         // Free the buffer.
         delete[] buffer;
@@ -291,7 +288,7 @@ public:
         reading = false;
         writing = false;
 
-        return 0;
+        return ret_val;
     }
 
     /**
@@ -326,12 +323,13 @@ public:
 
     /**
         Writes any unwritten data from the output buffer to the underlying
-        device. Implements fflush.
+        device. Implements fflush. The base version does nothing, as it does not
+        know how to write to the underlying device.
 
         @param stream File to flush.
         @return 0 on success, otherwise EoF.
      */
-    virtual int flush() = 0;
+    virtual int flush() { return 0; };
 
     /**
         Gets the current file position indicator. Implements fgetpos.

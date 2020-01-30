@@ -100,11 +100,14 @@ size_t BlockFile::write(const void* buf, size_t size, size_t count)
         buf_pos = 0;
     }
 
-    // Update the buffer, so we can modify the active block without destroying
-    // the whole block.
-    if (dev.read_block(static_cast<klib::streamoff>(position), buffer) !=
-        dev.sector_size())
-        return written;
+    if (buf_pos == 0)
+    {
+        // Update the buffer, so we can modify the active block without
+        // destroying the whole block.
+        if (dev.read_block(static_cast<klib::streamoff>(position), buffer) !=
+            dev.sector_size())
+            return written;
+    }
 
     // Write any remaining characters.
     klib::memcpy(buffer + buf_pos, char_buf + written, n - written);

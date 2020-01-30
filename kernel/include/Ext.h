@@ -1390,6 +1390,11 @@ public:
     Ext2File(const char* m, size_t indx, Ext2FileSystem& fs);
 
     /**
+        Virtual destructor. Calls close().
+     */
+    virtual ~Ext2File() { Ext2File::close(); }
+
+    /**
         Closes the handle, freeing any resources used. Further accesses will
         fail. Flushes the inode record and deletes it from the file system
         cache.

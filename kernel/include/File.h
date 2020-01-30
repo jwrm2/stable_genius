@@ -33,12 +33,23 @@ public:
     {}
 
     /**
+        Virtual destructor. Calls close.
+     */
+    virtual ~CharacterFile() { CharacterFile::close(); }
+
+    /**
         Closes the file. Calls the devices close function to make sure the state
         is happy.
 
         @return 0 if successful, otherwise EoF.
      */
-    virtual int close() override { dev.close(); return klib::FILE::close(); }
+    virtual int close() override
+    {
+        dev.close();
+        int ret_val = CharacterFile::flush();
+        ret_val = (klib::FILE::close() == 0 ? ret_val : -1);
+        return ret_val;
+    }
 
     /**
         Writes to the file.
@@ -124,9 +135,9 @@ public:
     BlockFile(BlockDevice& d, const char* mode);
 
     /**
-        Virtual destructor. Base version calls close.
+        Virtual destructor. Calls close.
      */
-    virtual ~BlockFile() { close(); }
+    virtual ~BlockFile() { BlockFile::close(); }
 
     /**
         Closes the file. Calls the devices close function to make sure the state
@@ -134,7 +145,13 @@ public:
 
         @return 0 if successful, otherwise EoF.
      */
-    virtual int close() override { dev.close(); return klib::FILE::close(); }
+    virtual int close() override
+    {
+        dev.close();
+        int ret_val = BlockFile::flush();
+        ret_val = (klib::FILE::close() == 0 ? ret_val : -1);
+        return ret_val;
+    }
 
     /**
         Writes to the file buffer. Sends to the device only if necessary.
@@ -222,15 +239,31 @@ public:
     DiskFile(const char* m, FileSystem& f, klib::streamoff s);
 
     /**
+        Virtual destructor. Calls close().
+     */
+    virtual ~DiskFile() { DiskFile::close(); }
+
+    /**
         Flushes the buffer to disk. Doesn't actually do anything here, as it's
         specific to each disk type. However, it's called by klib::FILE::close(),
         which can be called from the constructor and it's pure virtual in the
         parent, so we need an implementation here.
 
-        @param pos Pointer to a position indicator that will be set.
         @return 0 on success, nonzero otherwise.
      */
     virtual int flush() override { return 0; }
+
+    /**
+        Closes the file. Calls flush() and the parent close().
+
+        @return 0 on success, nonzero otherwise.
+     */
+    virtual int close() override
+    {
+        int ret_val = DiskFile::flush();
+        ret_val = (klib::FILE::close() == 0 ? ret_val : -1);
+        return ret_val;
+    }
 
 protected:
     // Reference to the file system. Used for reads and writes.
@@ -258,14 +291,19 @@ public:
     /**
         Virtual destructor. Calls close.
      */
-    virtual ~MemoryFile() { close(); }
+    virtual ~MemoryFile() { MemoryFile::close(); }
 
     /**
         Closes the file. Doesn't actually have to do anything.
 
         @return 0 if successful, otherwise EoF.
      */
-    virtual int close() override { return flush(); }
+    virtual int close() override
+    {
+        int ret_val = MemoryFile::flush();
+        ret_val = (klib::FILE::close() == 0 ? ret_val : -1);
+        return ret_val;
+    }
 
     /**
         Overwrites the file memory. Reallocates the file if too large.
@@ -355,6 +393,11 @@ public:
     explicit Directory(bool w) : writing {w} {}
 
     /**
+        Virtual destructor. Calls close() to free resources.
+     */
+    virtual ~Directory() { Directory::close(); }
+
+    /**
         If the directory data has been changed, write it back to the disk.
 
         @return 0 on success, -1 on failure.
@@ -375,11 +418,6 @@ public:
         @return Contents of the directory.
      */
     virtual klib::vector<klib::string> ls() const = 0;
-
-    /**
-        Virtual destructor. Calls close() to free resources.
-     */
-    virtual ~Directory() { close(); }
 
 protected:
     // Whether the directory is open for writing (ie renaming/creating files).
