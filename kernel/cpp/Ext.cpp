@@ -249,26 +249,25 @@ Ext2File::Ext2File(const char* m, size_t indx, Ext2FileSystem& fs) :
 
 int Ext2File::close()
 {
-    // Call the parent close, which will flush the writing buffer, including
-    // flushing the inode, but only if it was open for writing. It will also set
-    // writing to false, so we'll take a copy of that to determine whether we'll
-    // we'll need to flush metadata.
-    bool temp_writing = writing;
-    int ret_val = DiskFile::close();
-
-    Ext2FileSystem& ext2fs = dynamic_cast<Ext2FileSystem&>(fs);
-    if (temp_writing)
-    {
-        // Open for writing, so we need to flush the metadata.
-        ret_val = (ext2fs.flush_metadata() == -1 ? -1 : ret_val);
-    }
+    // Flush the buffer. This will also flush the file system metadata if
+    // necessary.
+    int ret_val = 0;
+    if (writing)
+        // Open for writing, so we need to flush the buffer, which also flushes
+        // the metadata.
+        ret_val = flush();
     else
-        // Open for reading. We still need to call the inode flush (which wasn't
-        // done by the parent close) to remove it from the cache.
-        ret_val = (ext2fs.flush_inode(inode_index, true) == -1 ? -1 : ret_val);
+    {
+        // Open for reading. We still need to call the inode flush to remove it
+        // from the cache.
+        Ext2FileSystem& ext2fs = dynamic_cast<Ext2FileSystem&>(fs);
+        ret_val = ext2fs.flush_inode(inode_index, true);
+    }
 
     inode_index = 0;
-    return ret_val;
+
+    // Now call the parent close, which will free the buffer.
+    return (DiskFile::close() == 0 ? ret_val : -1);
 }
 
 /******************************************************************************/
@@ -475,6 +474,8 @@ size_t Ext2File::write(const void* buf, size_t size, size_t count)
 
 int Ext2File::flush()
 {
+    int ret_val = 0;
+
     if (writing)
     {
         Ext2FileSystem& ext2fs = dynamic_cast<Ext2FileSystem&>(fs);
@@ -502,11 +503,11 @@ int Ext2File::flush()
         }
 
         // Flush filesystem metadata.
-        ext2fs.flush_inode(inode_index);
-        ext2fs.flush_metadata();
+        ret_val = (ext2fs.flush_inode(inode_index) == 0 ? ret_val : -1);
+        ret_val = (ext2fs.flush_metadata() == 0 ? ret_val : -1);
     }
 
-    return 0;
+    return ret_val;
 }
 
 /******************************************************************************/
@@ -838,8 +839,8 @@ Ext2Directory::Ext2Directory(size_t indx, Ext2FileSystem& fs, bool w) :
                 (static_cast<uint16_t>(name_length_high) << 8);
 
         // Now we have the name length. This should be a multiple of 4 with null
-        // if necessary. We'll read it into a null terminated buffer and then
-        // make a string of it.
+        // if necessary. We'll read it into a buffer and then make a string of
+        // it.
         char* name_buf = new char[name_length];
         ifs.read(name_buf, sizeof(char), name_length);
         klib::string name {name_buf, name_length};
@@ -869,8 +870,9 @@ int Ext2Directory::flush()
     if (!writing || !edited)
         return 0;
 
-    // Open the directory as a file, which will trucnate the current data.
+    // Open the directory as a file and truncate it.
     Ext2File f {"w", inode_index, ext2fs};
+    f.truncate();
 
     // Keep track of our file position, so that we don't have to keep asking the
     // file where we are.
@@ -880,30 +882,26 @@ int Ext2Directory::flush()
     // span multiple blocks.
     size_t bl_sz = ext2fs.block_size();
 
-    // Loop over the entries.
+    // We need to precalculate the sizes, so that we can properly adjust them to
+    // make sure the entries do not cross block boundaries.
     for (auto it = contents.begin(); it != contents.end(); ++it)
     {
-        // Check that we're about to write 4 byte aligned. This is just a sanity
-        // check, as the previous entry should have been written so it is.
-        if (f_pos % 4 != 0)
-        {
-            global_kernel->syslog()->warn("Ext2Directory::flush directory data not 4 byte aligned after write.\n");
-            return -1;
-        }
+        // Set the entry size. It's the sum of the sizes of the initial data
+        // fields and the name length. Null temrination is not required, as the
+        // length is stored.
+        it->size = sizeof(it->inode_index) + sizeof(it->size) +
+            sizeof(it->name_length_low) + sizeof(it->name_length_high)
+            + it->name_length_low +
+            (has_type ? 0 : static_cast<uint16_t>(it->name_length_high) << 8);
 
         // Adjust the entry if the size is not a multiple of 4.
         if (it->size % 4 != 0)
             it->size += 4 - it->size % 4;
+    }
 
-        // Check that we're not about to cross a block boundary. This is just a
-        // sanity check, as the previous entry should have been written to avoid
-        // this.
-        if (f_pos / bl_sz != (f_pos + it->size) / bl_sz)
-        {
-            global_kernel->syslog()->warn("Ext2Directory::flush entry will cross block boundary.\n");
-            return -1;
-        }
-
+    // Loop over the entries.
+    for (auto it = contents.begin(); it != contents.end(); ++it)
+    {
         // Note: the largest possible value for the entry size is 65535, which
         // is much larger than the typical block size (1024). We have no
         // mechanism to deal with that here, instead trusting that all Ext2
@@ -912,7 +910,7 @@ int Ext2Directory::flush()
         // Adjust the entry size to the end of the current block if the next
         // entry will cross a block boundary.
         auto it_next = it + 1;
-        if ((f_pos + it->size) / bl_sz !=
+        if (it_next != contents.end() && (f_pos + it->size) / bl_sz !=
             (f_pos + it->size + it_next->size) / bl_sz)
             it->size += bl_sz - f_pos % bl_sz;
 
@@ -927,9 +925,12 @@ int Ext2Directory::flush()
         size_t no_zeroes = it->size - sizeof(it->inode_index) -
             sizeof(it->size) - sizeof(it->name_length_low) -
             sizeof(it->name_length_high) - it->name.size();
-        klib::vector<char> zeroes (no_zeroes, '\0');
-        f.write(zeroes.data(), sizeof(decltype(zeroes)::value_type),
-            zeroes.size());
+        if (no_zeroes != 0)
+        {
+            klib::vector<char> zeroes (no_zeroes, '\0');
+            f.write(zeroes.data(), sizeof(decltype(zeroes)::value_type),
+                zeroes.size());
+        }
 
         // Update the file position.
         f_pos += it->size;
@@ -954,7 +955,7 @@ int Ext2Directory::close()
 
     // Even if we didn't open for writing, we need to tell the file system
     // to flush the inode, to wipe it from the cache.
-    ret_val = (ret_val == -1 ? -1 : ext2fs.flush_inode(inode_index, true));
+    ret_val = (ext2fs.flush_inode(inode_index, true) == 0 ? ret_val : -1);
     contents.clear();
 
     return ret_val;
@@ -1135,10 +1136,8 @@ klib::FILE* Ext2FileSystem::fopen(const klib::string& name, const char* mode)
 {
     size_t file = get_inode_index(name);
     if (file != 0)
-    {
         // File already exists.
         return new Ext2File {mode, file, *this};
-    }
 
     // If the file does not exist, opening in "r" or "r+" is an error.
     if (klib::strcmp(mode, "r") == 0 || klib::strcmp(mode, "r+") == 0)
@@ -1173,11 +1172,10 @@ klib::FILE* Ext2FileSystem::fopen(const klib::string& name, const char* mode)
         { in.valid(v); }, true);
 
     // Open the directory and add the new entry. The directory will be closed on
-    // return, which will flush the file system metadata.
+    // return, which will flush the contents and file system metadata.
     Ext2Directory ext2dir {dir, *this, true};
     int ret_val = ext2dir.new_entry(new_inode_index, file_name);
-
-    global_kernel->syslog()->info("Ext2FileSystem::fopen added new inode to directory, ret_val = %d\n", ret_val);
+    ext2dir.close();
 
     // Adding the file to the directory could still fail, if for example a new
     // block needs to be allocated and we've run out of room.
@@ -1894,10 +1892,7 @@ size_t Ext2FileSystem::allocate_new_inode(size_t inode_index)
 
         // If we found something, we need to break before changing the group.
         if (found)
-        {
-            global_kernel->syslog()->info("Ext2FileSystem::allocate_new_inode free inode at index %u of group %u\n", new_index, new_block_group);
             break;
-        }
 
         ++new_block_group;
         new_block_group %= no_bg;
@@ -2318,6 +2313,7 @@ size_t Ext2FileSystem::get_inode_index(const klib::string& name)
         // Test whether the file exists or not.
         if (inode_indx == 0)
             return 0;
+
         // Advance pos and skip over multiple /
         pos = end_pos;
         for (; pos < name.size() && name[pos] == '/'; ++pos) ;
