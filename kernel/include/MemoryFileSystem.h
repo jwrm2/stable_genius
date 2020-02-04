@@ -37,6 +37,14 @@ public:
     {}
 
     /**
+        Desctructor needs to make sure the files are all deallocated. This
+        immediately deletes all memory files, regardless of whether any
+        processes have them open. Attempted accesses to memory files after the
+        file system has been deleted will fail, as might be expected.
+     */
+    virtual ~MemoryFileSystem();
+
+    /**
         Opens a directory, returning a pointer to the directory handle. nullptr
         is returned on errors, such as the directory not existing, or the name
         referring to a file.
@@ -104,7 +112,7 @@ public:
         @param addr Address for the file.
         @param sz Size of the file.
      */
-    void create_mapping(const klib::string& name, const MemoryInode& mi);
+    void create_mapping(const klib::string& name, MemoryInode* mi);
     void create_mapping(const klib::string& name, void* addr, size_t sz);
 
     /**
@@ -152,8 +160,9 @@ private:
     static constexpr size_t new_file_size = 1024;
 
     // List of mappings between names and memory files. The file records are 
-    // stored as simple inode-like objects.
-    klib::map<klib::string, MemoryInode> files;
+    // stored as pointers to simple inode-like objects. We use pointers so we
+    // can have a many-to-one mapping for links.
+    klib::map<klib::string, MemoryInode*> files;
 };
 
 #endif /* MEMORY_FILE_SYSTEM_H */

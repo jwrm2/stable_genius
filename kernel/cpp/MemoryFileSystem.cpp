@@ -11,12 +11,36 @@
 /******************************************************************************
  ******************************************************************************/
 
+MemoryFileSystem::~MemoryFileSystem()
+{
+    // Cycle over the files.
+    for (auto it = files.begin(); it != files.end(); ++it)
+    {
+        // Decrement the hard link count for the inode.
+        if (it->second->no_links != 0)
+            --it->second->no_links;
+
+        // If the link count is zero, it's time to deallocate the file and the
+        // inode.
+        if (it->second->no_links == 0)
+        {
+            delete[] static_cast<char*>(it->second->addr);
+            delete it->second;
+        }
+
+        // Now we can erase the entry without losing pointers.
+        it = files.erase(it);
+    }
+}
+
+/******************************************************************************/
+
 void MemoryFileSystem::close(void* addr)
 {
     // Find the MemoryInode corresponding to the address.
     for (auto it = files.begin(); it != files.end(); ++it)
     {
-        if (it->second.addr == addr && it->second.no_links <= 0)
+        if (it->second->addr == addr && it->second->no_links <= 0)
         {
             // Found the file and it needs to be deleted. We can bypass the file
             // table check in delete here, as we'll only be closing a file with
@@ -90,7 +114,7 @@ klib::FILE* MemoryFileSystem::fopen(const klib::string& name, const char* mode)
         }
     }
 
-    return new MemoryFile {it->second.addr, it->second.sz, mode, *this};
+    return new MemoryFile {it->second->addr, it->second->sz, mode, *this};
 }
 
 /******************************************************************************/
@@ -114,8 +138,8 @@ void MemoryFileSystem::rename(const klib::string& f, const klib::string& n)
     if (it == files.end())
         return;
 
-    // Take a copy of the data.
-    const MemoryInode& tmp = it->second;
+    // Take a copy of the data pointer.
+    MemoryInode* tmp = it->second;
     // Erase the old mapping.
     delete_mapping(f);
     // Create a new mapping.
@@ -125,7 +149,7 @@ void MemoryFileSystem::rename(const klib::string& f, const klib::string& n)
 /******************************************************************************/
 
 void MemoryFileSystem::create_mapping(const klib::string& name,
-    const MemoryInode& mi)
+    MemoryInode* mi)
 {
     auto it = files.find(name);
     if (it == files.end())
@@ -133,13 +157,16 @@ void MemoryFileSystem::create_mapping(const klib::string& name,
         // Check whether the memory address is already owned by another file.
         for (it = files.begin(); it != files.end(); ++it)
         {
-            if (it->second.addr == mi.addr)
+            if (it->second == mi)
             {
-                ++it->second.no_links;
+                // Match found. Increment the hard link count and add a new
+                // mapping.
+                ++it->second->no_links;
                 break;
             }
         }
-        // No match found. Construct and add a copy of the inode.
+        // Add a new mapping. We need to do this whether the mapping already
+        // exists or not.
         files[name] = mi;
     }
 }
@@ -147,7 +174,7 @@ void MemoryFileSystem::create_mapping(const klib::string& name,
 void MemoryFileSystem::create_mapping(const klib::string& name, void* addr,
     size_t sz)
 {
-    create_mapping(name, MemoryInode {addr, sz, 1});
+    create_mapping(name, new MemoryInode {addr, sz, 1});
 }
 
 /******************************************************************************/
@@ -160,7 +187,7 @@ void MemoryFileSystem::create_file(const klib::string& name, size_t sz)
         void* addr = new char[sz];
         if (addr != nullptr)
         {
-            files.emplace(name, MemoryInode {addr, sz, 1});
+            files.emplace(name, new MemoryInode {addr, sz, 1});
         }
     }
 }
@@ -175,16 +202,20 @@ void MemoryFileSystem::delete_mapping(const klib::string& name)
         return;
 
     // Decrement the hard link count.
-    --it->second.no_links;
+    if (it->second->no_links != 0)
+        --it->second->no_links;
 
     // If the link count is zero, check whether there are any active file
     // handles for the file.
-    if (it->second.no_links == 0)
+    if (it->second->no_links == 0)
     {
         FileTable* ft = global_kernel->get_file_table();
         if (ft == nullptr ||
             (ft != nullptr && ft->is_open(it->first) == 0))
+        {
+            delete it->second;
             files.erase(it);
+        }
     }
 }
 
@@ -197,18 +228,19 @@ void MemoryFileSystem::delete_file(const klib::string& name, bool ft_check)
         return;
 
     // Decrement the hard link count.
-    if (it->second.no_links != 0)
-        --it->second.no_links;
+    if (it->second->no_links != 0)
+        --it->second->no_links;
 
     // If the link count is zero, check whether there are any active file
     // handles for the file.
-    if (it->second.no_links == 0)
+    if (it->second->no_links == 0)
     {
         FileTable* ft = global_kernel->get_file_table();
         if (!ft_check || ft == nullptr ||
             (ft != nullptr && ft->is_open(it->first) == 0))
         {
-            delete[] static_cast<char*>(it->second.addr);
+            delete[] static_cast<char*>(it->second->addr);
+            delete[] it->second;
             files.erase(it);
         }
     }
@@ -223,17 +255,18 @@ void* MemoryFileSystem::reallocate_file(const klib::string& name, size_t sz)
     {
         if (sz == 0)
         {
-            delete[] static_cast<char*>(it->second.addr);
-            files[name] = MemoryInode {nullptr, 0u, 1};
+            delete[] static_cast<char*>(it->second->addr);
+            it->second->addr = nullptr;
+            it->second->sz = sz;
         }
         else
         {
             void* new_addr = new char[sz];
-            size_t copy_size = klib::min(sz, it->second.sz);
-            klib::memcpy(new_addr, it->second.addr, copy_size);
-            delete[] static_cast<char*>(it->second.addr);
-            files[name].addr = new_addr;
-            files[name].sz = sz;
+            size_t copy_size = klib::min(sz, it->second->sz);
+            klib::memcpy(new_addr, it->second->addr, copy_size);
+            delete[] static_cast<char*>(it->second->addr);
+            files[name]->addr = new_addr;
+            files[name]->sz = sz;
             return new_addr;
         }
     }
@@ -244,7 +277,7 @@ void* MemoryFileSystem::reallocate_file(const klib::string& name, size_t sz)
 void* MemoryFileSystem::reallocate_file(void* addr, size_t sz)
 {
     for (const auto& p : files)
-        if (p.second.addr == addr)
+        if (p.second->addr == addr)
             return reallocate_file(p.first, sz);
 
     return nullptr;
