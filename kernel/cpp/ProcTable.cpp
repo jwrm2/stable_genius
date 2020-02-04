@@ -196,7 +196,11 @@ int FileTable::close_file(int key)
     FileDescription& fd = it->second;
     --fd.count;
     if (fd.count <= 0)
+    {
+        // Erasing the key will call close() on the file, which will delete the
+        // file if the hard link count has dropped to zero.
         file_list.erase(key);
+    }
 
     return 0;
 }
@@ -247,6 +251,20 @@ klib::fstream& FileTable::get_stream(int key)
         return empty;
 
     return it->second.fs;
+}
+
+/******************************************************************************/
+
+int FileTable::is_open(const klib::string& name) const
+{
+    // Search the descriptions list for the name file.
+    for (auto it = file_list.begin(); it != file_list.end(); ++it)
+        if (name == it->second.name)
+            // File found. Return the opne count.
+            return it->second.count;
+
+    // File not found. Return 0.
+    return 0;
 }
 
 /******************************************************************************

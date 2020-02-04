@@ -272,7 +272,7 @@ public:
     virtual ~File() { close(); }
 
     /**
-        Closes a file. Implements fclose. Base version frees the buffer.
+        Closes a file. Implements fclose. Frees the buffer.
 
         @return 0 if successful, otherwise EoF.
      */

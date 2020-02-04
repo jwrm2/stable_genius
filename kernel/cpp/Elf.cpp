@@ -10,9 +10,9 @@
 #include <string>
 #include <typeinfo>
 
-#include "FileSystem.h"
 #include "Kernel.h"
 #include "Logger.h"
+#include "MemoryFileSystem.h"
 #include "PageDescriptorTable.h"
 #include "paging.h"
 #include "util.h"

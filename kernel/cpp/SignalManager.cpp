@@ -59,7 +59,7 @@ int SignalManager::poll(pollfd* fds, size_t nfds, int timeout)
         fds[i].revents = PollType::pollnone;
 
         // Fetch the physical device driver the file resides on.
-        Device* dev = global_kernel->get_file_table().get_dev(key);
+        Device* dev = global_kernel->get_file_table()->get_dev(key);
 
         PollType ret_mask {PollType::pollnone};
         if (dev != nullptr)
@@ -166,7 +166,7 @@ void SignalManager::notify_file(const Device* dev, PollType ev)
             it = pending_polls.erase(it);
         else {
             // Get the process device.
-            Device* d = global_kernel->get_file_table().get_dev(
+            Device* d = global_kernel->get_file_table()->get_dev(
                 proc->get_fd_key(it->req->fd));
             if (d == dev && (it->req->events & ev) != PollType::pollnone)
             {

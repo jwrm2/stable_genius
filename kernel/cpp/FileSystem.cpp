@@ -123,6 +123,18 @@ klib::FILE* VirtualFileSystem::fopen(const klib::string& name, const char* mode)
 
 /******************************************************************************/
 
+int VirtualFileSystem::remove(const klib::string& name)
+{
+    // Look up the file system.
+    klib::string tmp {name};
+    FileSystem* fs = lookup(tmp);
+
+    // Pass the call onto the file system.
+    return fs->remove(tmp);
+}
+
+/******************************************************************************/
+
 FileSystem* VirtualFileSystem::lookup(const klib::string& fname) const
 {
     // Copy contructing a new string is not ideal, but is unlikely to be
@@ -245,159 +257,6 @@ void VirtualFileSystem::umount(const klib::string& n)
             return;
         }
     }
-}
-
-/******************************************************************************
- ******************************************************************************/
-
-Directory* MemoryFileSystem::diropen(const klib::string& name)
-{
-    // tmpfs does not have a true directory structure, but the names of files
-    // might contain /, indicating a hierarchy. Make a list of file that have
-    // the provided name as the prefix, but with anything after the next '/'
-    // stripped.
-    klib::vector<klib::string> match_files;
-
-    // Get rid of leading slashes in name.
-    klib::string test {name};
-    while (test[0] == '/')
-        test.erase(test.begin());
-
-    // Create a list of file names.
-    klib::vector<klib::string> all_files;
-    for (auto p : files)
-        all_files.push_back(p.first);
-
-    for (klib::string& temp : all_files)
-    {
-        // Test and remove the matching prefix.
-        if (test != temp.substr(0, temp.size()))
-            continue;
-        temp.erase(0, temp.size());
-        while (temp[0] == '/')
-            temp.erase(temp.begin());
-
-        // Remove anything after the next '/', so we don't get a recursive
-        // listing.
-        size_t pos = temp.find('/');
-        if (pos != klib::string::npos)
-            temp.erase(pos);
-
-        // Add to the match list.
-        match_files.push_back(temp);
-    }
-
-    // Create a directory to return.
-    return new VirtualDirectory {match_files};
-}
-
-/******************************************************************************/
-
-klib::FILE* MemoryFileSystem::fopen(const klib::string& name, const char* mode)
-{
-    auto it = files.find(name);
-    if (it == files.end())
-        return nullptr;
-
-    return new MemoryFile {it->second.first, it->second.second, mode, *this};
-}
-
-/******************************************************************************/
-
-void MemoryFileSystem::rename(const klib::string& f, const klib::string& n)
-{
-    auto it = files.find(f);
-    if (it == files.end())
-        return;
-
-    // Take a copy of the data.
-    klib::pair<void*, size_t> tmp = it->second;
-    // Erase the old mapping.
-    delete_mapping(f);
-    // Create a new mapping.
-    create_mapping(n, tmp.first, tmp.second);
-}
-
-/******************************************************************************/
-
-void MemoryFileSystem::create_mapping(const klib::string& name, void* addr,
-    size_t sz)
-{
-    auto it = files.find(name);
-    if (it == files.end())
-        files[name] = klib::pair<void*, size_t> {addr, sz}; 
-}
-
-/******************************************************************************/
-
-void* MemoryFileSystem::create_file(const klib::string& name, size_t sz)
-{
-    auto it = files.find(name);
-    if (it == files.end())
-    {
-        void* addr = new char[sz];
-        if (addr != nullptr)
-        {
-            files[name] = klib::pair<void*, size_t> {addr, sz};
-            return addr;
-        }
-    }
-
-    return nullptr;
-}
-
-/******************************************************************************/
-
-void MemoryFileSystem::delete_mapping(const klib::string& name)
-{
-    files.erase(name);
-}
-
-/******************************************************************************/
-
-void MemoryFileSystem::delete_file(const klib::string& name)
-{
-    auto it = files.find(name);
-    if (it != files.end())
-    {
-        delete[] static_cast<char*>(it->second.first);
-        files.erase(it);
-    }
-}
-
-/******************************************************************************/
-
-void* MemoryFileSystem::reallocate_file(const klib::string& name, size_t sz)
-{
-    auto it = files.find(name);
-    if (it != files.end())
-    {
-        if (sz == 0)
-        {
-            delete[] static_cast<char*>(it->second.first);
-            files[name] = klib::pair<void*, size_t> {nullptr, 0u};
-        }
-        else
-        {
-            void* new_addr = new char[sz];
-            size_t copy_size = klib::min(sz, it->second.second);
-            klib::memcpy(new_addr, it->second.first, copy_size);
-            delete[] static_cast<char*>(it->second.first);
-            files[name] = klib::pair<void*, size_t> {new_addr, sz};
-            return new_addr;
-        }
-    }
-
-    return nullptr;
-}
-
-void* MemoryFileSystem::reallocate_file(void* addr, size_t sz)
-{
-    for (const auto& p : files)
-        if (p.second.first == addr)
-            return reallocate_file(p.first, sz);
-
-    return nullptr;
 }
 
 /******************************************************************************

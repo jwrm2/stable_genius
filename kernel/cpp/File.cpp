@@ -9,6 +9,7 @@
 #include "FileSystem.h"
 #include "Kernel.h"
 #include "Logger.h"
+#include "MemoryFileSystem.h"
 
 /******************************************************************************
  ******************************************************************************/
@@ -50,19 +51,20 @@ size_t CharacterFile::read(void* buffer, size_t size, size_t count)
  ******************************************************************************/
 
 BlockFile::BlockFile(BlockDevice& d, const char* mode) :
-    klib::FILE {mode}, dev {d}
+    klib::FILE {mode}, dev {d}, current {false}
 {
     // Create the buffer.
     buffered = true;
     buffer = new char[dev.sector_size()];
+    // No need to read data into the buffer until a read or write occurs.
 }
 
 /******************************************************************************/
 
 size_t BlockFile::write(const void* buf, size_t size, size_t count)
 {
-    // Return immediately if not writing.
-    if (!writing)
+    // Return immediately if not writing, or not asked to write anything.
+    if (!writing || size == 0 || count == 0)
         return 0;
 
     // Note, appending doesn't make sense for raw block files, so the append
@@ -77,6 +79,17 @@ size_t BlockFile::write(const void* buf, size_t size, size_t count)
 
     // Get current position in buffer.
     size_t buf_pos = static_cast<klib::streamoff>(position) % dev.sector_size();
+
+    // We need to read into the buffer, so we don't stomp on existing data, but
+    // only if we're not covering a whole block.
+    if (!current && (buf_pos != 0 || n < dev.sector_size()))
+    {
+        if (dev.read_block(static_cast<klib::streamoff>(position) - buf_pos,
+            buffer) != dev.sector_size())
+            return written;
+        else
+            current = true;
+    }
 
     // Write any complete sectors.
     while (written + dev.sector_size() - buf_pos <= n)
@@ -96,17 +109,20 @@ size_t BlockFile::write(const void* buf, size_t size, size_t count)
             return written;
 
         position += dev.sector_size() - buf_pos;
+        current = false;
 
         buf_pos = 0;
     }
 
-    if (buf_pos == 0)
+    if (!current)
     {
         // Update the buffer, so we can modify the active block without
         // destroying the whole block.
         if (dev.read_block(static_cast<klib::streamoff>(position), buffer) !=
             dev.sector_size())
             return written;
+        else
+            current = true;
     }
 
     // Write any remaining characters.
@@ -134,12 +150,6 @@ size_t BlockFile::read(void* buf, size_t size, size_t count)
     // Get current position in buffer.
     size_t buf_pos = static_cast<klib::streamoff>(position) % dev.sector_size();
 
-    // If the buf_pos is 0, then we haven't read the block yet.
-    if (buf_pos == 0)
-        if (dev.read_block(static_cast<klib::streamoff>(position), buffer) !=
-            dev.sector_size())
-            return 0;
-
     // Read any complete sectors.
     while (char_read + dev.sector_size() - buf_pos <= n)
     {
@@ -150,21 +160,40 @@ size_t BlockFile::read(void* buf, size_t size, size_t count)
             return char_read;
         }
 
+        // If current is false, we need to read in the current block.
+        if (!current)
+        {
+            if (dev.read_block(static_cast<klib::streamoff>(position) - buf_pos,
+                buffer) != dev.sector_size())
+                return char_read;
+            else
+                current = true;
+        }
+
         klib::memcpy(char_buf + char_read, buffer + buf_pos,
             dev.sector_size() - buf_pos);
         position += dev.sector_size() - buf_pos;
         char_read += dev.sector_size() - buf_pos;
-
-        if (dev.read_block(static_cast<klib::streamoff>(position) - buf_pos,
-            buffer) != dev.sector_size())
-            return char_read;
+        current = false;
 
         buf_pos = 0;
     }
 
-    // Read any remaining characters.
-    klib::memcpy(char_buf + char_read, buffer + buf_pos, n - char_read);
-    position += n - char_read;
+    if (char_read < n)
+    {
+        // If current is false, we need to read in the current block.
+        if (!current)
+        {
+            if (dev.read_block(static_cast<klib::streamoff>(position) - buf_pos,
+                buffer) != dev.sector_size())
+                return char_read;
+            else
+                current = true;
+        }
+        // Read any remaining characters.
+        klib::memcpy(char_buf + char_read, buffer + buf_pos, n - char_read);
+        position += n - char_read;
+    }
 
     return char_read;
 }
@@ -176,6 +205,11 @@ int BlockFile::flush()
     // Return failure immediately if we're not writing.
     if (!writing)
         return EOF;
+
+    // If current is false, then writes can't have been made, so there's nothing
+    // to flush.
+    if (!current)
+        return 0;
 
     // We just need to overwrite the current sector with the current buffer.
     klib::streamoff buf_pos =
@@ -189,9 +223,8 @@ int BlockFile::flush()
 int BlockFile::seek(long offset, int origin)
 {
     // Flush current buffer.
-    if (writing)
-        if(flush() != 0)
-            return EOF;
+    if(writing && flush() != 0)
+        return EOF;
 
     switch (origin)
     {
@@ -214,12 +247,7 @@ int BlockFile::seek(long offset, int origin)
         klib::streamoff new_sector = static_cast<klib::streamoff>(position) /
             dev.sector_size();
         if (curr_sector != new_sector)
-        {
-            // Read in buffer.
-            if(dev.read_block(new_sector * dev.sector_size(), buffer) !=
-                dev.sector_size())
-                return EOF;
-        }
+            current = false;
         eof = false;
         break;
     }
@@ -243,12 +271,7 @@ int BlockFile::seek(long offset, int origin)
         klib::streamoff new_sector = static_cast<klib::streamoff>(position) /
             dev.sector_size();
         if (curr_sector != new_sector)
-        {
-            // Read in buffer.
-            if(dev.read_block(new_sector * dev.sector_size(), buffer) !=
-                dev.sector_size())
-                return EOF;
-        }
+            current = false;
         eof = false;
         break;
     }
@@ -271,12 +294,7 @@ int BlockFile::seek(long offset, int origin)
         klib::streamoff new_sector = static_cast<klib::streamoff>(position) /
             dev.sector_size();
         if (curr_sector != new_sector)
-        {
-            // Read in buffer.
-            if(dev.read_block(new_sector * dev.sector_size(), buffer) !=
-                dev.sector_size())
-                return EOF;
-        }
+            current = false;
         eof = false;
         break;
     }
@@ -316,6 +334,19 @@ MemoryFile::MemoryFile(void* a, size_t sz, const char* mode,
     // Fail if read-only and open for writing.
     if (writing && fs.ro())
         close();
+}
+
+/******************************************************************************/
+
+int MemoryFile::close()
+{
+    int ret_val = MemoryFile::flush();
+
+    // Notify the file system to clear up memory if necessary.
+    mfs.close(addr);
+
+    ret_val = (klib::FILE::close() == 0 ? ret_val : -1);
+    return ret_val;
 }
 
 /******************************************************************************/
@@ -453,7 +484,7 @@ int MemoryFile::truncate()
         return 0;
     }
     else
-        // Failure, shouldn't really happen.
+        // Failure, shouldn't really be possible.
         return -1;
 }
 

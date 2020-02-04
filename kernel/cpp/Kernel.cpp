@@ -20,6 +20,7 @@
 #include "KernelHeap.h"
 #include "Keyboard.h"
 #include "Logger.h"
+#include "MemoryFileSystem.h"
 #include "MultiBoot.h"
 #include "PageDescriptorTable.h"
 #include "PageFrameAllocator.h"

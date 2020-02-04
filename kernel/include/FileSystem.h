@@ -86,6 +86,16 @@ public:
     virtual size_t read(uint64_t offset, char* buf, size_t n);
 
     /**
+        Removes (unlinks) a file. If the number of links remaining is zero, the
+        file is deleted. If the file has open file descriptors, the deletion is
+        postponed until the file descriptors are closed.
+
+        @param name Full path name from the root directory of the file system.
+        @return 0 on success, -1 on failure.
+     */
+    virtual int remove(const klib::string& name) = 0;
+
+    /**
         Rename the given file to the new given name.
 
         @param f File to rename.
@@ -179,6 +189,26 @@ public:
         override;
 
     /**
+        Removes (unlinks) a file. If the number of links remaining is zero, the
+        file is deleted. If the file has open file descriptors, the deletion is
+        postponed until the file descriptors are closed. Works out the file
+        system on which the file resides, then passes the call onto that file
+        system.
+
+        @param name Full path name to remove.
+        @return 0 on success, -1 on failure.
+     */
+    virtual int remove(const klib::string& name) override;
+
+    /**
+        Rename the given file to the new given name.
+
+        @param f File to rename.
+        @param n New name for the file.
+     */
+    virtual void rename(const klib::string& f, const klib::string& n) override;
+
+    /**
         Get the block size of the file system. Since this is a virtual FS, it
         doesn't have blocks and the size is therefore 1 byte.
 
@@ -230,14 +260,6 @@ public:
     bool mount_virtual(const klib::string& m, FileSystem* fs);
 
     /**
-        Rename the given file to the new given name.
-
-        @param f File to rename.
-        @param n New name for the file.
-     */
-    virtual void rename(const klib::string& f, const klib::string& n) override;
-
-    /**
         Remove a mapping between a directory name and a device. Does nothing if
         the mapping does not exist. Either the directory name or the device name
         may be provided.
@@ -250,107 +272,6 @@ private:
     // List of mappings between mount points and file systems. Device drivers
     // are accessed through the /dev/ file system.
     klib::map<klib::string, FileSystem*> mtab;
-};
-
-/**
-    A file system that exists only in memory, like the Linux tmpfs.
- */
-class MemoryFileSystem : public FileSystem {
-public:
-    /**
-        Default constructor. Creates an empty set of mappings.
-     */
-    MemoryFileSystem() : FileSystem{""}, files {}
-    {}
-
-    /**
-        Opens a directory, returning a pointer to the directory handle. nullptr
-        is returned on errors, such as the directory not existing, or the name
-        referring to a file.
-
-        @param name Full path name from the root directory of the file system.
-        @return Directory pointer. nullptr on error.
-     */
-    virtual Directory* diropen(const klib::string& name) override;
-
-    /**
-        Opens a file, returning a pointer to the file handle. nullptr is
-        returned on errors, such as the file not existing when reading is
-        requested, asking for write when the file system is read only, or if the
-        file is a directory.
-
-        @param name Full path name from the root directory of the file system.
-        @param mode C-style mode in which to open the file.
-        @return File pointer. nullptr on error.
-     */
-    virtual klib::FILE* fopen(const klib::string& name, const char* mode)
-        override;
-
-    /**
-        Get the block size of the file system. Since this is a virtual FS, it
-        doesn't have blocks and the size is therefore 1 byte.
-
-        @return Block size.
-     */
-    virtual size_t block_size() const { return 1; }
-
-    /**
-        Rename the given file to the new given name.
-
-        @param f File to rename.
-        @param n New name for the file.
-     */
-    virtual void rename(const klib::string& f, const klib::string& n) override;
-
-    /**
-        Create a new memory file mapping. Does not allocate memory.
-
-        @param name Name of the file, from the root of the file system.
-        @param addr Start address of the file in memory.
-        @param sz Size of the file, in bytes.
-     */
-    void create_mapping(const klib::string& name, void* addr, size_t sz);
-
-    /**
-        Create a new memory file mapping. Allocates memory.
-
-        @param name Name of the file, from the root of the file system.
-        @param sz Size of the file, in bytes.
-        @return Start address, or nullptr on failure.
-     */
-    void* create_file(const klib::string& name, size_t sz);
-
-    /**
-        Removes an exisiting mapping. Does not delete memory.
-
-        @param name Name of the file, from the root of the file system.
-     */
-    void delete_mapping(const klib::string& name);
-
-    /**
-        Removes an exisiting mapping. Deletes memory.
-
-        @param name Name of the file, from the root of the file system.
-     */
-    void delete_file(const klib::string& name);
-
-    /**
-        Reallocates the file size of an existing mapping. If the new size is
-        smaller the file will be truncated. The file will be completely copied.
-
-        @param name Name of the file, from the root of the file system.
-        @param addr Current starting address of the file.
-        @param sz New size to allocate.
-        @return New start address, or nullptr on failure or if the size is 0.
-     */
-    void* reallocate_file(const klib::string& name, size_t sz);
-    void* reallocate_file(void* addr, size_t sz);
-
-private:
-    // List of mappings bgetween names and memory files. The files are stored as
-    // pairs of memory addresses and offsets. The names are from the root of the
-    // file system.
-    klib::map<klib::string, klib::pair<void*, size_t>> files;
 };
 
 #endif /* FILE_SYSTEM_H */

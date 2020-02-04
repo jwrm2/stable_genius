@@ -79,7 +79,16 @@ public:
 
         @return Block size.
      */
-    virtual size_t block_size() const { return 1; }
+    virtual size_t block_size() const override { return 1; }
+
+    /**
+        Removing a device file doesn't make sense. Always fails without doing
+        anything. Use unmount instead to disconnect a device. 
+
+        @param name Full path name from the root directory of the file system.
+        @return -1, indicating failure.
+     */
+    virtual int remove(const klib::string&) override { return -1; }
 
     /**
         The dev names are set by standards and renames are not permitted. This
@@ -88,7 +97,7 @@ public:
         @param f File to rename.
         @param n New name for the file.
      */
-    virtual void rename(const klib::string&, const klib::string&) {}
+    virtual void rename(const klib::string&, const klib::string&) override {}
 
     /**
         Given a standard dev name of a block device, returns the driver for the

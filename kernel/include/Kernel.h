@@ -153,7 +153,7 @@ public:
 
         @return Reference to the file description table.
      */
-    virtual FileTable& get_file_table() { return *file_tab; }
+    virtual FileTable* get_file_table() { return file_tab; }
 
     /**
         Gets the GDT information structure.
