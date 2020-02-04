@@ -1189,6 +1189,15 @@ klib::FILE* Ext2FileSystem::fopen(const klib::string& name, const char* mode)
 
 /******************************************************************************/
 
+int Ext2FileSystem::remove(const klib::string& name)
+{
+    // TODO
+    (void)name;
+    return -1;
+}
+
+/******************************************************************************/
+
 void Ext2FileSystem::rename(const klib::string& f, const klib::string& n)
 {
     // TODO

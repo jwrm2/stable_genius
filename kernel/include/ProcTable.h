@@ -229,6 +229,17 @@ public:
      */
     klib::fstream& get_stream(int key);
 
+    /**
+        Tests whether a file with the given name has an open file description.
+        This is useful for postponing operations such as deleting a file until
+        after file descriptions are closed.
+
+        @param name Name of the file to test.
+        @return Number of processes with an open file descriptor for the file.
+                Will be 0 if the file is not open.
+     */
+    int is_open(const klib::string& name) const;
+
 protected:
     // Entries in the file table. COntains the information necessary for a file
     // context. Note that subsequent calls to open() a file from different

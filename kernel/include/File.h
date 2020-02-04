@@ -219,6 +219,10 @@ public:
 protected:
     // Block device that handles the reads and writes.
     BlockDevice& dev;
+    // Whether data has been read into the buffer. The buffer must be up to date
+    // for reads, and writes that don't cover a whole block. The buffer is not
+    // filled on open or seeks, as the data may not actuallybe required.
+    bool current;
 };
 
 /**
@@ -261,6 +265,7 @@ public:
     virtual int close() override
     {
         int ret_val = DiskFile::flush();
+
         ret_val = (klib::FILE::close() == 0 ? ret_val : -1);
         return ret_val;
     }
@@ -294,16 +299,11 @@ public:
     virtual ~MemoryFile() { MemoryFile::close(); }
 
     /**
-        Closes the file. Doesn't actually have to do anything.
+        Closes the file. Deletes memory if there are no hard links left.
 
         @return 0 if successful, otherwise EoF.
      */
-    virtual int close() override
-    {
-        int ret_val = MemoryFile::flush();
-        ret_val = (klib::FILE::close() == 0 ? ret_val : -1);
-        return ret_val;
-    }
+    virtual int close() override;
 
     /**
         Overwrites the file memory. Reallocates the file if too large.

@@ -8,9 +8,9 @@
 #include <ostream>
 #include <typeinfo>
 
-#include "FileSystem.h"
 #include "Kernel.h"
 #include "Logger.h"
+#include "MemoryFileSystem.h"
 #include "PageDescriptorTable.h"
 #include "PageFrameAllocator.h"
 #include "util.h"

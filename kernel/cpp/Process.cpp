@@ -173,7 +173,7 @@ void Process::exec_duplicate(const Process& other)
     // description reference counts.
     file_desc = other.file_desc;
     for (const auto& p : file_desc)
-        global_kernel->get_file_table().copy_file(p.second);
+        global_kernel->get_file_table()->copy_file(p.second);
 
     // Copy the parent and child PIDs.
     parent_pid = other.parent_pid;
@@ -208,7 +208,7 @@ void Process::fork_duplicate(const Process& other)
     // each entry in the global table.
     file_desc = other.file_desc;
     for (const auto& p : file_desc)
-        global_kernel->get_file_table().copy_file(p.second);
+        global_kernel->get_file_table()->copy_file(p.second);
 
     // Duplicate other process information. ret_val should be meaningless so
     // far.
@@ -389,7 +389,7 @@ void Process::resume()
 int Process::open_file(const klib::string& name, klib::ios_base::openmode mode)
 {
     // Forward to the global file table.
-    int ret_val = global_kernel->get_file_table().open_file(name, mode);
+    int ret_val = global_kernel->get_file_table()->open_file(name, mode);
 
     // Failure.
     if (ret_val == -1)
@@ -415,7 +415,7 @@ int Process::close_file(int fd)
         for (const auto& p : file_desc)
         {
             int ret_val2 =
-                global_kernel->get_file_table().close_file(p.second);
+                global_kernel->get_file_table()->close_file(p.second);
             if (ret_val2 == -1)
                 ret_val = -1;
         }
@@ -431,7 +431,7 @@ int Process::close_file(int fd)
         {
             // Close single file.
             ret_val =
-                global_kernel->get_file_table().close_file(it->second);
+                global_kernel->get_file_table()->close_file(it->second);
             file_desc.erase(fd);
         }
     }

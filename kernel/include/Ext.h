@@ -1697,6 +1697,16 @@ public:
         override;
 
     /**
+        Removes (unlinks) a file. If the number of links remaining is zero, the
+        file is deleted. If the file has open file descriptors, the deletion is
+        postponed until the file descriptors are closed.
+
+        @param name Full path name from the root directory of the file system.
+        @return 0 on success, -1 on failure.
+     */
+    virtual int remove(const klib::string& name) override;
+
+    /**
         Rename the given file to the new given name.
 
         @param f File to rename.
