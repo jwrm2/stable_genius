@@ -31,6 +31,7 @@ enum class syscall_ind {
     open = 0x5,
     close = 0x6,
     wait = 0x7,
+    unlink = 0xa,
     execve = 0xb,
     getpid = 0x14,
     yield = 0x9e
@@ -145,6 +146,16 @@ int32_t close(int fd);
             failure.
  */
 int32_t wait(int pid, int* wstatus, int options);
+
+/**
+    Unlink a file. Deletes the file if the number of hard links is reduced to
+    zero. The delete is postponed until all open file descriptors for the file
+    are closed, or happens immediately if there are none.
+
+    @param filename Name of the file to delete, from %ebx.
+    @return 0 on success, -1 on failure.
+ */
+int32_t unlink(const char* filename);
 
 /**
     Replaces the current process with a new one.

@@ -236,6 +236,9 @@ void MemoryFileSystem::delete_file(const klib::string& name, bool ft_check)
     if (it->second->no_links == 0)
     {
         FileTable* ft = global_kernel->get_file_table();
+        // If there is no global file table, we haven't transferred to user mode
+        // yet. In that case, we're using temporary files as a convenience to
+        // access sequences of memory and it is safe to delete the file.
         if (!ft_check || ft == nullptr ||
             (ft != nullptr && ft->is_open(it->first) == 0))
         {

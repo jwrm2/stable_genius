@@ -1118,11 +1118,11 @@ struct Ext2Inode {
      */
     uint32_t sectors() const
     {
-        return *reinterpret_cast<const uint32_t*>(data.data() + 30);
+        return *reinterpret_cast<const uint32_t*>(data.data() + 28);
     }
     void sectors(uint32_t n)
     {
-        *reinterpret_cast<uint32_t*>(data.data() + 30) = n;
+        *reinterpret_cast<uint32_t*>(data.data() + 28) = n;
     }
 
     /**
@@ -1699,7 +1699,7 @@ public:
     /**
         Removes (unlinks) a file. If the number of links remaining is zero, the
         file is deleted. If the file has open file descriptors, the deletion is
-        postponed until the file descriptors are closed.
+        postponed until all the file descriptors are closed.
 
         @param name Full path name from the root directory of the file system.
         @return 0 on success, -1 on failure.
@@ -1866,8 +1866,8 @@ public:
     int flush_inode(size_t inode_index, bool free = false);
 
     /**
-        Writes all the metadata back to disk, including the superblock, the
-        BGDT and any cached allocation tables.
+        Writes the metadata back to disk, including the superblock, the
+        BGDT and any cached allocation tables, but not cached inodes.
 
         @return 0 on success, -1 on failure.
      */
