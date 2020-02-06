@@ -20,6 +20,7 @@ create_error_read: .string "Unable to read from /etc/foobar.conf\n"
 create_error_write: .string "Unable to write to /etc/foobar.conf\n"
 create_read_string: .string "Characters read from /etc/foobar.conf: "
 create_write_string: .string "defgh"
+delete_error: .string "Unable to delete file /etc/foobar.conf\n"
 
 .section .bss
 read_buffer: .skip 1024
@@ -256,24 +257,6 @@ _start:
     pop %ebx
     int $0x80
 
-# Open a non-existent file /etc/foobar.conf for reading. Should fail.
-    mov $5, %eax
-    mov $create_file, %ebx
-    mov $1, %ecx
-    mov $0, %edx
-    int $0x80
-
-# If there was no error on open, print and jump to the prompt.
-    cmp $-1, %eax
-    je 1f
-    mov $4, %eax
-    mov $1, %ebx
-    mov $create_no_error_open, %ecx
-    mov $43, %edx
-    int $0x80
-    jmp 0f
-1:
-
 # Open a non-existent file /etc/foobar.conf for writing.
     mov $5, %eax
     mov $create_file, %ebx
@@ -375,6 +358,40 @@ _start:
     mov $6, %eax
     pop %ebx
     int $0x80
+
+# Delete the file we just created, /etc/foobar.conf
+    mov $10, %eax
+    mov $create_file, %ebx
+    int $0x80
+
+# If there was an error on delete, print and jump to the prompt.
+    cmp $-1, %eax
+    jne 1f
+    mov $4, %eax
+    mov $1, %ebx
+    mov $delete_error, %ecx
+    mov $40, %edx
+    int $0x80
+    jmp 0f
+1:
+
+# Open a non-existent file /etc/foobar.conf for reading. Should fail.
+    mov $5, %eax
+    mov $create_file, %ebx
+    mov $1, %ecx
+    mov $0, %edx
+    int $0x80
+
+# If there was no error on open, print and jump to the prompt.
+    cmp $-1, %eax
+    je 1f
+    mov $4, %eax
+    mov $1, %ebx
+    mov $create_no_error_open, %ecx
+    mov $43, %edx
+    int $0x80
+    jmp 0f
+1:
 
 # Infinite loop. Wait for reading in data, then echo it.
 0:

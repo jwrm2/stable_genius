@@ -9,6 +9,7 @@
 #include <string>
 #include <utility>
 
+#include "FileSystem.h"
 #include "Kernel.h"
 #include "Logger.h"
 #include "PageDescriptorTable.h"
@@ -36,6 +37,7 @@ void syscall(InterruptRegisters& ir, const InterruptStack& is)
         klib::pair<syscall_ind, klib::string> {syscall_ind::open, "open"},
         klib::pair<syscall_ind, klib::string> {syscall_ind::close, "close"},
         klib::pair<syscall_ind, klib::string> {syscall_ind::wait, "wait"},
+        klib::pair<syscall_ind, klib::string> {syscall_ind::unlink, "unlink"},
         klib::pair<syscall_ind, klib::string> {syscall_ind::execve, "execve"},
         klib::pair<syscall_ind, klib::string> {syscall_ind::getpid, "getpid"},
         klib::pair<syscall_ind, klib::string> {syscall_ind::yield, "yield"}
@@ -79,6 +81,10 @@ void syscall(InterruptRegisters& ir, const InterruptStack& is)
             // Wait for a child process.
             ret_val = syscalls::wait(ir.ebx(), reinterpret_cast<int*>(ir.ecx()),
                 ir.edx());
+            break;
+        case syscall_ind::unlink:
+            // Unlink (delete) a file.
+            ret_val = syscalls::unlink(reinterpret_cast<const char*>(ir.ebx()));
             break;
         case syscall_ind::execve:
             // Exec a new executable.
@@ -351,6 +357,17 @@ int32_t wait(int pid, int* wstatus, int options)
     }
 
     return ret_val;
+}
+
+/******************************************************************************
+ ******************************************************************************/
+
+int32_t unlink(const char* filename)
+{
+    global_kernel->syslog()->info("unlink: filename = %s\n", filename);
+
+    // Forward the call to the VFS.
+    return global_kernel->get_vfs()->remove(filename);
 }
 
 /******************************************************************************

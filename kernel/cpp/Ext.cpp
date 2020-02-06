@@ -14,6 +14,7 @@
 #include "FileSystem.h"
 #include "Kernel.h"
 #include "Logger.h"
+#include "ProcTable.h"
 
 /******************************************************************************
  ******************************************************************************/
@@ -249,21 +250,35 @@ Ext2File::Ext2File(const char* m, size_t indx, Ext2FileSystem& fs) :
 
 int Ext2File::close()
 {
-    // Flush the buffer. This will also flush the file system metadata if
-    // necessary.
+    if (inode_index == 0)
+        // If the file has already been closed, the index will have been set to
+        // invalid already. Closing the file a second time is safe, but still
+        // return failure.
+        return -1;
+
     int ret_val = 0;
     if (writing)
         // Open for writing, so we need to flush the buffer, which also flushes
         // the metadata.
         ret_val = flush();
+
+    Ext2FileSystem& ext2fs = dynamic_cast<Ext2FileSystem&>(fs);
+    if (ext2fs.inode_call(inode_index, false, [](Ext2Inode& in)
+        { return in.hard_links(); }) == 0)
+    {
+        // If the file has been deleted, the number of hard links will be zero,
+        // but the delete will have been postponed because the file was open.
+        // Delete it now. deallocate_inode first truncates all the file data,
+        // then deletes the inode itself.
+        ret_val = (ext2fs.deallocate_inode(inode_index) == 0 ? ret_val : -1);
+        ret_val = (ext2fs.flush_inode(inode_index, true) == 0 ? ret_val : -1);
+        ret_val = (ext2fs.flush_metadata() == 0 ? ret_val : -1);
+    }
     else
     {
-        // Open for reading. We still need to call the inode flush to remove it
-        // from the cache.
-        Ext2FileSystem& ext2fs = dynamic_cast<Ext2FileSystem&>(fs);
+        // We're not deleting the file,m but we still need to uncache the inode.
         ret_val = ext2fs.flush_inode(inode_index, true);
     }
-
     inode_index = 0;
 
     // Now call the parent close, which will free the buffer.
@@ -1191,9 +1206,58 @@ klib::FILE* Ext2FileSystem::fopen(const klib::string& name, const char* mode)
 
 int Ext2FileSystem::remove(const klib::string& name)
 {
-    // TODO
-    (void)name;
-    return -1;
+    // Get the file inode.
+    size_t inode_index = get_inode_index(name);
+    if (inode_index == 0)
+        // File does not exist.
+        return -1;
+
+    // Check that we're deleteing a file. TODO other types of objects.
+    if (inode_call(inode_index, false, [] (Ext2Inode& in) { return in.type(); })
+        != Ext2Inode::file)
+        return -1;
+
+    // Decrement the hard link count for the inode.
+    uint16_t no_links = inode_call(inode_index, false, [] (Ext2Inode& in)
+        { return in.hard_links(); });
+    if (no_links != 0)
+    {
+        --no_links;
+        inode_call(inode_index, true, [] (Ext2Inode& in, uint16_t n)
+            { return in.hard_links(n); }, no_links);
+    }
+
+    // Remove file entry from it's parent directory. STart by getting the
+    // directory inode.
+    size_t last_slash = name.find_last_of('/'); 
+    klib::string dir_name {name.substr(0, last_slash)};
+    klib::string file_name {name.substr(last_slash + 1)};
+    size_t dir = get_inode_index(dir_name);
+
+    // Open the directory delete the entry. The directory will be closed on
+    // return, which will flush the contents and file system metadata.
+    Ext2Directory ext2dir {dir, *this, true};
+    ext2dir.delete_entry(inode_index);
+
+    // We're done if hard links still exist.
+    if (no_links != 0)
+        return flush_inode(inode_index, true);
+
+    // We need to delete the file.
+    // Check the global file table for open file handles. We postpone the
+    // delete if the file is still open.
+    FileTable* ft = global_kernel->get_file_table();
+    // If the file table doesn't exist yet, we haven't transferred to user mode,
+    // so we're probably reading the init binary. In this case we do not want to
+    // delete the file.
+    if (ft != nullptr && ft->is_open(name) == 0)
+        // deallocate_inode() truncates the file data blocks, then deletes the
+        // inode itself.
+        deallocate_inode(inode_index);
+
+    // The direcotry close will take care of most of the metadata. We just need
+    // to ucache the file inode.
+    return flush_inode(inode_index, true);
 }
 
 /******************************************************************************/
@@ -1860,9 +1924,9 @@ int Ext2FileSystem::deallocate_block(size_t bl)
 
 size_t Ext2FileSystem::allocate_new_inode(size_t inode_index)
 {
-    // Fail immediately if the superblock says the file system is full or the
-    // file system is read only.
-    if (ro() || super_block.first.unalloc_inodes() == 0)
+    // Fail immediately if the superblock says the file system is full, the
+    // file system is read only, or the parent is invalid.
+    if (ro() || super_block.first.unalloc_inodes() == 0 || inode_index == 0)
         return 0;
 
     // Determine which block group the parent inode is in, remembering that
@@ -1936,8 +2000,9 @@ size_t Ext2FileSystem::allocate_new_inode(size_t inode_index)
 
 int Ext2FileSystem::deallocate_inode(size_t indx)
 {
-    // Do nothing if the inode index is larger than the number of inodes.
-    if (indx >= super_block.first.no_inodes())
+    // Do nothing if the inode index is larger than the number of inodes, or if
+    // it's invalid.
+    if (indx >= super_block.first.no_inodes() || indx == 0)
         return -1;
 
     // Find which block group the block is in, and the index in the group. The
@@ -2085,6 +2150,15 @@ int Ext2FileSystem::flush_bgdt()
 
 int Ext2FileSystem::cache_block_alloc(size_t bg_index)
 {
+    // Check that bg_index is in range.
+    size_t no_bg = 1 + (super_block.first.no_blocks() - 1) /
+        super_block.first.blocks_per_group();
+    if (bg_index >= no_bg)
+    {
+        global_kernel->syslog()->warn("Ext2FileSystem::cache_block_alloc called for index %u, greater than maximum %u\n", bg_index, no_bg);
+        return -1;
+    }
+
     // Check whether the block allocation table is already cached.
     if (block_alloc.count(bg_index) != 0)
         return 0;
@@ -2171,6 +2245,15 @@ int Ext2FileSystem::flush_block_alloc()
 
 int Ext2FileSystem::cache_inode_alloc(size_t bg_index)
 {
+    // Check that bg_index is in range.
+    size_t no_bg = 1 + (super_block.first.no_blocks() - 1) /
+        super_block.first.blocks_per_group();
+    if (bg_index >= no_bg)
+    {
+        global_kernel->syslog()->warn("Ext2FileSystem::cache_inode_alloc called for index %u, greater than maximum %u\n", bg_index, no_bg);
+        return -1;
+    }
+
     // Check whether the inode allocation table is already cached.
     if (inode_alloc.count(bg_index) != 0)
         return 0;
@@ -2200,11 +2283,9 @@ int Ext2FileSystem::cache_inode_alloc(size_t bg_index)
     // Check the position in the file.
     in.read(inode_alloc[bg_index].first.data(), block_size());
 
-
     // Check for success.
     if (!in || in.gcount() != block_size())
     {
-        global_kernel->syslog()->warn("Ext2FileSystem::cache_inode_alloc failed to read inode allocation table\n");
         inode_alloc.erase(p.first);
         return -1;
     }
