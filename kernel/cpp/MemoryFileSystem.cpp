@@ -119,7 +119,7 @@ klib::FILE* MemoryFileSystem::fopen(const klib::string& name, const char* mode)
 
 /******************************************************************************/
 
-int MemoryFileSystem::remove(const klib::string& name)
+int MemoryFileSystem::unlink(const klib::string& name)
 {
     // Find the file.
     auto it = files.find(name);

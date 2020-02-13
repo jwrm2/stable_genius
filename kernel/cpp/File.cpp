@@ -101,20 +101,32 @@ size_t BlockFile::write(const void* buf, size_t size, size_t count)
             return written;
         }
 
-        klib::memcpy(buffer + buf_pos, char_buf + written,
-            dev.sector_size() - buf_pos);
-        written += dev.sector_size() - buf_pos;
+        // We need to write whole sectors.
+        size_t ret_val = 0;
+        if (buf_pos != 0)
+        {
+            // We're in the middle of a sector. We need to fill the rest of the
+            // buffer from the input, then write the whole sector.
+            klib::memcpy(buffer + buf_pos, char_buf + written,
+                dev.sector_size() - buf_pos);
+            ret_val = dev.write_block(
+                position - static_cast<klib::streamoff>(buf_pos), buffer);
+        }
+        else
+            // We're writing a whole sector. No need to copy to the internal
+            // buffer, just get it straight from the input.
+            ret_val = dev.write_block(position, char_buf + written);
 
-        if (flush() != 0)
-            return written;
-
-        position += dev.sector_size() - buf_pos;
+        written += ret_val;
+        position += ret_val;
         current = false;
-
         buf_pos = 0;
+
+        if (ret_val != dev.sector_size())
+            return written;
     }
 
-    if (!current)
+    if (!current && written != n)
     {
         // Update the buffer, so we can modify the active block without
         // destroying the whole block.

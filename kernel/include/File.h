@@ -127,7 +127,8 @@ class BlockFile : public klib::FILE {
 public:
     /**
         Constructor. Sets the connected device driver. Changes to buffered mode
-        and allocates a buffer.
+        and allocates a buffer. The size of the buffer is the secotr size as
+        resported by the block device.
 
         @param Block device.
         @param mode C style open mode string.

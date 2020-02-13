@@ -367,7 +367,7 @@ int32_t unlink(const char* filename)
     global_kernel->syslog()->info("unlink: filename = %s\n", filename);
 
     // Forward the call to the VFS.
-    return global_kernel->get_vfs()->remove(filename);
+    return global_kernel->get_vfs()->unlink(filename);
 }
 
 /******************************************************************************
