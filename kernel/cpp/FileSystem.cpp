@@ -123,14 +123,14 @@ klib::FILE* VirtualFileSystem::fopen(const klib::string& name, const char* mode)
 
 /******************************************************************************/
 
-int VirtualFileSystem::remove(const klib::string& name)
+int VirtualFileSystem::unlink(const klib::string& name)
 {
     // Look up the file system.
     klib::string tmp {name};
     FileSystem* fs = lookup(tmp);
 
     // Pass the call onto the file system.
-    return fs->remove(tmp);
+    return fs->unlink(tmp);
 }
 
 /******************************************************************************/

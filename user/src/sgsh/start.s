@@ -71,6 +71,142 @@ _start:
     call print_register
     pop %eax
 
+# Open a non-existent file /etc/foobar.conf for writing.
+    mov $5, %eax
+    mov $create_file, %ebx
+    mov $2, %ecx
+    mov $0, %edx
+    int $0x80
+
+# If there was an error on open, print and jump to the prompt.
+    cmp $-1, %eax
+    jne 1f
+    mov $4, %eax
+    mov $1, %ebx
+    mov $create_error_open, %ecx
+    mov $47, %edx
+    int $0x80
+    jmp 0f
+1:
+    push %eax
+
+# Write 5 characters to /etc/foobar.conf
+    mov $4, %eax
+    mov (%esp), %ebx
+    mov $create_write_string, %ecx
+    mov $5, %edx
+    int $0x80
+
+# If there was an error on write, print and jump to the prompt.
+    cmp $-1, %eax
+    jne 1f
+    mov $4, %eax
+    mov $1, %ebx
+    mov $create_error_write, %ecx
+    mov $36, %edx
+    int $0x80
+    jmp 0f
+1:
+
+# Close /etc/foobar.conf
+    mov $6, %eax
+    pop %ebx
+    int $0x80
+
+# Open /etc/foobar.conf for reading. We should get back what we just wrote.
+    mov $5, %eax
+    mov $create_file, %ebx
+    mov $1, %ecx
+    mov $0, %edx
+    int $0x80
+
+# If there was an error on open, print and jump to the prompt.
+    cmp $-1, %eax
+    jne 1f
+    mov $4, %eax
+    mov $1, %ebx
+    mov $create_error_open_r, %ecx
+    mov $44, %edx
+    int $0x80
+    jmp 0f
+1:
+    push %eax
+
+# Read the first 10 characters of /etc/foobar.conf
+    mov $3, %eax
+    mov (%esp), %ebx
+    mov $read_buffer, %ecx
+    mov $10, %edx
+    int $0x80
+
+# If there was an error on read, print and jump to the prompt.
+    cmp $-1, %eax
+    jne 1f
+    mov $4, %eax
+    mov $1, %ebx
+    mov $create_error_read, %ecx
+    mov $37, %edx
+    int $0x80
+    jmp 0f
+1:
+    push %eax
+
+# Print the characters to stdout.
+    mov $4, %eax
+    mov $1, %ebx
+    mov $create_read_string, %ecx
+    mov $39, %edx
+    int $0x80
+    mov $4, %eax
+    mov $1, %ebx
+    mov $read_buffer, %ecx
+    pop %edx
+    int $0x80
+    mov $4, %eax
+    mov $1, %ebx
+    mov $newline, %ecx
+    mov $1, %edx
+    int $0x80
+
+# Close /etc/foobar.conf
+    mov $6, %eax
+    pop %ebx
+    int $0x80
+
+# Delete the file we just created, /etc/foobar.conf
+    mov $10, %eax
+    mov $create_file, %ebx
+    int $0x80
+
+# If there was an error on delete, print and jump to the prompt.
+    cmp $-1, %eax
+    jne 1f
+    mov $4, %eax
+    mov $1, %ebx
+    mov $delete_error, %ecx
+    mov $40, %edx
+    int $0x80
+    jmp 0f
+1:
+
+# Open a non-existent file /etc/foobar.conf for reading. Should fail.
+    mov $5, %eax
+    mov $create_file, %ebx
+    mov $1, %ecx
+    mov $0, %edx
+    int $0x80
+
+# If there was no error on open, print and jump to the prompt.
+    cmp $-1, %eax
+    je 1f
+    mov $4, %eax
+    mov $1, %ebx
+    mov $create_no_error_open, %ecx
+    mov $43, %edx
+    int $0x80
+    jmp 0f
+1:
+
 # Open the file /etc/foo.conf for writing, which should truncate the file.
     mov $5, %eax
     mov $test_file, %ebx
@@ -256,142 +392,6 @@ _start:
     mov $6, %eax
     pop %ebx
     int $0x80
-
-# Open a non-existent file /etc/foobar.conf for writing.
-    mov $5, %eax
-    mov $create_file, %ebx
-    mov $2, %ecx
-    mov $0, %edx
-    int $0x80
-
-# If there was an error on open, print and jump to the prompt.
-    cmp $-1, %eax
-    jne 1f
-    mov $4, %eax
-    mov $1, %ebx
-    mov $create_error_open, %ecx
-    mov $47, %edx
-    int $0x80
-    jmp 0f
-1:
-    push %eax
-
-# Write 5 characters to /etc/foobar.conf
-    mov $4, %eax
-    mov (%esp), %ebx
-    mov $create_write_string, %ecx
-    mov $5, %edx
-    int $0x80
-
-# If there was an error on write, print and jump to the prompt.
-    cmp $-1, %eax
-    jne 1f
-    mov $4, %eax
-    mov $1, %ebx
-    mov $create_error_write, %ecx
-    mov $36, %edx
-    int $0x80
-    jmp 0f
-1:
-
-# Close /etc/foobar.conf
-    mov $6, %eax
-    pop %ebx
-    int $0x80
-
-# Open /etc/foobar.conf for reading. We should get back what we just wrote.
-    mov $5, %eax
-    mov $create_file, %ebx
-    mov $1, %ecx
-    mov $0, %edx
-    int $0x80
-
-# If there was an error on open, print and jump to the prompt.
-    cmp $-1, %eax
-    jne 1f
-    mov $4, %eax
-    mov $1, %ebx
-    mov $create_error_open_r, %ecx
-    mov $44, %edx
-    int $0x80
-    jmp 0f
-1:
-    push %eax
-
-# Read the first 10 characters of /etc/foobar.conf
-    mov $3, %eax
-    mov (%esp), %ebx
-    mov $read_buffer, %ecx
-    mov $10, %edx
-    int $0x80
-
-# If there was an error on read, print and jump to the prompt.
-    cmp $-1, %eax
-    jne 1f
-    mov $4, %eax
-    mov $1, %ebx
-    mov $create_error_read, %ecx
-    mov $37, %edx
-    int $0x80
-    jmp 0f
-1:
-    push %eax
-
-# Print the characters to stdout.
-    mov $4, %eax
-    mov $1, %ebx
-    mov $create_read_string, %ecx
-    mov $39, %edx
-    int $0x80
-    mov $4, %eax
-    mov $1, %ebx
-    mov $read_buffer, %ecx
-    pop %edx
-    int $0x80
-    mov $4, %eax
-    mov $1, %ebx
-    mov $newline, %ecx
-    mov $1, %edx
-    int $0x80
-
-# Close /etc/foobar.conf
-    mov $6, %eax
-    pop %ebx
-    int $0x80
-
-# Delete the file we just created, /etc/foobar.conf
-    mov $10, %eax
-    mov $create_file, %ebx
-    int $0x80
-
-# If there was an error on delete, print and jump to the prompt.
-    cmp $-1, %eax
-    jne 1f
-    mov $4, %eax
-    mov $1, %ebx
-    mov $delete_error, %ecx
-    mov $40, %edx
-    int $0x80
-    jmp 0f
-1:
-
-# Open a non-existent file /etc/foobar.conf for reading. Should fail.
-    mov $5, %eax
-    mov $create_file, %ebx
-    mov $1, %ecx
-    mov $0, %edx
-    int $0x80
-
-# If there was no error on open, print and jump to the prompt.
-    cmp $-1, %eax
-    je 1f
-    mov $4, %eax
-    mov $1, %ebx
-    mov $create_no_error_open, %ecx
-    mov $43, %edx
-    int $0x80
-    jmp 0f
-1:
 
 # Infinite loop. Wait for reading in data, then echo it.
 0:

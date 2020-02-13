@@ -93,7 +93,7 @@ public:
         @param name Full path name from the root directory of the file system.
         @return 0 on success, -1 on failure.
      */
-    virtual int remove(const klib::string& name) = 0;
+    virtual int unlink(const klib::string& name) = 0;
 
     /**
         Rename the given file to the new given name.
@@ -198,7 +198,7 @@ public:
         @param name Full path name to remove.
         @return 0 on success, -1 on failure.
      */
-    virtual int remove(const klib::string& name) override;
+    virtual int unlink(const klib::string& name) override;
 
     /**
         Rename the given file to the new given name.

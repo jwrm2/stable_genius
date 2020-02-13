@@ -83,12 +83,12 @@ public:
 
     /**
         Removing a device file doesn't make sense. Always fails without doing
-        anything. Use unmount instead to disconnect a device. 
+        anything.
 
         @param name Full path name from the root directory of the file system.
         @return -1, indicating failure.
      */
-    virtual int remove(const klib::string&) override { return -1; }
+    virtual int unlink(const klib::string&) override { return -1; }
 
     /**
         The dev names are set by standards and renames are not permitted. This

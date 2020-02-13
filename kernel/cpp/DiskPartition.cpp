@@ -33,7 +33,8 @@ void PartitionDriver::dump(klib::ostream& dest) const
 
 size_t PartitionDriver::read_block(uint64_t off, void* addr)
 {
-    return drv->read_block(off + offset, addr);
+    size_t ret_val = drv->read_block(off + offset, addr);
+    return ret_val;
 }
 
 /******************************************************************************/
