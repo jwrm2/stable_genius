@@ -274,7 +274,6 @@ int Ext2File::close()
         ext2fs.access_inode_alloc((inode_index - 1) / ipg,
         (inode_index - 1) % ipg))
     {
-        global_kernel->syslog()->info("Ext2File::close 0 hard links, deleting file\n");
         // If the file has been deleted, the number of hard links will be zero,
         // but the delete will have been postponed because the file was open.
         // Delete it now. deallocate_inode first truncates all the file data,
@@ -671,8 +670,6 @@ int Ext2File::truncate()
 {
     // Turn the file system reference into a specific ext2fs reference.
     Ext2FileSystem& ext2fs = dynamic_cast<Ext2FileSystem&>(fs);
-
-    global_kernel->syslog()->info("Ext2File::truncate inode_index = %u\n", inode_index);
 
     // Do nothing if we shouldn't be writing or the size is already zero.
     if (!writing)
@@ -1207,9 +1204,6 @@ klib::FILE* Ext2FileSystem::fopen(const klib::string& name, const char* mode)
         { in.hard_links(n); }, 1);
     inode_call(new_inode_index, true, [] (Ext2Inode& in, bool v)
         { in.valid(v); }, true);
-
-    global_kernel->syslog()->info("Ext2FileSystem::fopen created new inode with index %u, number of hard links is %u\n", new_inode_index, 
-inode_call(new_inode_index, false, [] (Ext2Inode& in) { return in.hard_links(); } ));
 
     // Open the directory and add the new entry. The directory will be closed on
     // return, which will flush the contents and file system metadata.
@@ -2029,8 +2023,6 @@ int Ext2FileSystem::deallocate_inode(size_t indx)
     if (indx >= super_block.first.no_inodes() || indx == 0)
         return -1;
 
-    global_kernel->syslog()->info("Ext2FileSystem::deallocate_inode begin for indx %u\n", indx);
-
     // Find which block group the block is in, and the index in the group. The
     // -1 is because the zeroth inode does not exist.
     size_t bl_grp = (indx - 1) / super_block.first.inodes_per_group();
@@ -2040,7 +2032,6 @@ int Ext2FileSystem::deallocate_inode(size_t indx)
 
     if (change)
     {
-        global_kernel->syslog()->info("Ext2FileSystem::deallocate_inode proceeding\n");
         // Open the file in "w" mode and truncate it.
         Ext2File f {"w", indx, *this};
         f.truncate();
