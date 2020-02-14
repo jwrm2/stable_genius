@@ -76,6 +76,16 @@ public:
     virtual klib::FILE* fopen(const klib::string& name, const char* mode) = 0;
 
     /**
+        Makes a new directory.
+
+        @param pathname Absolute path for the new directory.
+        @param mode Permissions for the new directory. TODO permissions don't
+               exist yet.
+        @return 0 on success, -1 on falure.
+     */
+    virtual int mkdir(const klib::string& name, int mode) = 0;
+
+    /**
         Reads some characters from the underlying device into the buffer.
 
         @param offset Position on the disk to start reading from.
@@ -86,6 +96,14 @@ public:
     virtual size_t read(uint64_t offset, char* buf, size_t n);
 
     /**
+        Rename the given file to the new given name.
+
+        @param f File to rename.
+        @param n New name for the file.
+     */
+    virtual void rename(const klib::string& f, const klib::string& n) = 0;
+
+    /**
         Removes (unlinks) a file. If the number of links remaining is zero, the
         file is deleted. If the file has open file descriptors, the deletion is
         postponed until the file descriptors are closed.
@@ -94,14 +112,6 @@ public:
         @return 0 on success, -1 on failure.
      */
     virtual int unlink(const klib::string& name) = 0;
-
-    /**
-        Rename the given file to the new given name.
-
-        @param f File to rename.
-        @param n New name for the file.
-     */
-    virtual void rename(const klib::string& f, const klib::string& n) = 0;
 
     /**
         Write some characters from the buffer into the file.
@@ -189,6 +199,24 @@ public:
         override;
 
     /**
+        Makes a new directory.
+
+        @param name Absolute path for the new directory.
+        @param mode Permissions for the new directory. TODO permissions don't
+               exist yet.
+        @return 0 on success, -1 on falure.
+     */
+    virtual int mkdir(const klib::string& name, int mode) override;
+
+    /**
+        Rename the given file to the new given name.
+
+        @param f File to rename.
+        @param n New name for the file.
+     */
+    virtual void rename(const klib::string& f, const klib::string& n) override;
+
+    /**
         Removes (unlinks) a file. If the number of links remaining is zero, the
         file is deleted. If the file has open file descriptors, the deletion is
         postponed until the file descriptors are closed. Works out the file
@@ -199,14 +227,6 @@ public:
         @return 0 on success, -1 on failure.
      */
     virtual int unlink(const klib::string& name) override;
-
-    /**
-        Rename the given file to the new given name.
-
-        @param f File to rename.
-        @param n New name for the file.
-     */
-    virtual void rename(const klib::string& f, const klib::string& n) override;
 
     /**
         Get the block size of the file system. Since this is a virtual FS, it

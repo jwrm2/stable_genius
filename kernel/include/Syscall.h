@@ -34,6 +34,7 @@ enum class syscall_ind {
     unlink = 0xa,
     execve = 0xb,
     getpid = 0x14,
+    mkdir = 0x27,
     yield = 0x9e
 };
 
@@ -177,6 +178,16 @@ int32_t execve(const char* filename, char* const argv[], char* const envp[]);
     @return The PID of the current process.
  */
 int32_t getpid();
+
+/**
+    Attempts to create a new directory.
+
+    @param pathname Name to create the new directory with.
+    @param mode Permisions for the new directory TODO permission don't exist
+           yet.
+    @return 0 on success, -1 on error.
+ */
+int32_t mkdir(const char* pathname, int mode);
 
 /**
     Calls the scheduler to move onto the next available process.

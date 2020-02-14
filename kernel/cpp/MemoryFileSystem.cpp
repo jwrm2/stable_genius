@@ -119,6 +119,35 @@ klib::FILE* MemoryFileSystem::fopen(const klib::string& name, const char* mode)
 
 /******************************************************************************/
 
+int MemoryFileSystem::mkdir(const klib::string& name, int mode)
+{
+    (void)mode;
+    // Make sure there is a trailing '/'.
+    klib::string tmp {name};
+    if (tmp[tmp.size() - 1] != '/')
+        tmp += '/';
+
+    // Check whether the directory already exists.
+    auto it = files.find(name);
+    if (it != files.end())
+        return -1;
+
+    // Determine whether the immediate parent exists.
+    klib::string basename = tmp.substr(0, tmp.size() - 1);
+    size_t indx = basename.rfind('/');
+    basename = basename.substr(0, indx + 1);
+    it = files.find(basename);
+    if (it == files.end())
+        return -1;
+
+    // Add a new empty file.
+    files.emplace(tmp, new MemoryInode {nullptr, 0, 1});
+
+    return 0;
+}
+
+/******************************************************************************/
+
 int MemoryFileSystem::unlink(const klib::string& name)
 {
     // Find the file.

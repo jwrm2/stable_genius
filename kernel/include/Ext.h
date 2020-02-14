@@ -1697,14 +1697,14 @@ public:
         override;
 
     /**
-        Removes (unlinks) a file. If the number of links remaining is zero, the
-        file is deleted. If the file has open file descriptors, the deletion is
-        postponed until all the file descriptors are closed.
+        Makes a new directory.
 
-        @param name Full path name from the root directory of the file system.
-        @return 0 on success, -1 on failure.
+        @param name Absolute path for the new directory.
+        @param mode Permissions for the new directory. TODO permissions don't
+               exist yet.
+        @return 0 on success, -1 on falure.
      */
-    virtual int unlink(const klib::string& name) override;
+    virtual int mkdir(const klib::string& name, int mode) override;
 
     /**
         Rename the given file to the new given name.
@@ -1713,6 +1713,16 @@ public:
         @param n New name for the file.
      */
     virtual void rename(const klib::string& f, const klib::string& n) override;
+
+    /**
+        Removes (unlinks) a file. If the number of links remaining is zero, the
+        file is deleted. If the file has open file descriptors, the deletion is
+        postponed until all the file descriptors are closed.
+
+        @param name Full path name from the root directory of the file system.
+        @return 0 on success, -1 on failure.
+     */
+    virtual int unlink(const klib::string& name) override;
 
     /**
         Get the block size of the file system.

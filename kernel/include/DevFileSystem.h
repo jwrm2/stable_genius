@@ -74,12 +74,18 @@ public:
         override;
 
     /**
-        Get the block size of the file system. Since this is a virtual FS, it
-        doesn't have blocks and the size is therefore 1 byte.
+        Directories don't exist in the dev file system, only names (which may
+        include a '/'). Therefore we do nothing and fail.
 
-        @return Block size.
+        @param name Absolute path for the new directory.
+        @param mode Permissions for the new directory. TODO permissions don't
+               exist yet.
+        @return -1, indicating failure.
      */
-    virtual size_t block_size() const override { return 1; }
+    virtual int mkdir(const klib::string&, int) override
+    {
+        return -1;
+    }
 
     /**
         Removing a device file doesn't make sense. Always fails without doing
@@ -89,6 +95,14 @@ public:
         @return -1, indicating failure.
      */
     virtual int unlink(const klib::string&) override { return -1; }
+
+    /**
+        Get the block size of the file system. Since this is a virtual FS, it
+        doesn't have blocks and the size is therefore 1 byte.
+
+        @return Block size.
+     */
+    virtual size_t block_size() const override { return 1; }
 
     /**
         The dev names are set by standards and renames are not permitted. This
