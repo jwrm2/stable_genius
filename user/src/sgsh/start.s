@@ -12,15 +12,17 @@ test_write_string: .string "12345"
 test_error_read: .string "Unable to read from /etc/foo.conf\n"
 test_error_write: .string "Unable to write to /etc/foo.conf\n"
 test_error_open: .string "Unable to open /etc/foo.conf\n"
-create_file: .string "/etc/foobar.conf"
+create_file: .string "/etc/test_dir/foobar.conf"
 create_no_error_open: .string "Able to open non-existant file for reading\n"
 create_error_open: .string "Not able to open non-existant file for writing\n"
-create_error_open_r: .string "Unable to open /etc/foobar.conf for reading\n"
-create_error_read: .string "Unable to read from /etc/foobar.conf\n"
-create_error_write: .string "Unable to write to /etc/foobar.conf\n"
-create_read_string: .string "Characters read from /etc/foobar.conf: "
+create_error_open_r: .string "Unable to open /etc/test_dir/foobar.conf for reading\n"
+create_error_read: .string "Unable to read from /etc/test_dir/foobar.conf\n"
+create_error_write: .string "Unable to write to /etc/test_dir/foobar.conf\n"
+create_read_string: .string "Characters read from /etc/test_dir/foobar.conf: "
 create_write_string: .string "defgh"
-delete_error: .string "Unable to delete file /etc/foobar.conf\n"
+delete_error: .string "Unable to delete file /etc/test_dir/foobar.conf\n"
+create_directory: .string "/etc/test_dir"
+create_directory_error: .string "Unable to create directory /etc/test_dir/\n"
 
 .section .bss
 read_buffer: .skip 1024
@@ -71,7 +73,24 @@ _start:
     call print_register
     pop %eax
 
-# Open a non-existent file /etc/foobar.conf for writing.
+# Create a new directory, /etc/test_dir
+    mov $0x27, %eax
+    mov $create_directory, %ebx
+    mov $0, %ecx
+    int $0x80
+
+# If there was an error on mkdir, print and jump to the prompt.
+    cmp $-1, %eax
+    jne 1f
+    mov $4, %eax
+    mov $1, %ebx
+    mov $create_directory_error, %ecx
+    mov $42, %edx
+    int $0x80
+    jmp 0f
+1:
+
+# Open a non-existent file /etc/test_dir/foobar.conf for writing.
     mov $5, %eax
     mov $create_file, %ebx
     mov $2, %ecx
@@ -90,7 +109,7 @@ _start:
 1:
     push %eax
 
-# Write 5 characters to /etc/foobar.conf
+# Write 5 characters to /etc/test_dir/foobar.conf
     mov $4, %eax
     mov (%esp), %ebx
     mov $create_write_string, %ecx
@@ -103,17 +122,18 @@ _start:
     mov $4, %eax
     mov $1, %ebx
     mov $create_error_write, %ecx
-    mov $36, %edx
+    mov $45, %edx
     int $0x80
     jmp 0f
 1:
 
-# Close /etc/foobar.conf
+# Close /etc/test_dir/foobar.conf
     mov $6, %eax
     pop %ebx
     int $0x80
 
-# Open /etc/foobar.conf for reading. We should get back what we just wrote.
+# Open /etc/test_dir/foobar.conf for reading. We should get back what we just
+# wrote.
     mov $5, %eax
     mov $create_file, %ebx
     mov $1, %ecx
@@ -126,13 +146,13 @@ _start:
     mov $4, %eax
     mov $1, %ebx
     mov $create_error_open_r, %ecx
-    mov $44, %edx
+    mov $53, %edx
     int $0x80
     jmp 0f
 1:
     push %eax
 
-# Read the first 10 characters of /etc/foobar.conf
+# Read the first 10 characters of /etc/test_dir/foobar.conf
     mov $3, %eax
     mov (%esp), %ebx
     mov $read_buffer, %ecx
@@ -145,7 +165,7 @@ _start:
     mov $4, %eax
     mov $1, %ebx
     mov $create_error_read, %ecx
-    mov $37, %edx
+    mov $46, %edx
     int $0x80
     jmp 0f
 1:
@@ -155,7 +175,7 @@ _start:
     mov $4, %eax
     mov $1, %ebx
     mov $create_read_string, %ecx
-    mov $39, %edx
+    mov $48, %edx
     int $0x80
     mov $4, %eax
     mov $1, %ebx
@@ -168,12 +188,12 @@ _start:
     mov $1, %edx
     int $0x80
 
-# Close /etc/foobar.conf
+# Close /etc/test_dir/foobar.conf
     mov $6, %eax
     pop %ebx
     int $0x80
 
-# Delete the file we just created, /etc/foobar.conf
+# Delete the file we just created, /etc/test_dir/foobar.conf
     mov $10, %eax
     mov $create_file, %ebx
     int $0x80
@@ -184,12 +204,12 @@ _start:
     mov $4, %eax
     mov $1, %ebx
     mov $delete_error, %ecx
-    mov $40, %edx
+    mov $49, %edx
     int $0x80
     jmp 0f
 1:
 
-# Open a non-existent file /etc/foobar.conf for reading. Should fail.
+# Open a non-existent file /etc/test_dir/foobar.conf for reading. Should fail.
     mov $5, %eax
     mov $create_file, %ebx
     mov $1, %ecx

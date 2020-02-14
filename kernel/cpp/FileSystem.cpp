@@ -84,9 +84,23 @@ FileSystem* create_fs(const klib::string& drv)
 /******************************************************************************
  ******************************************************************************/
 
+// Helper function to remove any duplicate '/' from a file name.
+static klib::string sanitise_name(const klib::string& name)
+{
+    klib::string ret_val {};
+    ret_val += name[0];
+    for (size_t i = 1; i < name.size(); ++i)
+        if (!(name[i] == '/' && name[i-1] == '/'))
+            ret_val += name[i];
+    return ret_val; 
+}
+
+/******************************************************************************
+ ******************************************************************************/
+
 Directory* VirtualFileSystem::diropen(const klib::string& name)
 {
-    klib::string tmp {name};
+    klib::string tmp {sanitise_name(name)};
     FileSystem* fs = lookup(tmp);
     return fs->diropen(tmp);
 }
@@ -95,7 +109,7 @@ Directory* VirtualFileSystem::diropen(const klib::string& name)
 
 klib::FILE* VirtualFileSystem::fopen(const klib::string& name, const char* mode)
 {
-    klib::string tmp {name};
+    klib::string tmp {sanitise_name(name)};
     FileSystem* fs = lookup(tmp);
     klib::FILE* f = fs->fopen(tmp, mode);
 
@@ -123,10 +137,22 @@ klib::FILE* VirtualFileSystem::fopen(const klib::string& name, const char* mode)
 
 /******************************************************************************/
 
+int VirtualFileSystem::mkdir(const klib::string& name, int mode)
+{
+    // Look up the file system.
+    klib::string tmp {sanitise_name(name)};
+    FileSystem* fs = lookup(tmp);
+
+    // Pass the call onto the file system.
+    return fs->mkdir(tmp, mode);
+}
+
+/******************************************************************************/
+
 int VirtualFileSystem::unlink(const klib::string& name)
 {
     // Look up the file system.
-    klib::string tmp {name};
+    klib::string tmp {sanitise_name(name)};
     FileSystem* fs = lookup(tmp);
 
     // Pass the call onto the file system.
@@ -208,7 +234,7 @@ bool VirtualFileSystem::mount(const klib::string& mount_point,
     if (fs == nullptr)
         return false;
 
-    mtab[mount_point] = fs;
+    mtab[sanitise_name(mount_point)] = fs;
     return true;
 }
 
@@ -220,7 +246,7 @@ bool VirtualFileSystem::mount_virtual(const klib::string& m, FileSystem* fs)
         return false;
 
     // Create a mapping.
-    mtab[m] = fs;
+    mtab[sanitise_name(m)] = fs;
     return true;
 }
 
@@ -229,7 +255,7 @@ bool VirtualFileSystem::mount_virtual(const klib::string& m, FileSystem* fs)
 void VirtualFileSystem::rename(const klib::string& f, const klib::string& n)
 {
     // Lookup the file system.
-    klib::string tmp {f};
+    klib::string tmp {sanitise_name(f)};
     FileSystem* fs = lookup(tmp);
     fs->rename(tmp, n);
 }
@@ -238,8 +264,9 @@ void VirtualFileSystem::rename(const klib::string& f, const klib::string& n)
 
 void VirtualFileSystem::umount(const klib::string& n)
 {
+    klib::string tmp {sanitise_name(n)};
     // Test for a mount point named n first, since that's easier.
-    klib::map<klib::string, FileSystem*>::iterator it = mtab.find(n);
+    klib::map<klib::string, FileSystem*>::iterator it = mtab.find(tmp);
     if (it != mtab.end())
     {
         delete it->second;
@@ -250,7 +277,7 @@ void VirtualFileSystem::umount(const klib::string& n)
     // Now search for devices.
     for (it = mtab.begin(); it != mtab.end(); ++it)
     {
-        if (it->second->get_drv_name() == n)
+        if (it->second->get_drv_name() == tmp)
         {
             delete it->second;
             mtab.erase(it);

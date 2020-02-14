@@ -40,13 +40,14 @@ void syscall(InterruptRegisters& ir, const InterruptStack& is)
         klib::pair<syscall_ind, klib::string> {syscall_ind::unlink, "unlink"},
         klib::pair<syscall_ind, klib::string> {syscall_ind::execve, "execve"},
         klib::pair<syscall_ind, klib::string> {syscall_ind::getpid, "getpid"},
+        klib::pair<syscall_ind, klib::string> {syscall_ind::mkdir, "mkdir"},
         klib::pair<syscall_ind, klib::string> {syscall_ind::yield, "yield"}
     };
 
 
     auto it = function_names.find(ind);
     if (it == function_names.end())
-        global_kernel->syslog()->info(
+        global_kernel->syslog()->warn(
             "Syscall function index is %X: unknown function\n", ir.eax());
 //    else
 //        global_kernel->syslog()->info(
@@ -95,6 +96,11 @@ void syscall(InterruptRegisters& ir, const InterruptStack& is)
         case syscall_ind::getpid:
             // Get the curent process PID.
             ret_val = syscalls::getpid();
+            break;
+        case syscall_ind::mkdir:
+            // Create a new directory.
+            ret_val = syscalls::mkdir(reinterpret_cast<const char*>(ir.ebx()),
+                ir.ecx());
             break;
         case syscall_ind::yield:
             // Move onto the next process.
@@ -364,6 +370,15 @@ int32_t wait(int pid, int* wstatus, int options)
 
 int32_t unlink(const char* filename)
 {
+    // We require the whole filename to be in user space.
+    if (reinterpret_cast<size_t>(filename) + klib::strlen(filename) >=
+        kernel_virtual_base)
+    {
+        global_kernel->syslog()->warn(
+            "unlink syscall was given a filename in kernel space.\n");
+        return -1;
+    }
+
     global_kernel->syslog()->info("unlink: filename = %s\n", filename);
 
     // Forward the call to the VFS.
@@ -462,6 +477,26 @@ int32_t getpid()
         global_kernel->panic("getpid: Process with PID %d reported by scheduler is not the active process", ret_val);
 
     return ret_val;
+}
+
+/******************************************************************************
+ ******************************************************************************/
+
+int32_t mkdir(const char* pathname, int mode)
+{
+    // We require the whole filename to be in user space.
+    if (reinterpret_cast<size_t>(pathname) + klib::strlen(pathname) >=
+        kernel_virtual_base)
+    {
+        global_kernel->syslog()->warn(
+            "mkdir syscall was given a pathname in kernel space.\n");
+        return -1;
+    }
+
+    global_kernel->syslog()->info("mkdir: pathname = %s\n", pathname);
+
+    // Forward the call to the VFS.
+    return global_kernel->get_vfs()->mkdir(pathname, mode);
 }
 
 /******************************************************************************

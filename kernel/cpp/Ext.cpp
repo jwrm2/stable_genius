@@ -7,9 +7,11 @@
 #include <fstream>
 #include <istream>
 #include <string>
+#include <typeinfo>
 #include <utility>
 #include <vector>
 
+#include "DevFileSystem.h"
 #include "File.h"
 #include "FileSystem.h"
 #include "Kernel.h"
@@ -885,6 +887,10 @@ Ext2Directory::Ext2Directory(size_t indx, Ext2FileSystem& fs, bool w) :
         contents.emplace_back(entry_inode, entry_size, name_length_low,
             name_length_high, name);
     }
+
+//    global_kernel->syslog()->info("Ext2Directory opened with inode %u, contents:\n", inode_index);
+//    for (const auto& c : contents)
+//        *global_kernel->syslog()->stream() << "  " << c.inode_index << ' ' << c.name << '\n';
 }
 
 /******************************************************************************/
@@ -1218,6 +1224,62 @@ klib::FILE* Ext2FileSystem::fopen(const klib::string& name, const char* mode)
 
     // If we've got here without returning, we've failed.
     return nullptr;
+}
+
+/******************************************************************************/
+
+int Ext2FileSystem::mkdir(const klib::string& name, int mode)
+{
+    (void)mode;
+
+    // Test whether the directory already exists.
+    if (get_inode_index(name) != 0)
+        return -1;
+
+    // Get the parent inode. Make sure the new name does not end in a '/'.
+    klib::string parent_name;
+    if (name[name.size() - 1] == '/')
+        parent_name = name.substr(0, name.size() - 1);
+    else
+        parent_name = name;
+    size_t last_slash = parent_name.find_last_of('/');
+    klib::string dir_name {parent_name.substr(last_slash + 1)};
+    parent_name = parent_name.substr(0, last_slash);
+    size_t parent = get_inode_index(parent_name);
+    if (parent == 0)
+        // Parent directory does not exist.
+        return -1;
+
+    // Create a new inode for the directory.
+    size_t new_inode_index = allocate_new_inode(parent);
+    if (new_inode_index == 0)
+        // We failed to create a new inode, probably because the file system is
+        // full. This is an error.
+        return -1;
+
+    // Add starting data to the new inode. Every field was default initialised
+    // to zero.
+    inode_call(new_inode_index, true, [] (Ext2Inode& in, Ext2Inode::type_t t)
+        { in.type(t); }, Ext2Inode::directory);
+    inode_call(new_inode_index, true, [] (Ext2Inode& in, uint16_t n)
+        { in.hard_links(n); }, 1);
+    inode_call(new_inode_index, true, [] (Ext2Inode& in, bool v)
+        { in.valid(v); }, true);
+
+    // Open the new directory and record the '.' and '..' entries.
+    Ext2Directory d {new_inode_index, *this, true};
+    int ret_val = d.new_entry(new_inode_index, ".", Ext2Directory::directory);
+    ret_val = (d.new_entry(parent, "..", Ext2Directory::directory) == 0 ?
+        ret_val : -1);
+
+    // Open the parent directory and record the new entry.
+    Ext2Directory p {parent, *this, true};
+    ret_val =
+        (p.new_entry(new_inode_index, dir_name, Ext2Directory::directory) == 0 ?
+        ret_val : -1);
+
+    // Return will close the directories, which will flush all the metadata.
+    return 0;
 }
 
 /******************************************************************************/
@@ -1899,6 +1961,24 @@ size_t Ext2FileSystem::allocate_new_block(size_t inode_index, size_t bl_index,
         superblock_call(true, [] (Ext2SuperBlock& sb)
             { sb.unalloc_blocks(sb.unalloc_blocks() + 1); });
         return 0;
+    }
+
+    // Update the number of sectors used by the file, which is recorded in the
+    // inode. Indirect pointer blocks are not included in the sector usage.
+    if (!indirect_block)
+    {
+        // We need the sector size. This only makes sense if the underlying
+        // device is a block device. Otherwise we'll just set it to 1.
+        size_t s_sz = 1;
+        try {
+            dynamic_cast<BlockDevice*>(global_kernel->get_vfs()->get_dev()->
+                get_device_driver(drv_name))->sector_size();
+        }
+        catch (klib::bad_cast&) {}
+        uint32_t new_sectors = inode_call(inode_index, false,
+            [] (Ext2Inode& in) { return in.sectors(); }) + block_size() / s_sz;
+        inode_call(inode_index, true, [] (Ext2Inode& in, uint32_t n)
+            { in.sectors(n); }, new_sectors);
     }
 
     return block_addr;
