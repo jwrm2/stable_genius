@@ -88,6 +88,15 @@ public:
     }
 
     /**
+        Directories don't exist in the dev file system, only names (which may
+        include a '/'). Therefore we do nothing and fail.
+
+        @param name Absolute path for the directory to delete.
+        @return -1, indicating failure.
+     */
+    virtual int rmdir(const klib::string&) override { return -1; }
+
+    /**
         Removing a device file doesn't make sense. Always fails without doing
         anything.
 

@@ -1108,6 +1108,17 @@ klib::vector<klib::string> Ext2Directory::ls() const
     return ret_val;
 }
 
+/******************************************************************************/
+
+bool Ext2Directory::empty() const
+{
+    for (const Entry& p : contents)
+        if (p.name != "." && p.name != "..")
+            return false;
+
+    return true;
+}
+
 /******************************************************************************
  ******************************************************************************/
 
@@ -1345,6 +1356,69 @@ void Ext2FileSystem::rename(const klib::string& f, const klib::string& n)
 {
     // TODO
     (void)f; (void)n;
+}
+
+/******************************************************************************/
+
+int Ext2FileSystem::rmdir(const klib::string& name)
+{
+    // Get the directory inode.
+    size_t inode_index = get_inode_index(name);
+    if (inode_index == 0)
+        // Directory does not exist.
+        return -1;
+
+    // Check that we're deleting a directory.
+    if (inode_call(inode_index, false, [] (Ext2Inode& in) { return in.type(); })
+        != Ext2Inode::directory)
+        return -1;
+
+    // Make sure the directory is empty (except for . and ..).
+    Ext2Directory dir {inode_index, *this};
+    if (!dir.empty())
+        return -1;
+    dir.close();
+
+    // Decrement the hard link count for the inode.
+    uint16_t no_links = inode_call(inode_index, false, [] (Ext2Inode& in)
+        { return in.hard_links(); });
+    if (no_links != 0)
+    {
+        --no_links;
+        inode_call(inode_index, true, [] (Ext2Inode& in, uint16_t n)
+            { return in.hard_links(n); }, no_links);
+    }
+
+    // Remove directory entry from it's parent directory. Start by getting the
+    // directory inode.
+    size_t last_slash = name.find_last_of('/'); 
+    klib::string parent_name {name.substr(0, last_slash)};
+    klib::string dir_name {name.substr(last_slash + 1)};
+    size_t parent = get_inode_index(parent_name);
+
+    // Open the directory and delete the entry. The directory will be closed on
+    // return, which will flush the contents and file system metadata.
+    Ext2Directory parent_dir {parent, *this, true};
+    parent_dir.delete_entry(inode_index);
+
+    // We're done if hard links still exist.
+    if (no_links != 0)
+        return flush_inode(inode_index, true);
+
+    // We need to delete the file.
+    // Check the global file table for open file handles. We postpone the
+    // delete if the file is still open.
+    FileTable* ft = global_kernel->get_file_table();
+    // If the file table doesn't exist yet, we haven't transferred to user mode,
+    // so we're probably reading the init binary. In this case we do not want to
+    // delete the file.
+    if (ft != nullptr && ft->is_open(name) == 0)
+        // deallocate_inode() truncates the file data blocks, then deletes the
+        // inode itself.
+        deallocate_inode(inode_index);
+
+    // The directory close will take care of flushing the metadata.
+    return parent_dir.close();
 }
 
 /******************************************************************************/

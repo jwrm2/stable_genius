@@ -148,6 +148,30 @@ int MemoryFileSystem::mkdir(const klib::string& name, int mode)
 
 /******************************************************************************/
 
+int MemoryFileSystem::rmdir(const klib::string& name)
+{
+    // Directories are stored with a '/'. Make sure we have one here.
+    klib::string tmp {name};
+    if (name[name.size() - 1] != '/')
+        tmp += '/';
+
+    // Find the directory.
+    auto it = files.find(tmp);
+    if (it == files.end())
+        return -1;
+
+    // Determine whether there are any other files that are 'in' this directory.
+    for (const auto& p : files)
+        if (p.first.find(tmp) == 0)
+            // Directory not empty. Fail.
+            return -1;
+
+    delete_file(name);
+    return 0;
+}
+
+/******************************************************************************/
+
 int MemoryFileSystem::unlink(const klib::string& name)
 {
     // Find the file.

@@ -89,6 +89,17 @@ public:
     virtual void rename(const klib::string& f, const klib::string& n) override;
 
     /**
+        Removes (unlinks) a directory. If the number of links remaining is zero,
+        the directory is deleted. If the directory has open file descriptors,
+        the deletion is postponed until the file descriptors are closed. Fails
+        if the directory is not empty.
+
+        @param name Full path name from the root directory of the file system.
+        @return 0 on success, -1 on failure.
+     */
+    virtual int rmdir(const klib::string& name) override;
+
+    /**
         Removes (unlinks) a file. If the number of links remaining is zero, the
         file is deleted. If the file has open file descriptors, the deletion is
         postponed until the file descriptors are closed.
