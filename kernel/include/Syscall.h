@@ -35,6 +35,7 @@ enum class syscall_ind {
     execve = 0xb,
     getpid = 0x14,
     mkdir = 0x27,
+    rmdir = 0x28,
     yield = 0x9e
 };
 
@@ -188,6 +189,17 @@ int32_t getpid();
     @return 0 on success, -1 on error.
  */
 int32_t mkdir(const char* pathname, int mode);
+
+/**
+    Removes (unlinks) a directory. Deletes the directory if the number of hard
+    links is reduced to zero. The delete is postponed until all open file
+    descriptors for the file are closed, or happens immediately if there are
+    none. Fails if the directory is not empty.
+
+    @param pathname Directory to delete.
+    @return 0 on success, -1 on error.
+ */
+int32_t rmdir(const char* pathname);
 
 /**
     Calls the scheduler to move onto the next available process.

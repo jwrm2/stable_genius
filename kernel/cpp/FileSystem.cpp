@@ -149,6 +149,18 @@ int VirtualFileSystem::mkdir(const klib::string& name, int mode)
 
 /******************************************************************************/
 
+int VirtualFileSystem::rmdir(const klib::string& name)
+{
+    // Look up the file system.
+    klib::string tmp {sanitise_name(name)};
+    FileSystem* fs = lookup(tmp);
+
+    // Pass the call onto the file system.
+    return fs->rmdir(tmp);
+}
+
+/******************************************************************************/
+
 int VirtualFileSystem::unlink(const klib::string& name)
 {
     // Look up the file system.

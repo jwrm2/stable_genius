@@ -41,6 +41,7 @@ void syscall(InterruptRegisters& ir, const InterruptStack& is)
         klib::pair<syscall_ind, klib::string> {syscall_ind::execve, "execve"},
         klib::pair<syscall_ind, klib::string> {syscall_ind::getpid, "getpid"},
         klib::pair<syscall_ind, klib::string> {syscall_ind::mkdir, "mkdir"},
+        klib::pair<syscall_ind, klib::string> {syscall_ind::rmdir, "rmdir"},
         klib::pair<syscall_ind, klib::string> {syscall_ind::yield, "yield"}
     };
 
@@ -101,6 +102,10 @@ void syscall(InterruptRegisters& ir, const InterruptStack& is)
             // Create a new directory.
             ret_val = syscalls::mkdir(reinterpret_cast<const char*>(ir.ebx()),
                 ir.ecx());
+            break;
+        case syscall_ind::rmdir:
+            // Remove (unlink) a directory.
+            ret_val = syscalls::rmdir(reinterpret_cast<const char*>(ir.ebx()));
             break;
         case syscall_ind::yield:
             // Move onto the next process.
@@ -497,6 +502,26 @@ int32_t mkdir(const char* pathname, int mode)
 
     // Forward the call to the VFS.
     return global_kernel->get_vfs()->mkdir(pathname, mode);
+}
+
+/******************************************************************************
+ ******************************************************************************/
+
+int32_t rmdir(const char* pathname)
+{
+    // We require the whole filename to be in user space.
+    if (reinterpret_cast<size_t>(pathname) + klib::strlen(pathname) >=
+        kernel_virtual_base)
+    {
+        global_kernel->syslog()->warn(
+            "rmdir syscall was given a pathname in kernel space.\n");
+        return -1;
+    }
+
+    global_kernel->syslog()->info("rmdir: pathname = %s\n", pathname);
+
+    // Forward the call to the VFS.
+    return global_kernel->get_vfs()->rmdir(pathname);
 }
 
 /******************************************************************************
