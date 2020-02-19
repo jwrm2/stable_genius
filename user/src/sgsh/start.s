@@ -23,6 +23,8 @@ create_write_string: .string "defgh"
 delete_error: .string "Unable to delete file /etc/test_dir/foobar.conf\n"
 create_directory: .string "/etc/test_dir"
 create_directory_error: .string "Unable to create directory /etc/test_dir/\n"
+rmdir_succeeded_error: .string "Able to delete non-empty directory /etc/test_dir/\n"
+rmdir_error: .string "Unable to delete directory /etc/test_dir/\n"
 
 .section .bss
 read_buffer: .skip 1024
@@ -193,6 +195,23 @@ _start:
     pop %ebx
     int $0x80
 
+# Delete the directory /etc/test_dir, which should fail as the the directory is
+# not empty.
+    mov $0x28, %eax
+    mov $create_directory, %ebx
+    int $0x80
+
+# If there was no error on rmdir, print and jump to the prompt.
+    cmp $-1, %eax
+    je 1f
+    mov $4, %eax
+    mov $1, %ebx
+    mov $rmdir_succeeded_error, %ecx
+    mov $50, %edx
+    int $0x80
+    jmp 0f
+1:
+
 # Delete the file we just created, /etc/test_dir/foobar.conf
     mov $10, %eax
     mov $create_file, %ebx
@@ -223,6 +242,22 @@ _start:
     mov $1, %ebx
     mov $create_no_error_open, %ecx
     mov $43, %edx
+    int $0x80
+    jmp 0f
+1:
+
+# Delete the directory /etc/test_dir, which should now succeed.
+    mov $0x28, %eax
+    mov $create_directory, %ebx
+    int $0x80
+
+# If there was an error on rmdir, print and jump to the prompt.
+    cmp $-1, %eax
+    jne 1f
+    mov $4, %eax
+    mov $1, %ebx
+    mov $rmdir_error, %ecx
+    mov $42, %edx
     int $0x80
     jmp 0f
 1:

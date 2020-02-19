@@ -521,7 +521,11 @@ int32_t rmdir(const char* pathname)
     global_kernel->syslog()->info("rmdir: pathname = %s\n", pathname);
 
     // Forward the call to the VFS.
-    return global_kernel->get_vfs()->rmdir(pathname);
+    int ret_val = global_kernel->get_vfs()->rmdir(pathname);
+    if (ret_val == -1)
+        global_kernel->syslog()->
+            warn("rmdir syscall process file open failed\n");
+    return ret_val;
 }
 
 /******************************************************************************
