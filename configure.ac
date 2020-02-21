@@ -20,6 +20,7 @@ stdlib_dir=stdlib
 AC_SUBST(stdlib_dir, ["${stdlib_dir}"])
 AC_SUBST(stdlib_include_dir, ["\$(srcdir)/include"])
 AC_SUBST(stdlib_cpp_dir, ["cpp"])
+AC_SUBST(stdlib_crt_dir, ["crt"])
 AC_SUBST(kernel_dir, ["${kernel_dir}"])
 AC_SUBST(kernel_include_dir, ["include"])
 AC_SUBST(kernel_cpp_dir, ["cpp"])
@@ -164,6 +165,13 @@ AC_SUBST(kernel_libs, ["-lk"])
 AC_SUBST(user_ldflags, [""])
 AC_SUBST(user_libs, ["-lc"])
 
+# Start files necessary for user space linking. crtbegin.o and crtend.o are
+# provided by the compiler, which can tell us where they are.
+CRTBEGIN_OBJ=$($CXX $CXXFLAGS -print-file-name=crtbegin.o)
+CRTEND_OBJ=$($CXX $CXXFLAGS -print-file-name=crtbegin.o)
+AC_SUBST(crtbegin, [${CRTBEGIN_OBJ}])
+AC_SUBST(crtend, [${CRTEND_OBJ}])
+
 # Check for other necessary compilation programs.
 AC_PROG_RANLIB
 AC_PROG_SED
@@ -173,7 +181,7 @@ AM_PROG_AS
 AM_PROG_AR
 AC_SUBST(ARFLAGS, ["cr"])
 
-# The install target doesn't really meet iur needs for making the disk images.
+# The install target doesn't really meet our needs for making the disk images.
 # Use a recursive run target instead. This is called 'run-local' in the automake
 # files.
 AM_EXTRA_RECURSIVE_TARGETS([run])
