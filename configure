@@ -626,6 +626,8 @@ CCASFLAGS
 CCAS
 SED
 RANLIB
+crtend
+crtbegin
 user_libs
 user_ldflags
 kernel_libs
@@ -674,6 +676,7 @@ kernel_asm_dir
 kernel_cpp_dir
 kernel_include_dir
 kernel_dir
+stdlib_crt_dir
 stdlib_cpp_dir
 stdlib_include_dir
 stdlib_dir
@@ -2628,6 +2631,8 @@ stdlib_include_dir="\$(srcdir)/include"
 
 stdlib_cpp_dir="cpp"
 
+stdlib_crt_dir="crt"
+
 kernel_dir="${kernel_dir}"
 
 kernel_include_dir="include"
@@ -4415,6 +4420,15 @@ user_ldflags=""
 user_libs="-lc"
 
 
+# Start files necessary for user space linking. crtbegin.o and crtend.o are
+# provided by the compiler, which can tell us where they are.
+CRTBEGIN_OBJ=$($CXX $CXXFLAGS -print-file-name=crtbegin.o)
+CRTEND_OBJ=$($CXX $CXXFLAGS -print-file-name=crtbegin.o)
+crtbegin=${CRTBEGIN_OBJ}
+
+crtend=${CRTEND_OBJ}
+
+
 # Check for other necessary compilation programs.
 if test -n "$ac_tool_prefix"; then
   # Extract the first word of "${ac_tool_prefix}ranlib", so it can be a program name with args.
@@ -4886,7 +4900,7 @@ esac
 ARFLAGS="cr"
 
 
-# The install target doesn't really meet iur needs for making the disk images.
+# The install target doesn't really meet our needs for making the disk images.
 # Use a recursive run target instead. This is called 'run-local' in the automake
 # files.
 

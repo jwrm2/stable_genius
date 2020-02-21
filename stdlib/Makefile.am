@@ -1,6 +1,8 @@
 # Create both the kernel and user space libraries. The kernel library is only
 # for linking the kernel and does not need to be 'installed'.
 lib_LIBRARIES = libc.a
+crtdir = $(libdir)
+crt_DATA = crti.o crtn.o crt0.o
 noinst_LIBRARIES = libk.a
 
 stdlib_includes_common = @stdlib_include_dir@/algorithm @stdlib_include_dir@/cctype @stdlib_include_dir@/cmath @stdlib_include_dir@/cstdlib @stdlib_include_dir@/cwchar \
@@ -22,6 +24,12 @@ stdlib_sources_conly =
 # List of headers and sources for the user space library.
 libc_a_SOURCES = $(stdlib_includes_common) $(stdlib_includes_conly) $(stdlib_sources_common) $(stdlib_sources_conly)
 include_HEADERS = $(stdlib_includes_common) $(stdlib_includes_conly)
+crti.o: @stdlib_crt_dir@/crti.s
+	$(CCAS) -c @common_ccasflags@ -o $@ $^
+crtn.o: @stdlib_crt_dir@/crtn.s
+	$(CCAS) -c @common_ccasflags@ -o $@ $^
+crt0.o: @stdlib_crt_dir@/crt0.s
+	$(CCAS) -c @common_ccasflags@ -o $@ $^
 
 # Compiler flas for the user space library
 libc_a_CPPFLAGS = @common_cppflags@ @user_cppflags@
@@ -45,6 +53,7 @@ run-local: $(libdir)/libc.a
 $(libdir)/libc.a: $(noinst_LIBRARIES) $(lib_LIBRARIES) $(include_HEADERS)
 	$(MKDIR_P) $(libdir)
 	$(INSTALL) $(lib_LIBRARIES) $(libdir)
+	$(INSTALL) $(crt_DATA) $(crtdir)
 	$(MKDIR_P) $(includedir)
 	$(INSTALL) $(include_HEADERS) $(includedir)
 
