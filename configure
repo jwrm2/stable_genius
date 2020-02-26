@@ -678,6 +678,7 @@ kernel_include_dir
 kernel_dir
 stdlib_crt_dir
 stdlib_cpp_dir
+stdlib_asm_dir
 stdlib_include_dir
 stdlib_dir
 AM_BACKSLASH
@@ -2628,6 +2629,8 @@ stdlib_dir=stdlib
 stdlib_dir="${stdlib_dir}"
 
 stdlib_include_dir="\$(srcdir)/include"
+
+stdlib_asm_dir="asm"
 
 stdlib_cpp_dir="cpp"
 

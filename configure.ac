@@ -19,6 +19,7 @@ kernel_dir=kernel
 stdlib_dir=stdlib
 AC_SUBST(stdlib_dir, ["${stdlib_dir}"])
 AC_SUBST(stdlib_include_dir, ["\$(srcdir)/include"])
+AC_SUBST(stdlib_asm_dir, ["asm"])
 AC_SUBST(stdlib_cpp_dir, ["cpp"])
 AC_SUBST(stdlib_crt_dir, ["crt"])
 AC_SUBST(kernel_dir, ["${kernel_dir}"])
