@@ -636,6 +636,7 @@ common_libs
 common_ldflags
 kernel_defs
 kernel_cppflags
+stdlib_cppflags
 user_cppflags
 common_cppflags
 common_ccasflags
@@ -4402,25 +4403,27 @@ common_ccasflags="-Wa,--fatal-warnings"
 # Common CPPFLAGS and specifics for components.
 common_cppflags=""
 
-user_cppflags="-I\$(top_srcdir)/${stdlib_dir}/include"
+user_cppflags="--sysroot=\$(prefix)"
+
+stdlib_cppflags="-I\$(top_srcdir)/${stdlib_dir}/include"
 
 kernel_cppflags="-I\$(top_srcdir)/${stdlib_dir}/include -I\$(top_srcdir)/${kernel_dir}/include"
 
-kernel_defs="-DNMSP=klib"
+kernel_defs="-DNMSP=klib -DKLIB=1"
 
 
 # Common LDFLAGS and specifics for components.
-common_ldflags="-O2 -nostdlib -L\$(top_builddir)/${stdlib_dir}"
+common_ldflags="-O2"
 
 common_libs="-lgcc"
 
-kernel_ldflags="-T \$(top_srcdir)/${kernel_dir}/link.ld"
+kernel_ldflags="-T \$(top_srcdir)/${kernel_dir}/link.ld  -nostdlib -L\$(top_builddir)/${stdlib_dir}"
 
 kernel_libs="-lk"
 
-user_ldflags=""
+user_ldflags="--sysroot=\$(prefix)"
 
-user_libs="-lc"
+user_libs=""
 
 
 # Start files necessary for user space linking. crtbegin.o and crtend.o are

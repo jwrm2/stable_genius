@@ -89,6 +89,31 @@ void* malloc(size_t size);
 extern "C" // libgcc links to this function.
 void free(void* ptr);
 
+// The following functions are defined for user space only.
+#ifndef KLIB
+/**
+    Compiler generated function implemented in the startfiles crtx.o that deals
+    with calling global destructors. We must call this from exit(), so we need
+    the interface here.
+ */
+namespace helper {
+extern "C"
+void _fini();
+} // end namespace helper
+
+/**
+    Exits the program normally. Can be called by the program to terminate. Is
+    also called by the startfiles on program termination.
+
+    @param status The exit status of the program, which is passed to the parent
+           process waiting for this process.
+    @return This function does not return.
+ */
+extern "C" // This function is called from assembly in the startfiles.
+void exit(int status);
+
+#endif /* not KLIB */
+
 } // NMSP namespace
 
 #endif /* CSTDLIB_H */

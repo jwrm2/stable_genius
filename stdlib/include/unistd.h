@@ -6,9 +6,8 @@
 #define NMSP std
 #endif /* NMSP */
 
-// unistd has no use in the kernel library. Only have anything here if NMSP is
-// std.
-#if NMSP == std
+// unistd has no use in the kernel library.
+#ifndef KLIB
 
 // These functions are in the default namespace and have C linkage.
 extern "C" {
@@ -144,5 +143,5 @@ int32_t yield();
 
 
 } // end extern "C"
-#endif /* NMSP == std */
+#endif /* not KLIB */
 #endif /* UNISTD_H */
