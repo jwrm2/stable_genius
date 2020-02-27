@@ -154,17 +154,18 @@ AC_SUBST(common_ccasflags, ["-Wa,--fatal-warnings"])
 
 # Common CPPFLAGS and specifics for components.
 AC_SUBST(common_cppflags, [""])
-AC_SUBST(user_cppflags, ["-I\$(top_srcdir)/${stdlib_dir}/include"])
+AC_SUBST(user_cppflags, ["--sysroot=\$(prefix)"])
+AC_SUBST(stdlib_cppflags, ["-I\$(top_srcdir)/${stdlib_dir}/include"])
 AC_SUBST(kernel_cppflags, ["-I\$(top_srcdir)/${stdlib_dir}/include -I\$(top_srcdir)/${kernel_dir}/include"])
-AC_SUBST(kernel_defs, ["-DNMSP=klib"])
+AC_SUBST(kernel_defs, ["-DNMSP=klib -DKLIB=1"])
 
 # Common LDFLAGS and specifics for components.
-AC_SUBST(common_ldflags, ["-O2 -nostdlib -L\$(top_builddir)/${stdlib_dir}"])
+AC_SUBST(common_ldflags, ["-O2"])
 AC_SUBST(common_libs, ["-lgcc"])
-AC_SUBST(kernel_ldflags, ["-T \$(top_srcdir)/${kernel_dir}/link.ld"])
+AC_SUBST(kernel_ldflags, ["-T \$(top_srcdir)/${kernel_dir}/link.ld  -nostdlib -L\$(top_builddir)/${stdlib_dir}"])
 AC_SUBST(kernel_libs, ["-lk"])
-AC_SUBST(user_ldflags, [""])
-AC_SUBST(user_libs, ["-lc"])
+AC_SUBST(user_ldflags, ["--sysroot=\$(prefix)"])
+AC_SUBST(user_libs, [""])
 
 # Start files necessary for user space linking. crtbegin.o and crtend.o are
 # provided by the compiler, which can tell us where they are.

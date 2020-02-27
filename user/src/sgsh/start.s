@@ -30,9 +30,9 @@ rmdir_error: .string "Unable to delete directory /etc/test_dir/\n"
 read_buffer: .skip 1024
 
 .section .text
-# Entry point
-.global _start
-_start:
+# Entry point, called from crt0.o
+.global main
+main:
 
 # We should have inherited the serial port as fd 0. Close it.
     mov $6, %eax

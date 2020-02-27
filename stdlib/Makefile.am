@@ -32,7 +32,7 @@ crt0.o: @stdlib_crt_dir@/crt0.s
 	$(CCAS) -c @common_ccasflags@ -o $@ $^
 
 # Compiler flas for the user space library
-libc_a_CPPFLAGS = @common_cppflags@ @user_cppflags@
+libc_a_CPPFLAGS = @common_cppflags@ @stdlib_cppflags@
 libc_a_CCASFLAGS = @common_ccasflags@
 libc_a_CXXFLAGS = @common_cxxflags@ @stdlib_cxxflags@
 
@@ -44,13 +44,12 @@ libk_a_CPPFLAGS = @common_cppflags@ @kernel_cppflags@ @kernel_defs@
 libk_a_CCASFLAGS = @common_ccasflags@
 libk_a_CXXFLAGS = @common_cxxflags@ @stdlib_cxxflags@
 
-# The install target doesn't really meet our requirements. Instead, make the run
-# target put everything into the file tree that will become the root filesystem.
-# However, run is made PHONY by automake, so have another non-PHONY target to do
-# the actual install, which should be a real file.
-run-local: $(libdir)/libc.a
+# The user space stdlib, start files and includes need to be in place in the
+# image directory so the user space builds can use that as the sysroot. Add a
+# custom local command to the build to achieve this.
+all-local: $(libdir)/libc.a
 
-$(libdir)/libc.a: $(noinst_LIBRARIES) $(lib_LIBRARIES) $(include_HEADERS)
+$(libdir)/libc.a: $(lib_LIBRARIES) $(include_HEADERS)
 	$(MKDIR_P) $(libdir)
 	$(INSTALL) $(lib_LIBRARIES) $(libdir)
 	$(INSTALL) $(crt_DATA) $(crtdir)
