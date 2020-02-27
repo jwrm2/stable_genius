@@ -134,6 +134,16 @@ int32_t mkdir(const char* pathname, int mode);
 int32_t rmdir(const char* pathname);
 
 /**
+    Changes the break point (end of the heap) to the specified address. May fail
+    if not enough memory is available, if the requested address is into the
+    stack, or if the requested address is before the start of the heap.
+
+    @param addr New address to set, from %ebx.
+    @return 0 on success, -1 on error.
+ */
+int32_t brk(void* addr);
+
+/**
     Calls the scheduler to move onto the next available process.
 
     @return 0 on success, -1 on failure. This function will only return after

@@ -36,6 +36,7 @@ enum class syscall_ind {
     getpid = 0x14,
     mkdir = 0x27,
     rmdir = 0x28,
+    brk = 0x2d,
     yield = 0x9e
 };
 
@@ -196,10 +197,20 @@ int32_t mkdir(const char* pathname, int mode);
     descriptors for the file are closed, or happens immediately if there are
     none. Fails if the directory is not empty.
 
-    @param pathname Directory to delete.
+    @param pathname Directory to delete, from %ebx.
     @return 0 on success, -1 on error.
  */
 int32_t rmdir(const char* pathname);
+
+/**
+    Changes the break point (end of the heap) to the specified address. May fail
+    if not enough memory is available, if the requested address is into the
+    stack, or if the requested address is before the start of the heap.
+
+    @param addr New address to set, from %ebx.
+    @return 0 on success, -1 on error.
+ */
+int32_t brk(void* addr);
 
 /**
     Calls the scheduler to move onto the next available process.

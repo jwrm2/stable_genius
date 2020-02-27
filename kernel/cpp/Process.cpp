@@ -26,6 +26,7 @@ Process::Process(const klib::string& name) :
     pdt{nullptr},
     current_stack{start_stack},
     kernel_stack{nullptr},
+    break_point{nullptr},
     stat{ProcStatus::sleeping},
     is{},
     ir{},
@@ -46,8 +47,9 @@ Process::Process(const klib::string& name) :
         return;
     }
 
-    // Set the entry point.
+    // Set the entry and break points.
     entry_point = elf.get_file_header().get_entry();
+    break_point = elf.get_break_point();
 }
 
 /******************************************************************************/
@@ -57,6 +59,7 @@ Process::Process() :
     pdt{new PageDescriptorTable{}},
     current_stack{0},
     kernel_stack{new uintptr_t[kernel_stack_size / sizeof(kernel_stack)]},
+    break_point{nullptr},
     stat{ProcStatus::sleeping},
     is{},
     ir{},
@@ -81,6 +84,7 @@ Process::Process(Process&& other) :
     pdt {other.pdt},
     current_stack {other.current_stack},
     kernel_stack {other.kernel_stack},
+    break_point {other.break_point},
     stat {other.stat},
     is {other.is},
     ir {other.ir},
@@ -103,7 +107,7 @@ Process::Process(Process&& other) :
 Process& Process::operator=(Process&& other)
 {
     // Free pointers of this process.
-    // Lets just hope we're not currently using this process's kernel stack.
+    // Let's just hope we're not currently using this process's kernel stack.
     global_kernel->get_pdt()->free_user_space(
         reinterpret_cast<void*>(kernel_virtual_base));
     delete pdt;
@@ -115,6 +119,7 @@ Process& Process::operator=(Process&& other)
     pdt = other.pdt;
     current_stack = other.current_stack;
     kernel_stack = other.kernel_stack;
+    break_point = other.break_point;
     stat = other.stat;
     is = other.is;
     ir = other.ir;
@@ -203,6 +208,7 @@ void Process::fork_duplicate(const Process& other)
     // the PDT. This copies from the currently loaded PDT, so it only works if
     // the other process is active.
     pdt->duplicate_user_space(reinterpret_cast<void*>(kernel_virtual_base));
+    break_point = other.break_point;
 
     // Duplicate the file description table. We need to increment the counts of
     // each entry in the global table.
@@ -447,6 +453,49 @@ int Process::get_fd_key(int fd)
     if (it == file_desc.end())
         return 0;
     return it->second;
+}
+
+/******************************************************************************/
+
+int Process::brk(void* addr)
+{
+    if (addr < elf.get_break_point())
+        return -1;
+
+    uintptr_t v_addr = reinterpret_cast<uintptr_t>(addr);
+    uintptr_t v_bp = reinterpret_cast<uintptr_t>(break_point);
+
+    // Round the requested address up to a page boundary.
+    uintptr_t addr_top = v_addr - v_addr % PageDescriptorTable::page_size +
+        PageDescriptorTable::page_size;
+    if (addr_top >= kernel_virtual_base - current_stack)
+        return -1;
+
+    // Round the current address down to a page boundary.
+    uintptr_t break_bot = v_bp - v_bp % PageDescriptorTable::page_size;
+
+    // The page configuration must be set to present, user mode and
+    // writable.
+    uint32_t conf = static_cast<uint32_t>(PdeSettings::present) | 
+        static_cast<uint32_t>(PdeSettings::writable) |
+        static_cast<uint32_t>(PdeSettings::user_access);
+
+    // Test whether we need to allocate more pages.
+    while (v_addr > break_bot)
+    {
+        if (!pdt->allocate(reinterpret_cast<void*>(break_bot), conf))
+            return -1;
+        break_bot += PageDescriptorTable::page_size;
+    }
+    // Test whether we need to deallocate pages.
+    while (addr_top <= v_bp)
+    {
+        pdt->free(reinterpret_cast<void*>(v_bp));
+        v_bp -= PageDescriptorTable::page_size;
+    }
+
+    break_point = static_cast<uintptr_t*>(addr);
+    return 0;
 }
 
 /******************************************************************************/
