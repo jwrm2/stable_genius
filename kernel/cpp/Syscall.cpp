@@ -42,6 +42,7 @@ void syscall(InterruptRegisters& ir, const InterruptStack& is)
         klib::pair<syscall_ind, klib::string> {syscall_ind::getpid, "getpid"},
         klib::pair<syscall_ind, klib::string> {syscall_ind::mkdir, "mkdir"},
         klib::pair<syscall_ind, klib::string> {syscall_ind::rmdir, "rmdir"},
+        klib::pair<syscall_ind, klib::string> {syscall_ind::brk, "brk"},
         klib::pair<syscall_ind, klib::string> {syscall_ind::yield, "yield"}
     };
 
@@ -106,6 +107,10 @@ void syscall(InterruptRegisters& ir, const InterruptStack& is)
         case syscall_ind::rmdir:
             // Remove (unlink) a directory.
             ret_val = syscalls::rmdir(reinterpret_cast<const char*>(ir.ebx()));
+            break;
+        case syscall_ind::brk:
+            // Change the programme break point.
+            ret_val = syscalls::brk(reinterpret_cast<void*>(ir.ebx()));
             break;
         case syscall_ind::yield:
             // Move onto the next process.
@@ -526,6 +531,29 @@ int32_t rmdir(const char* pathname)
         global_kernel->syslog()->
             warn("rmdir syscall process file open failed\n");
     return ret_val;
+}
+
+/******************************************************************************
+ ******************************************************************************/
+
+int32_t brk(void* addr)
+{
+    global_kernel->syslog()->info("write: addr = %p\n", addr);
+
+    // We require the address to be in user space.
+    if (reinterpret_cast<size_t>(addr) >= kernel_virtual_base)
+    {
+        global_kernel->syslog()->warn(
+            "brk syscall was given an address in kernel space.\n");
+        return -1;
+    }
+
+    // Get the active process.
+    Process* p = global_kernel->get_proc_table().get_process(
+        global_kernel->get_scheduler().get_last());
+
+    // Forward to the process.
+    return p->brk(addr);
 }
 
 /******************************************************************************

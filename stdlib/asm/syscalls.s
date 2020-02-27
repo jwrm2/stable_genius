@@ -146,6 +146,17 @@ rmdir:
     pop %ebx
     ret
 
+# Changes the break point.
+# New address at %esp + 4 goes into %ebx
+.global brk
+brk:
+    push %ebx
+    mov $0x2d, %eax
+    mov 8(%esp), %ebx
+    int $0x80
+    pop %ebx
+    ret
+
 # Returns control to the scheduler for the next process.
 # No parameters.
 .global yield

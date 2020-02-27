@@ -247,6 +247,15 @@ public:
     size_t get_ppid() const { return parent_pid; }
 
     /**
+        Sets the break point, ie changes the size of the heap. Will fail if the
+        new address is into stack memory, or before the start of the heap.
+
+        @param addr New address for the break point.
+        @return 0 on success, -1 on failure.
+     */
+    int brk(void* addr);
+
+    /**
         Sets the parent PID to the given value. There is no checking on the
         state of the process corressponding to the value.
 
@@ -285,6 +294,10 @@ private:
     size_t current_stack;
     // Bottom of the kernel stack for this process.
     uintptr_t* kernel_stack;
+    // Virtual break point, that is the memory address of the end of the
+    // programme data, bss and heap area. Can be increased to allocate more
+    // heap space.
+    uintptr_t* break_point;
     // Status of the process.
     ProcStatus stat;
     // Status of the stack at the last interrupt, containing values of eip, cs,

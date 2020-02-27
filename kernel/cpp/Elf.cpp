@@ -1287,6 +1287,27 @@ void Elf::dump(klib::ostream& dest) const
 
 /******************************************************************************/
 
+uintptr_t* Elf::get_break_point() const
+{
+    uint32_t ret_val = 0;
+
+    // Search through the segments for those with the type LOAD.
+    for (const auto& p : *program_hdrs)
+    {
+        if (p.get_type() == ElfProgramHeader::pt_load)
+        {
+            // Get the maximum load address of this segment and update max.
+            uint32_t end = reinterpret_cast<uintptr_t>(p.get_vaddr()) +
+                p.get_memsz();
+            ret_val = klib::max(ret_val, end);
+        }
+    }
+
+    return reinterpret_cast<uintptr_t*>(ret_val);
+}
+
+/******************************************************************************/
+
 void Elf::load() const
 {
     // Do nothing if the ELF is invalid.

@@ -1342,6 +1342,15 @@ public:
     void dump(klib::ostream& dest) const;
 
     /**
+        Reads through the section headers to find the .bss section and then
+        returns the first location after that section as loaded in memory. This
+        gives the end of the programme data and therefore the start of the heap.
+
+        @return Programme break point.
+     */
+    uintptr_t* get_break_point() const;
+
+    /**
         Gives the file header.
 
         @return The file header.
