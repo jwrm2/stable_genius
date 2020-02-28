@@ -205,10 +205,12 @@ int32_t rmdir(const char* pathname);
 /**
     Changes the break point (end of the heap) to the specified address. May fail
     if not enough memory is available, if the requested address is into the
-    stack, or if the requested address is before the start of the heap.
+    stack, or if the requested address is before the start of the heap. As a
+    special case, if the value 0 is passed, instead returns the current break
+    point.
 
     @param addr New address to set, from %ebx.
-    @return 0 on success, -1 on error.
+    @return 0 on success, -1 on error, or current break point if addr was 0.
  */
 int32_t brk(void* addr);
 

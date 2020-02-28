@@ -1,34 +1,37 @@
-#ifndef KERNEL_HEAP_H
-#define KERNEL_HEAP_H
+#ifndef USER_HEAP_H
+#define USER_HEAP_H
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
 
 #include <stddef.h>
 
-#include <ostream>
+namespace NMSP {
 
-// Forward declarations
-class PageDescriptorTable;
+// User heap is only defined for the user space library.
+#ifndef KLIB
+
+namespace helper {
 
 /**
-    Class to manage kernel dynamic memory allocation.
+    Class to manage dynamic memory allocation.
  */
-class KernelHeap {
+class UserHeap {
 public:
     /**
-        Construction only needs to know the start of the heap and the Page
-        Descriptor Table, for getting more memory. The constructor will create
-        the virtual mapping for the start of the heap if it doesn't already
-        exist.
+        Construction only needs to know the start of the heap.
 
         @param s Memory address for the start of the heap.
-        @param p Page Descriptor Table to use for memory allocation.
      */
-    KernelHeap(void* s, PageDescriptorTable* p);
+    explicit UserHeap(void* s);
 
     /**
-        We need a default constructor so the kernel can create an empty heap
-        before it's had a chance to make a real one.
+        Default constructor. Sets the start of the heap to nullptr so that
+        future allocations will fail.
      */
-    KernelHeap();
+    UserHeap() : start {nullptr}, last {nullptr}, data_size {0} {}
 
     /**
         Allocates memory of the size given and initialises to zero.
@@ -41,13 +44,6 @@ public:
     void* calloc(size_t nitems, size_t size);
 
     /**
-        Write the current status of the heap, for debugging purposes.
-
-        @param dest Location to send the information.
-     */
-    void dump(klib::ostream& dest);
-
-    /**
         Frees the memory at the given pointer previously allocated with malloc,
         calloc or realloc.
 
@@ -56,35 +52,13 @@ public:
     void free(void* ptr);
 
     /**
-        Gets the start of the heap, to check whether the heap is in a valid
-        state.
-
-        @return Virtual address of the beginning of the heap, or nullptr if
-                this is a non-initialised heap.
-     */
-    const void* get_start() const { return start; }
-
-    /**
-        Initialises with the start of the heap at the given address. Shouldn't
-        normally be called from outside the constructor, but is necessary if
-        the heap begins a new Page Table. Does nothing if the heap is already
-        initialised.
-
-        @param virt_addr Virtual address of the start of the heap.
-     */
-    void initialise(void* virt_addr);
-
-    /**
         Allocates memory of the size given.
 
         @param size Memory size (in bytes) to allocate.
-        @param align Specify that the start of the data must be aligned to a
-                     the given number of bytes. Most useful for Page Tables,
-                     which must be aligned to 4096 bytes.
         @return Pointer to the start of the allocated memory, or nullptr for
                 failure.
      */
-    void* malloc(size_t size, size_t align = 0);
+    void* malloc(size_t size);
 
     /**
         Reallocates the memory at the address given to the new size.
@@ -115,11 +89,6 @@ private:
     // Memory address of the end of the heap. This will be a valid BlockData,
     // with it's size as 0 and it's next as nullptr.
     BlockData* last;
-    // Memory address of the start of the page above the current highest
-    // allocated page.
-    void* next_page_addr;
-    // Page Descriptor Table for memory allocation.
-    PageDescriptorTable* pdt;
 
     // Size of the BlockData. Even though we expect this to be 12 bytes, we'll
     // set it up in the constructor to be aligned to heap_align.
@@ -136,15 +105,24 @@ private:
     // If the optional alignment is given, only return a free block if there's
     // space to fit in the aligned data. Splits the start off, if there's enough
     // leading space.
-    BlockData* find_free_block(size_t size, size_t align = 0);
+    BlockData* find_free_block(size_t size);
 
     // Creates a new block of the specified size at the end of the heap. If
     // align is not zero, the space created will be aligned as specified. This
     // may mean creating two new blocks.
-    BlockData* new_block(size_t size, size_t align = 0);
-
-    // Allocates the next page of virtual memory. If it fails (ie the page is
-    // already in use) cause a panic.
-    void next_page();
+    BlockData* new_block(size_t size);
 };
-#endif
+
+/**
+    Global heap. This can['t be on the heap, so we put it here to go into the
+    bss section.
+ */
+extern UserHeap user_heap;
+
+} // end helper namespace
+
+#endif /* KLIB not defined */
+
+} // end NMSP namespace
+
+#endif /* USER_HEAP_H */

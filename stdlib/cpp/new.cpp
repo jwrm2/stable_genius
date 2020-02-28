@@ -1,5 +1,10 @@
 #include "../include/new"
 
+#ifndef KLIB
+#include "../include/cstdlib"
+#include "../include/UserHeap.h"
+#endif /* KLIB not defined */
+
 namespace NMSP {
 
 /******************************************************************************
@@ -35,3 +40,67 @@ const char* bad_array_new_length::what() const noexcept
  ******************************************************************************/
 
 } // end NMSP namespace
+
+/******************************************************************************
+ ******************************************************************************/
+
+// The following are implemented in the kernel for klib, but need to be here
+// for the user space library.
+#ifndef KLIB
+
+/******************************************************************************
+ ******************************************************************************/
+
+void* operator new(size_t n)
+{
+    void* ret_val = operator new(n, NMSP::nothrow);
+    if (ret_val == nullptr)
+        throw NMSP::bad_alloc {};
+
+    return ret_val;
+}
+
+void* operator new(size_t n, const NMSP::nothrow_t&) noexcept
+{
+    return NMSP::helper::user_heap.malloc(n);
+}
+
+void* operator new(size_t n, void* ptr) noexcept { (void)n; return ptr; }
+
+/******************************************************************************/
+
+void* operator new[](size_t n)
+{
+    void* ret_val = operator new[](n, NMSP::nothrow);
+    if (ret_val == nullptr)
+        throw NMSP::bad_alloc {};
+
+    return ret_val;
+}
+
+void* operator new[](size_t n, const NMSP::nothrow_t&) noexcept
+{
+    return NMSP::helper::user_heap.malloc(n);
+}
+
+void* operator new[](size_t n, void* ptr) noexcept { (void)n; return ptr; }
+
+/******************************************************************************
+ ******************************************************************************/
+
+void operator delete(void* p)
+{
+    NMSP::helper::user_heap.free(p);
+}
+
+/******************************************************************************/
+
+void operator delete[](void* p)
+{
+    NMSP::helper::user_heap.free(p);
+}
+
+/******************************************************************************
+ ******************************************************************************/
+
+#endif /* KLIB not defined */

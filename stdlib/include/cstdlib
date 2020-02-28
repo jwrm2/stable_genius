@@ -62,8 +62,12 @@ double strtod(const char* str, char** str_end);
 long double strtold(const char* str, char** str_end);
 
 /**
-    Abort the kernel: disable interrupts and enter an infinite loop. This needs
-    to be implemented in the kernel.
+    In kernel space, aborts the kernel: disable interrupts and enter an infinite
+    loop. This needs to be implemented in the kernel.
+
+    In user space, exits the process abnormally. Global destructors are not
+    called, nor are functions registered with atexit(). Resources are not closed
+    and files are not flushed.
  */
 extern "C" // libgcc links to this function
 void abort();
@@ -91,12 +95,15 @@ void free(void* ptr);
 
 // The following functions are defined for user space only.
 #ifndef KLIB
+
+namespace helper {
+
 /**
     Compiler generated function implemented in the startfiles crtx.o that deals
     with calling global destructors. We must call this from exit(), so we need
     the interface here.
  */
-namespace helper {
+
 extern "C"
 void _fini();
 } // end namespace helper

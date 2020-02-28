@@ -459,11 +459,15 @@ int Process::get_fd_key(int fd)
 
 int Process::brk(void* addr)
 {
-    if (addr < elf.get_break_point())
-        return -1;
-
     uintptr_t v_addr = reinterpret_cast<uintptr_t>(addr);
     uintptr_t v_bp = reinterpret_cast<uintptr_t>(break_point);
+
+    // If addr is zero, we return the current break point instead.
+    if (v_addr == 0)
+        return reinterpret_cast<int>(break_point);
+
+    if (addr < elf.get_break_point())
+        return -1;
 
     // Round the requested address up to a page boundary.
     uintptr_t addr_top = v_addr - v_addr % PageDescriptorTable::page_size +

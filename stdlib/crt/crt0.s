@@ -10,7 +10,7 @@ _start:
     mov %esp, %ebp # Sets stack base address appropriately for this function.
 
     # TODO Call standard library initialistion here.
-    # call initialize_standard_library
+    call initialise_standard_library
 
     # Run the global contructors.
     call _init
