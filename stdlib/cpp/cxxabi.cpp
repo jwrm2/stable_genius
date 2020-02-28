@@ -131,8 +131,11 @@ void __cxa_finalize(void* destructor_func)
  ******************************************************************************/
 
 // I'm really not sure why I need this, but the linker complains if it doesn't
-// exist.
+// exist for the kernel library. For the user space library, the kernel
+// complains if it does exist.
+#ifdef KLIB
 void* __dso_handle;
+#endif /* KLIB defined */
 
 /******************************************************************************
  ******************************************************************************/
@@ -1489,6 +1492,37 @@ _Unwind_Reason_Code __gxx_personality_v0(int version, _Unwind_Action actions,
 //    NMSP::printf("__gxx_personality_v0: no handler found\n");
     return _URC_CONTINUE_UNWIND;
 }
+
+/******************************************************************************
+ ******************************************************************************/
+
+// Get globals are defined in the kernel but need to be here for user space.
+#ifndef KLIB
+
+// Global store for the exception information.
+__cxa_eh_globals* eh_globals = nullptr;
+
+__cxa_eh_globals* __cxa_get_globals()
+{
+    // Create new value if necessary.
+    if (eh_globals == nullptr)
+        eh_globals = new __cxxabiv1::__cxa_eh_globals {};
+
+    return eh_globals;
+}
+
+/******************************************************************************/
+
+__cxa_eh_globals* __cxa_get_globals_fast()
+{
+    // Retrun the exception information without checking if it exists.
+    return eh_globals;
+}
+
+#endif /* KLIB not defined */
+
+/******************************************************************************
+ ******************************************************************************/
 
 /******************************************************************************
  ******************************************************************************/

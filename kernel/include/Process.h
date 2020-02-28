@@ -248,10 +248,12 @@ public:
 
     /**
         Sets the break point, ie changes the size of the heap. Will fail if the
-        new address is into stack memory, or before the start of the heap.
+        new address is into stack memory, or before the start of the heap. As a
+        special case, if the value 0 is passed, instead returns the current
+        break point.
 
         @param addr New address for the break point.
-        @return 0 on success, -1 on failure.
+        @return 0 on success, -1 on error, or current break point if addr was 0.
      */
     int brk(void* addr);
 

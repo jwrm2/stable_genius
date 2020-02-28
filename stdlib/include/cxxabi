@@ -992,7 +992,7 @@ struct __cxa_exception {
 /**
     This struct is available to each thread, meaning the kernel initialisation
     and each process need their own copy. It stores the list of thrown and
-    caught exception, and the number of thrown but not caught exceptions.
+    caught exceptions, and the number of thrown but not caught exceptions.
  */
 struct __cxa_eh_globals {
     // Pointer to the most recent caught exception. Less recent ones can be

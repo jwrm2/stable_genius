@@ -16,7 +16,7 @@
 namespace NMSP {
 
 /**
-    This class implements stream stlye interactions with a file as the
+    This class implements stream style interactions with a file as the
     associated character sequence.
  */
 template <typename CharT, typename Traits = char_traits<CharT>>
