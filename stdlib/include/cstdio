@@ -26,8 +26,15 @@ using string = basic_string<char, char_traits<char>, allocator<char>>;
 template <typename> class fpos;
 class mbstate_t;
 #ifndef HOSTED_TEST
+#ifdef KLIB
+// In the kernel, FILE is provided by the File class below. In userspace it is
+// instead  wrapper around std::basic_filebuf<char> and appears in fstream.
 class File;
 using FILE = File;
+#else /* KLIB defined */
+// Forarwd declaration of FILE.
+class FILE;
+#endif /* KLIB defined */
 using fpos_t = fpos<mbstate_t>;
 #endif /* HOSTED_TEST */
 
@@ -127,7 +134,7 @@ int vsprintf(char* buffer, const char* format, va_list vlist);
 int vsnprintf(char* buffer, size_t buf_size, const char* format, va_list vlist);
 
 /**
-    Opens a file. Must be implemented in the kernel.
+    Opens a file. Must be implemented in the kernel, for klib.
 
     @param filename Name of the file.
     @param mode Mode to open the file with.
@@ -197,8 +204,10 @@ int fseek(FILE* stream, long offset, int origin);
 
 /**
     Abstract class for files. Specifies the general interface. Implementations
-    exist in the kernel.
+    exist in the kernel. Only exists for the kernel. In user space, FILE is a
+    wrapper around std::basic_filebuf<char>.
  */
+#ifdef KLIB
 class File {
 public:
     /**
@@ -207,7 +216,7 @@ public:
 
         @param mode C style open mode string.
      */
-    File(const char* mode);
+    explicit File(const char* mode);
 
     /**
         Copy constructor is deleted.
@@ -276,20 +285,7 @@ public:
 
         @return 0 if successful, otherwise EoF.
      */
-    virtual int close()
-    {
-        int ret_val = File::flush();
-
-        // Free the buffer.
-        delete[] buffer;
-        buffer = nullptr;
-
-        // Set flags so future operations fail.
-        reading = false;
-        writing = false;
-
-        return ret_val;
-    }
+    virtual int close();
 
     /**
         Checks whether a file has been closed. Since files are closed if they
@@ -302,7 +298,8 @@ public:
     virtual int closed() { return !(reading || writing); }
 
     /**
-        Writes to the file.
+        Writes to the file. Pure virtual for the kernel, as it does not know how
+        to access the device for a generic file.
 
         @param buf Location of the first object to be written.
         @param size Size of each object.
@@ -312,7 +309,8 @@ public:
     virtual size_t write(const void* buf, size_t size, size_t count) = 0;
 
     /**
-        Reads from the file.
+        Reads from the file. Pure virtual for the kernel, as it does not know
+        how to access the device for a generic file.
 
         @param buf Location of the first object to be read into.
         @param size Size of each object.
@@ -323,8 +321,8 @@ public:
 
     /**
         Writes any unwritten data from the output buffer to the underlying
-        device. Implements fflush. The base version does nothing, as it does not
-        know how to write to the underlying device.
+        device. Implements fflush. The kernel base version does nothing, as it
+        does not know how to write to the underlying device.
 
         @param stream File to flush.
         @return 0 on success, otherwise EoF.
@@ -332,7 +330,9 @@ public:
     virtual int flush() { return 0; };
 
     /**
-        Gets the current file position indicator. Implements fgetpos.
+        Gets the current file position indicator. Implements fgetpos. Pure
+        virtual for the kernel, as it does not know how to access the device for
+        a generic file.
 
         @param pos Pointer to a position indicator that will be set.
         @return 0 on success, nonzero otherwise.
@@ -341,7 +341,8 @@ public:
 
     /**
         Changes the current file position indicator to that specified by the
-        offset from the origin. Implements fseek.
+        offset from the origin. Implements fseek. Pure virtual for the kernel,
+        as it does not know how to access the device for a generic file.
 
         @param offset Number of characters to shift relative to the origin.
         @param origin Base position for the shift. May be the beginning, current
@@ -352,7 +353,8 @@ public:
 
     /**
         Empties the contents of a file, without changing any of the metadata.
-        Used, for example, when opening a file in "w" mode.
+        Used, for example, when opening a file in "w" mode. Kernel functionality
+        only.
 
         @return 0 on success, -1 on failure.
      */
@@ -376,6 +378,7 @@ protected:
     // File position indicator.
     fpos_t position;
 };
+#endif /* KLIB defined */
 
 /**
     Arguments to fseek, specifying the beginning of, current position in or end

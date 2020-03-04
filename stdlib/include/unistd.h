@@ -12,6 +12,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// Forward declarations.
+namespace std {
+    template<typename> class fpos;
+    class mbstate_t; 
+    using fpos_t = fpos<mbstate_t>;
+}
+
 // These functions are in the default namespace and have C linkage.
 extern "C" {
 
@@ -49,17 +56,6 @@ int32_t read(int fd, char* buf, size_t count);
     @return The number of characters written. -1 on error.
  */
 int32_t write(int fd, const char* buf, size_t count);
-
-/**
-    Opens a file.
-
-    @param filename Name of the file to open, from %ebx.
-    @param flags Various controls on the behaviour, from %ecx.
-    @param mode The permissions to set on the file if it is to be created, from
-           %edx.
-    @return New file descriptor on success, -1 on failure.
- */
-int32_t open(const char* filename, int flags, int mode);
 
 /**
     Closes a file.
@@ -147,6 +143,20 @@ int32_t rmdir(const char* pathname);
     @return 0 on success, -1 on error, or current break point if addr was 0.
  */
 int32_t brk(void* addr);
+
+/**
+    Repositions the offset in an open file description.
+
+    @param fd File descriptor to operate on, from %ebx.
+    @param offset_high High 32 bits of the new offset, from %ecx.
+    @param offset_low Low 32 bits of the new offset, from %edx.
+    @param result Pointer to the location to store the new position, from %esi.
+    @param whence Origin for the new offset, may be SEEK_SET, SEEK_CUR or
+           SEEK_END, from %edi.
+    @return 0 on success, -1 on error.
+ */
+int32_t llseek(int fd, int32_t offset_high, int32_t offset_low,
+    std::fpos_t* result, uint32_t whence);
 
 /**
     Calls the scheduler to move onto the next available process.

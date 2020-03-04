@@ -10,6 +10,12 @@
 #include <cstdio>
 #endif /* HOSTED_TEST */
 
+#ifndef KLIB
+#include "../include/fcntl.h"
+#include "../include/fstream"
+#include "../include/unistd.h"
+#endif /* KLIB not defined */
+
 namespace NMSP {
 
 // Negative fail value.
@@ -114,6 +120,45 @@ int vsnprintf(char* buffer, size_t buf_size, const char* format, va_list vlist)
 /******************************************************************************
  ******************************************************************************/
 
+#ifndef KLIB
+// Utility function to convert a C-style mode into a C++ openmode. Only required
+// in user space.
+static ios_base::openmode cmode_to_cxxmode(const char* m)
+{
+    if (strcmp(m, "r") == 0)
+        return ios_base::in;
+    else if (strcmp(m, "w") == 0)
+        return ios_base::out;
+    else if (strcmp(m, "a") == 0)
+        return ios_base::app;
+    else if (strcmp(m, "r+") == 0)
+        return ios_base::in | ios_base::out;
+    else if (strcmp(m, "w+") == 0)
+        return ios_base::in | ios_base::out | ios_base::trunc;
+    else if (strcmp(m, "a+") == 0)
+        return ios_base::in | ios_base::app;
+    else if (strcmp(m, "rb") == 0)
+        return ios_base::in | ios_base::binary;
+    else if (strcmp(m, "wb") == 0)
+        return ios_base::out | ios_base::binary;
+    else if (strcmp(m, "ab") == 0)
+        return ios_base::app | ios_base::binary;
+    else if (strcmp(m, "r+b") == 0)
+        return ios_base::in | ios_base::out | ios_base::binary;
+    else if (strcmp(m, "w+b") == 0)
+        return
+            ios_base::in | ios_base::out | ios_base::trunc | ios_base::binary;
+    else if (strcmp(m, "a+b") == 0)
+        return ios_base::in | ios_base::app | ios_base::binary;
+
+    // No match. Return 0, which is invalid.
+    return static_cast<ios_base::openmode>(0);
+}
+#endif /* KLIB not defined */
+
+/******************************************************************************
+ ******************************************************************************/
+
 #ifdef HOSTED_TEST
 FILE* fopen(const char* filename, const char* mode)
 {
@@ -150,9 +195,31 @@ int fseek(FILE* stream, long offset, int origin)
     return std::fseek(stream, offset, origin);
 }
 #else /* HOSTED_TEST */
+#ifndef KLIB
+// fopen is implemented in the kernel, but we need an implementation here for
+// user space.
+FILE* fopen(const char* filename, const char* mode)
+{
+    // Defulat construct a file buffer and then open it.
+    FILE* temp = new FILE {};
+    FILE* ret =
+        static_cast<FILE*>(temp->open(filename, cmode_to_cxxmode(mode)));
+    if (ret == nullptr)
+        delete temp;
+    return ret;
+}
+#endif /* KLIB defined */
 int fclose(FILE* stream)
 {
-    return stream->close();
+// stream->close() returns an int in the kernel library, but a pointer to a FILE
+// in the user library. Silly, I know, but FILE is rather different in the two.
+#ifdef KLIB
+    int ret_val = stream->close();
+#else /* KLIB defined */
+    int ret_val = (stream->close() == nullptr ? -1 : 0);
+#endif /* KLIB defined */
+    delete stream;
+    return ret_val;
 }
 
 size_t fwrite(const void* buffer, size_t size, size_t count, FILE* stream)
@@ -183,6 +250,10 @@ int fseek(FILE* stream, long offset, int origin)
 
 /******************************************************************************
  ******************************************************************************/
+
+#ifdef KLIB
+// File only exists for the kernel. In user space, FILE is a wrapper around
+// std::basic_filebuf<char>.
 
 File::File(const char* mode) :
     buffered {false},
@@ -258,6 +329,25 @@ File::File(const char* mode) :
     }
     // If not any of the above, everything remains false.
 }
+
+/******************************************************************************/
+
+int File::close()
+{
+    int ret_val = File::flush();
+
+    // Free the buffer.
+    delete[] buffer;
+    buffer = nullptr;
+
+    // Set flags so future operations fail.
+    reading = false;
+    writing = false;
+
+    return ret_val;
+}
+
+#endif /* KLIB defined */
 
 /******************************************************************************
  ******************************************************************************/

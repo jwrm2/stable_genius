@@ -37,6 +37,7 @@ enum class syscall_ind {
     mkdir = 0x27,
     rmdir = 0x28,
     brk = 0x2d,
+    llseek = 0x8c,
     yield = 0x9e
 };
 
@@ -74,6 +75,13 @@ using klib::operator~;
 using klib::operator|=;
 using klib::operator&=;
 using klib::operator^=;
+
+// Forward declarations.
+namespace klib {
+    template<typename> class fpos;
+    class mbstate_t; 
+    using fpos_t = fpos<mbstate_t>;
+}
 
 namespace syscalls {
 
@@ -213,6 +221,20 @@ int32_t rmdir(const char* pathname);
     @return 0 on success, -1 on error, or current break point if addr was 0.
  */
 int32_t brk(void* addr);
+
+/**
+    Repositions the offset in an open file description.
+
+    @param fd File descriptor to operate on, from %ebx.
+    @param offset_high High 32 bits of the new offset, from %ecx.
+    @param offset_low Low 32 bits of the new offset, from %edx.
+    @param result Pointer to the location to store the new position, from %esi.
+    @param whence Origin for the new offset, may be SEEK_SET, SEEK_CUR or
+           SEEK_END, from %edi.
+    @return 0 on success, -1 on error.
+ */
+int32_t llseek(int fd, int32_t offset_high, int32_t offset_low,
+    klib::fpos_t* result, uint32_t whence);
 
 /**
     Calls the scheduler to move onto the next available process.

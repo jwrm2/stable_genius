@@ -43,6 +43,7 @@ void syscall(InterruptRegisters& ir, const InterruptStack& is)
         klib::pair<syscall_ind, klib::string> {syscall_ind::mkdir, "mkdir"},
         klib::pair<syscall_ind, klib::string> {syscall_ind::rmdir, "rmdir"},
         klib::pair<syscall_ind, klib::string> {syscall_ind::brk, "brk"},
+        klib::pair<syscall_ind, klib::string> {syscall_ind::llseek, "llseek"},
         klib::pair<syscall_ind, klib::string> {syscall_ind::yield, "yield"}
     };
 
@@ -111,6 +112,14 @@ void syscall(InterruptRegisters& ir, const InterruptStack& is)
         case syscall_ind::brk:
             // Change the programme break point.
             ret_val = syscalls::brk(reinterpret_cast<void*>(ir.ebx()));
+            break;
+        case syscall_ind::llseek:
+            // Change the offset position in a file.
+            ret_val = syscalls::llseek(static_cast<int32_t>(ir.ebx()),
+                static_cast<int32_t>(ir.ecx()),
+                static_cast<int32_t>(ir.edx()),
+                reinterpret_cast<klib::fpos_t*>(ir.esi()),
+                ir.edi());
             break;
         case syscall_ind::yield:
             // Move onto the next process.
@@ -267,7 +276,8 @@ int32_t write(int fd, const char* buf, size_t count)
     int key = p->get_fd_key(fd);
     if (key == 0)
     {
-        global_kernel->syslog()->warn( "write syscall was given a file descriptor that does not exist for the process\n");
+        global_kernel->syslog()->warn(
+            "write syscall was given a file descriptor that does not exist for the process\n");
         return -1;
     }
 
@@ -538,7 +548,7 @@ int32_t rmdir(const char* pathname)
 
 int32_t brk(void* addr)
 {
-    global_kernel->syslog()->info("write: addr = %p\n", addr);
+    global_kernel->syslog()->info("brk: addr = %p\n", addr);
 
     // We require the address to be in user space.
     if (reinterpret_cast<size_t>(addr) >= kernel_virtual_base)
@@ -554,6 +564,88 @@ int32_t brk(void* addr)
 
     // Forward to the process.
     return p->brk(addr);
+}
+
+/******************************************************************************
+ ******************************************************************************/
+
+int32_t llseek(int fd, int32_t offset_high, int32_t offset_low,
+    klib::fpos_t* result, uint32_t whence)
+{
+    // Caluclate offset.
+    klib::streamoff off = offset_low +
+        (static_cast<klib::streamoff>(offset_high) << 32);
+
+    global_kernel->syslog()->info(
+        "llseek: fd = %d, off = %lld, result = %p, whence = %u\n",
+        fd, off, result, whence);
+
+    // We require the result address to be in user space.
+    if (reinterpret_cast<size_t>(result) + sizeof(klib::streamoff)
+        >= kernel_virtual_base)
+    {
+        global_kernel->syslog()->warn(
+            "llseek syscall was given a result address in kernel space.\n");
+        return -1;
+    }
+
+    // Check that whence is valid.
+    if (whence != SEEK_SET && whence != SEEK_CUR && whence != SEEK_END)
+    {
+        global_kernel->syslog()->warn(
+            "llseek syscall was given an invalid whence.\n");
+        return -1;
+    }
+
+    // Get the active process.
+    Process* p = global_kernel->get_proc_table().get_process(
+        global_kernel->get_scheduler().get_last());
+
+    // Get the file description from the global table.
+    int key = p->get_fd_key(fd);
+    if (key == 0)
+    {
+        global_kernel->syslog()->warn(
+            "llseek syscall was given a file descriptor that does not exist for the process.\n");
+        return -1;
+    }
+
+    klib::fstream& f = global_kernel->get_file_table()->get_stream(key);
+    if (!f)
+    {
+        global_kernel->syslog()->warn(
+            "llseek syscall file stream is not good.\n");
+        return -1;
+    }
+
+    klib::filebuf* fb = f.rdbuf();
+    if (fb == nullptr)
+    {
+        global_kernel->syslog()->warn(
+            "llseek syscall file buffer does not exist.\n");
+        return -1;
+    }
+
+    // Execute the seek on the file.
+    klib::fpos_t res {-1};
+    switch (whence)
+    {
+    case SEEK_SET:
+        res = f.rdbuf()->pubseekoff(off, klib::ios_base::beg);
+        break;
+    case SEEK_CUR:
+        res = f.rdbuf()->pubseekoff(off, klib::ios_base::cur);
+        break;
+    case SEEK_END:
+        res = f.rdbuf()->pubseekoff(off, klib::ios_base::end);
+        break;
+    default:
+        break;
+    }
+
+    // Check the answer.
+    *result = res;
+    return (res == klib::fpos_t {-1} ? -1 : 0);
 }
 
 /******************************************************************************
