@@ -157,6 +157,29 @@ brk:
     pop %ebx
     ret
 
+# Changes the offset of an open file.
+# File descriptor at %esp + 4 goes into %ebx
+# High 32 bits of the new offset at %esp + 8 goes into %ecx
+# Low 32 bits of the new offset at %esp + 12 goes into %edx
+# Pointer to the result at %esp + 16 goes into %esi
+# Origin of the offset at %esp + 20 goes into %edi
+.global llseek
+llseek:
+    push %ebx
+    push %esi
+    push %edi
+    mov $0x8c, %eax
+    mov 16(%esp), %ebx
+    mov 20(%esp), %ecx
+    mov 24(%esp), %edx
+    mov 28(%esp), %esi
+    mov 32(%esp), %edi
+    int $0x80
+    pop %edi
+    pop %esi
+    pop %ebx
+    ret
+
 # Returns control to the scheduler for the next process.
 # No parameters.
 .global yield

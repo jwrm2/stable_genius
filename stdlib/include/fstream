@@ -7,17 +7,27 @@
 #endif /* NMSP */
 
 #include <algorithm>
+#include <cstdio>
 #include <ios>
 #include <istream>
 #include <ostream>
 #include <streambuf>
 #include <string>
 
+#ifndef KLIB
+#include <fcntl.h>
+#include <unistd.h>
+#endif /* KLIB not defined */
+
 namespace NMSP {
 
 /**
     This class implements stream style interactions with a file as the
-    associated character sequence.
+    associated character sequence. In the kernel, file operations are provided
+    by classes derived from File (eg. BlockFile, DiskFile) and this buffer
+    stores a pointer to an open File object, to which calls are forwarded. In
+    user space, FILE is a wrapper around this buffer, the buffer stores a file
+    descriptor and calls are system calls.
  */
 template <typename CharT, typename Traits = char_traits<CharT>>
 class basic_filebuf : public basic_streambuf<CharT, Traits> {
@@ -48,7 +58,11 @@ public:
         isopen {false},
         reading {false},
         writing {false},
+#ifdef KLIB
         open_file {nullptr},
+#else /* KLIB defined */
+        fd {-1},
+#endif /* KLIB defined */
         buffered {true}
     {}
 
@@ -71,11 +85,19 @@ public:
         isopen {other.isopen},
         reading {other.reading},
         writing {other.writing},
+#ifdef KLIB
         open_file {other.open_file},
+#else /* KLIB defined */
+        fd {other.fd},
+#endif /* KLIB defined */
         buffered {true}
     {
         other.isopen = false;
+#ifdef KLIB
         other.open_file = nullptr;
+#else /* KLIB defined */
+        other.fd = -1;
+#endif /* KLIB defined */
         other.setg(nullptr, nullptr, nullptr);
         other.setp(nullptr, nullptr, nullptr);
     }
@@ -103,11 +125,19 @@ public:
         isopen = other.isopen;
         reading = other.reading;
         writing = other.writing;
+#ifdef KLIB
         open_file = other.open_file;
+#else /* KLIB defined */
+        fd = other.fd;
+#endif /* KLIB defined */
         buffered = other.buffered;
 
         other.isopen = false;
+#ifdef KLIB
         other.open_file = nullptr;
+#else /* KLIB defined */
+        other.fd = -1;
+#endif /* KLIB defined */
         other.setg(nullptr, nullptr, nullptr);
         other.setp(nullptr, nullptr, nullptr);
 
@@ -125,7 +155,11 @@ public:
         NMSP::swap(isopen, other.isopen);
         NMSP::swap(reading, other.reading);
         NMSP::swap(writing, other.writing);
+#ifdef KLIB
         NMSP::swap(open_file, other.open_file);
+#else /* KLIB defined */
+        NMSP::swap(fd, other.fd);
+#endif /* KLIB defined */
         NMSP::swap(buffered, other.buffered);
     }
 
@@ -173,91 +207,52 @@ public:
         m &= ~ios_base::ate;
 
         // Determine the cstdio mode string.
-        string c_mode;
-        switch(static_cast<size_t>(m))
-        {
-        case ios_base::in:
-            c_mode = "r";
-            reading = true;
-            break;
-        case ios_base::out: case (ios_base::out | ios_base::trunc):
-            c_mode = "w";
-            writing = true;
-            break;
-        case ios_base::app: case (ios_base::app | ios_base::out):
-            c_mode = "a";
-            writing = true;
-            append = true;
-            break;
-        case (ios_base::in | ios_base::out):
-            c_mode = "r+";
-            reading = true;
-            writing = true;
-            break;
-        case (ios_base::in | ios_base::out | ios_base::trunc):
-            c_mode = "w+";
-            reading = true;
-            writing = true;
-            break;
-        case (ios_base::app | ios_base::in):
-        case (ios_base::app | ios_base::in | ios_base::out):
-            c_mode = "a+";
-            reading = true;
-            writing = true;
-            append = true;
-            break;
-        case (ios_base::binary | ios_base::in):
-            c_mode = "rb";
-            reading = true;
-            break;
-        case (ios_base::binary | ios_base::out):
-        case (ios_base::binary | ios_base::out | ios_base::trunc):
-            c_mode = "wb";
-            writing = true;
-            break;
-        case (ios_base::app | ios_base::binary):
-        case (ios_base::app | ios_base::binary | ios_base::out):
-            c_mode = "ab";
-            writing = true;
-            append = true;
-            break;
-        case (ios_base::binary | ios_base::in | ios_base::out):
-            c_mode = "r+b";
-            reading = true;
-            writing = true;
-            break;
-        case (ios_base::binary | ios_base::in | ios_base::out |
-            ios_base::trunc):
-            c_mode = "w+b";
-            reading = true;
-            writing = true;
-            break;
-        case (ios_base::app | ios_base::binary | ios_base::in):
-        case (ios_base::app | ios_base::binary | ios_base::in | ios_base::out):
-            c_mode = "a+b";
-            reading = true;
-            writing = true;
-            append = true;
-            break;
-        default:
+        string c_mode = read_cxxmode(m);
+        if (c_mode == "")
             return nullptr;
-        }
 
         // Forward the call to open the file.
+#ifdef KLIB
         open_file = NMSP::fopen(s, c_mode.c_str());
         if (open_file == nullptr)
             return nullptr;
         isopen = true;
+#else /* KLIB defined */
+        int flags = 0;
+        if (reading && writing)
+            flags |= O_RDWR;
+        else if (reading)
+            flags |= O_RDONLY;
+        else if (writing)
+            flags |= O_WRONLY;
+        else
+            return nullptr;
+        if (append)
+            flags |= O_APPEND;  
+        // TODO mode doesn't do anything yet.
+        fd = ::open(s, flags, 0);
+        if (fd == -1)
+            return nullptr;
+#endif /* KLIB defined */
 
         // If the ate bit is set, attempt to seek to the end of the file.
         if (ate)
         {
-            int ret_val = NMSP::fseek(open_file, 0, SEEK_END);
+#ifdef KLIB
+            int ret_val = open_file->seek(0, SEEK_END);
             if (ret_val != 0)
             {
                 close();
                 return nullptr;
             }
+#else /* KLIB defined */
+            pos_type ret_val {-1};
+            if (::llseek(fd, 0, 0, &ret_val, SEEK_END) != 0)
+            {
+                close();
+                return nullptr;
+            }
+#endif /* KLIB defined */
         }
 
         // If buffers have been provided by setbuf, we may need to set pointers
@@ -324,8 +319,12 @@ public:
             ret_val1 = overflow();
 
         // Close the file.
-        int ret_val2 = NMSP::fclose(open_file);
+#ifdef KLIB
+        int ret_val2 = open_file->close();
         delete open_file;
+#else /* KLIB defined */
+        int ret_val2 = ::close(fd);
+#endif /* KLIB defined */
         isopen = false;
 
         // Free buffers.
@@ -377,8 +376,13 @@ protected:
     bool append;
     /** Whether the last action was an underflow. Matters for append. */
     bool last_underflow;
+#ifdef KLIB
     /** Pointer to the associated file. */
     FILE* open_file;
+#else /* KLIB defined */
+    /** File descriptor to use for system calls. */
+    int fd;
+#endif /* KLIB defined */
     /** Whether this object owens the buffers it's using. */
     bool buffered;
 
@@ -440,8 +444,13 @@ protected:
             if (streambuf_type::eback() != nullptr)
             {
                 // Now read from the actual file.
-                streamsize read_size = NMSP::fread(streambuf_type::eback(),
-                    sizeof(char_type), BUFSIZ, open_file);
+#ifdef KLIB
+                streamsize read_size = open_file->read(streambuf_type::eback(),
+                    sizeof(char_type), BUFSIZ);
+#else /* KLIB defined */
+                streamsize read_size =
+                    ::read(fd, streambuf_type::eback(), BUFSIZ);
+#endif /* KLIB defined */
                 last_underflow = true;
 
                 // Adjust pointers.
@@ -463,8 +472,12 @@ protected:
             else
             {
                 char_type c;
-                streamsize read_size = NMSP::fread(&c, sizeof(char_type), 1,
-                    open_file);
+#ifdef KLIB
+                streamsize read_size = 
+                    open_file->read(&c, sizeof(char_type), 1);
+#else /* KLIB defined */
+                streamsize read_size = ::read(fd, &c, 1);
+#endif /* KLIB defined */
                 if (read_size == 0)
                     return traits_type::eof();
 
@@ -528,10 +541,18 @@ protected:
 
                 // Now move the associated file position back to one before the
                 // previous start of the buffer and reread.
-                if (NMSP::fseek(open_file, shift, SEEK_CUR) != 0)
+#ifdef KLIB
+                if (open_file->seek(shift, SEEK_CUR) != 0)
                     // Seek failed. Bail.
                     return traits_type::eof();
-                 if (traits_type::eq_int_type(underflow(), traits_type::eof()))
+#else /* KLIB defined */
+                pos_type ret_val {-1};
+                if (::llseek(fd, static_cast<int32_t>(shift >> 32),
+                    static_cast<int32_t>(shift), &ret_val, SEEK_CUR) != 0)
+                    // Seek failed. Bail.
+                    return traits_type::eof();
+#endif /* KLIB defined */
+                if (traits_type::eq_int_type(underflow(), traits_type::eof()))
                     // Failed to refill the buffer. Bail.
                     return traits_type::eof();
             }
@@ -596,19 +617,33 @@ protected:
                 if (reading && !append &&
                     streambuf_type::eback() != streambuf_type::egptr())
                 {
-                    if (NMSP::fseek(open_file, streambuf_type::eback() -
-                        streambuf_type::egptr(), SEEK_CUR) != 0)
+                    ptrdiff_t shift = streambuf_type::eback() -
+                        streambuf_type::egptr();
+#ifdef KLIB
+                    if (open_file->seek(shift, SEEK_CUR) != 0)
                         // Seek failed. Bail.
                         return traits_type::eof();
+#else /* KLIB defined */
+                    pos_type ret_val {-1};
+                    if (::llseek(fd, 0,
+                        static_cast<int32_t>(shift), &ret_val, SEEK_CUR) != 0)
+                        // Seek failed. Bail.
+                        return traits_type::eof();
+#endif /* KLIB defined */
                 }
 
                 // Write the buffer, if there is anything in it.
                 if (streambuf_type::pptr() - streambuf_type::pbase() != 0)
                 {
-                    int_type ret_val = NMSP::fwrite(streambuf_type::pbase(),
+#ifdef KLIB
+                    int_type ret_val = open_file->write(streambuf_type::pbase(),
                         sizeof(char_type),
-                        streambuf_type::pptr() - streambuf_type::pbase(),
-                        open_file);
+                        streambuf_type::pptr() - streambuf_type::pbase());
+#else /* KLIB defined */
+                    int_type ret_val = ::write(fd, streambuf_type::pbase(),
+                        sizeof(char_type) *
+                        (streambuf_type::pptr() - streambuf_type::pbase()));
+#endif /* KLIB defined */
                     last_underflow = false;
 
                     if (ret_val !=
@@ -628,8 +663,13 @@ protected:
                 {
                     // This is allowed to fail as we may be at the end of the
                     // file.
-                    streamsize read_size = NMSP::fread(streambuf_type::eback(),
-                        sizeof(char_type), BUFSIZ, open_file);
+#ifdef KLIB
+                    streamsize read_size = open_file->read(
+                        streambuf_type::eback(), sizeof(char_type), BUFSIZ);
+#else /* KLIB defined */
+                    streamsize read_size = ::read(fd, streambuf_type::eback(),
+                        sizeof(char_type) * BUFSIZ);
+#endif /* KLIB defined */
                     last_underflow = true;
 
                     streambuf_type::setg(streambuf_type::eback(),
@@ -649,8 +689,12 @@ protected:
             {
                 // We're operating in unbuffered mode and we have a character to
                 // write. Send it.
-                size_t ret_val = NMSP::fwrite(&ch, sizeof(char_type), 1,
-                    open_file);
+                char_type ch2 = traits_type::to_char_type(ch);
+#ifdef KLIB
+                size_t ret_val = open_file->write(&ch2, sizeof(char_type), 1);
+#else /* KLIB defined */
+                size_t ret_val = ::write(fd, &ch2, sizeof(char_type));
+#endif /* KLIB defined */
                 if (ret_val != 1)
                     return traits_type::eof();
             }
@@ -742,10 +786,16 @@ protected:
 
         // Call fseek to do the shift.
         int ret_val = -1;
+        pos_type ret_pos {-1};
         switch (dir)
         {
         case ios_base::beg:
-            ret_val = NMSP::fseek(open_file, off, SEEK_SET);
+#ifdef KLIB
+            ret_val = open_file->seek(off, SEEK_SET);
+#else /* KLIB defined */
+            ret_val = ::llseek(fd, static_cast<int32_t>(off >> 32),
+                static_cast<int32_t>(off), &ret_pos, SEEK_SET);
+#endif /* KLIB defined */
             break;
         case ios_base::cur:
             // If the file is open for reading, we need to move the offset back
@@ -753,10 +803,20 @@ protected:
             // from the file.
             if (reading && streambuf_type::eback() != nullptr)
                 off -= (streambuf_type::egptr() - streambuf_type::gptr());
-            ret_val = NMSP::fseek(open_file, off, SEEK_CUR);
+#ifdef KLIB
+            ret_val = open_file->seek(off, SEEK_CUR);
+#else /* KLIB defined */
+            ret_val = ::llseek(fd, static_cast<int32_t>(off >> 32),
+                static_cast<int32_t>(off), &ret_pos, SEEK_CUR);
+#endif /* KLIB defined */
             break;
         case ios_base::end:
-            ret_val = NMSP::fseek(open_file, off, SEEK_END);
+#ifdef KLIB
+            ret_val = open_file->seek(off, SEEK_END);
+#else /* KLIB defined */
+            ret_val = ::llseek(fd, static_cast<int32_t>(off >> 32),
+                static_cast<int32_t>(off), &ret_pos, SEEK_END);
+#endif /* KLIB defined */
             break;
         }
         if (ret_val != 0)
@@ -778,8 +838,11 @@ protected:
         // HOSTED_TEST, fpos_t is defined by the system library. We'll just
         // assume we can convert, which isn't very portable, but should work
         // with glibc.
-        ret_val = NMSP::fgetpos(open_file,
-            reinterpret_cast<fpos_t*>(&fpos_ret));
+#ifdef KLIB
+        ret_val = open_file->getpos(reinterpret_cast<fpos_t*>(&fpos_ret));
+#else /* KLIB defined */
+        ret_val = ::llseek(fd, 0, 0, &fpos_ret, SEEK_CUR);
+#endif /* KLIB defined */
         if (ret_val != 0)
             return pos_type {-1};
         return fpos_ret;
@@ -821,25 +884,40 @@ protected:
             if (traits_type::eq_int_type(overflow(), traits_type::eof()))
                 // Flushing failed. Bail.
                 return -1;
-        int ret_val = NMSP::fflush(open_file);
+
+        int ret_val;
+#ifdef KLIB
+        ret_val = open_file->flush();
         if (ret_val != 0)
             // Underlying flush failed. Bail.
             return -1;
+#endif /* KLIB defined */
 
         // Reread the get area. The overflow probably did this already, but
         // we've flushed the associated file since then.
         if (reading)
         {
             // Move the position back.
-            ret_val = NMSP::fseek(open_file,
-                streambuf_type::eback() - streambuf_type::egptr(), SEEK_CUR);
+            ptrdiff_t shift = streambuf_type::eback() - streambuf_type::egptr();
+#ifdef KLIB
+            ret_val = open_file->seek(shift, SEEK_CUR);
+#else /* KLIB defined */
+            pos_type ret_pos {-1};
+            ret_val = ::llseek(fd, 0,
+                    static_cast<int32_t>(shift), &ret_pos, SEEK_CUR);
+#endif /* KLIB defined */
             if (ret_val != 0)
                 // Seek failed. Bail.
                 return -1;
 
             // Reread buffer.
-            streamsize read_size = NMSP::fread(streambuf_type::eback(),
-                sizeof(char_type), BUFSIZ, open_file);
+#ifdef KLIB
+            streamsize read_size = open_file->read(streambuf_type::eback(),
+                sizeof(char_type), BUFSIZ);
+#else /* KLIB defined */
+            streamsize read_size = ::read(fd, streambuf_type::eback(),
+                sizeof(char_type) * BUFSIZ);
+#endif /* KLIB defined */
 
             // Adjust pointers.
             streambuf_type::setg(streambuf_type::eback(),
@@ -913,6 +991,83 @@ protected:
         }
         return streambuf_type::xsputn(s, count);
     }
+
+    // Utility function to read the C++ openmode. Sets reading, writing and
+    // append appropriately, and returns the corresponding C-style mode string,
+    // or an empty string if the openmode is bad.
+    string read_cxxmode(ios_base::openmode mode)
+    {
+        string c_mode {""};
+        switch(static_cast<size_t>(mode))
+        {
+        case ios_base::in:
+            c_mode = "r";
+            reading = true;
+            break;
+        case ios_base::out: case (ios_base::out | ios_base::trunc):
+            c_mode = "w";
+            writing = true;
+            break;
+        case ios_base::app: case (ios_base::app | ios_base::out):
+            c_mode = "a";
+            writing = true;
+            append = true;
+            break;
+        case (ios_base::in | ios_base::out):
+            c_mode = "r+";
+            reading = true;
+            writing = true;
+            break;
+        case (ios_base::in | ios_base::out | ios_base::trunc):
+            c_mode = "w+";
+            reading = true;
+            writing = true;
+            break;
+        case (ios_base::app | ios_base::in):
+        case (ios_base::app | ios_base::in | ios_base::out):
+            c_mode = "a+";
+            reading = true;
+            writing = true;
+            append = true;
+            break;
+        case (ios_base::binary | ios_base::in):
+            c_mode = "rb";
+            reading = true;
+            break;
+        case (ios_base::binary | ios_base::out):
+        case (ios_base::binary | ios_base::out | ios_base::trunc):
+            c_mode = "wb";
+            writing = true;
+            break;
+        case (ios_base::app | ios_base::binary):
+        case (ios_base::app | ios_base::binary | ios_base::out):
+            c_mode = "ab";
+            writing = true;
+            append = true;
+            break;
+        case (ios_base::binary | ios_base::in | ios_base::out):
+            c_mode = "r+b";
+            reading = true;
+            writing = true;
+            break;
+        case (ios_base::binary | ios_base::in | ios_base::out |
+            ios_base::trunc):
+            c_mode = "w+b";
+            reading = true;
+            writing = true;
+            break;
+        case (ios_base::app | ios_base::binary | ios_base::in):
+        case (ios_base::app | ios_base::binary | ios_base::in | ios_base::out):
+            c_mode = "a+b";
+            reading = true;
+            writing = true;
+            append = true;
+            break;
+        default:
+            break;
+        }
+        return c_mode;
+    }
 };
 
 /**
@@ -931,6 +1086,74 @@ void swap(basic_filebuf<CharT, Traits>& lhs, basic_filebuf<CharT, Traits>& rhs)
 {
     lhs.swap(rhs);
 }
+
+#ifndef KLIB
+/**
+    This is the FILE class for user space, that provides C file I/O operations.
+    It is a wrapper round a filebuf, which stores the file descriptor and makes
+    system calls for necessary operations. Note the protected inheritance, FILE
+    is supposed to be opaque and method or field accesses for it should fail. 
+ */
+class FILE : protected filebuf {
+protected:
+    // Use all the constructors of filebuf.
+    using filebuf::filebuf;
+
+    // close() goes straight to the parent filebuf.
+    using filebuf::close;
+
+    // write() needs to call the parent sputn().
+    size_t write(const void* buffer, size_t size, size_t count)
+    {
+        return filebuf::sputn(static_cast<const char_type*>(buffer),
+            size*count);
+    }
+
+    // read() needs to call the parent sgetn().
+    size_t read(void* buffer, size_t size, size_t count)
+    {
+        return filebuf::sgetn(static_cast<char_type*>(buffer), size*count);
+    }
+
+    // flush() needs to call the parent pubsync().
+    int flush() { return filebuf::pubsync(); }
+
+    // getpos() calls the parent pubseekoff() with current and zero to return
+    // the current position.
+    int getpos(fpos_t* pos)
+    {
+        *pos = filebuf::pubseekoff(0, std::ios_base::cur);
+        return (*pos == fpos_t {-1} ? -1 : 0);
+    }
+
+    // seek() needs to call the parent pubseekoff().
+    int seek(long offset, int origin)
+    {
+        switch (origin)
+        {
+        case SEEK_SET:
+            return filebuf::pubseekoff(offset, ios_base::beg);
+        case SEEK_CUR:
+            return filebuf::pubseekoff(offset, ios_base::cur);
+        case SEEK_END:
+            return filebuf::pubseekoff(offset, ios_base::end);
+        default:
+            return -1;
+        }
+    }
+
+    // We need to make all the f* functions friends so they can forward to the
+    // member methods.
+    friend FILE* fopen(const char* filename, const char* mode);
+    friend int fclose(FILE* stream);
+    friend size_t fwrite(const void* buffer, size_t size, size_t count,
+        FILE* stream);
+    friend size_t fread(void* buffer, size_t size, size_t count, FILE* stream);
+    friend int fflush(FILE* stream);
+    friend int fgetpos(FILE* stream, fpos_t* pos);
+    friend int fseek(FILE* stream, long offset, int origin);
+};
+#endif /* KLIB not defined */
 
 /**
     This class provides a file specific output stream that interfaces with a
