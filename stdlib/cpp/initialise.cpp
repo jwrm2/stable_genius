@@ -1,4 +1,6 @@
 #include "../include/cstdlib"
+#include "../include/fstream"
+#include "../include/ios"
 #include "../include/new"
 #include "../include/unistd.h"
 #include "../include/UserHeap.h"
@@ -10,20 +12,22 @@ namespace NMSP {
 
 namespace helper {
 
-/**
-    This function (which does not appear in a header file) is called from the
-    startup file crt0.o. Its job is to perform any initialisations of the
-    standard library that must be performed before entry into main. This will
-    include the heap and standard streams.
- */
-extern "C"
 void initialise_standard_library()
 {
     // Initialise the heap. We can get the initial programme break point by
     // calling brk(0).
     helper::user_heap = helper::UserHeap {reinterpret_cast<void*>(brk(0))};
 
-    // TODO standard streams.
+    // Initialise the C-style standard streams. Must be after heap
+    // initialisation, as they use heap buffers. The file descriptors are
+    // assumed to be open (they should be inherited from the exec'd process) and
+    // setup according the standard numbers from unistd.h.
+    stdin = new FILE {};
+    stdin->open(STDIN_FILENO, ios_base::in);
+    stdout = new FILE {};
+    stdout->open(STDOUT_FILENO, ios_base::out);
+    stderr = new FILE {};
+    stderr->open(STDERR_FILENO, ios_base::out);
 }
 
 } // end helper namespace

@@ -1,5 +1,6 @@
 #include "../include/ios"
 
+#include "../include/iostream"
 #include "../include/string"
 
 namespace NMSP {
@@ -76,6 +77,43 @@ ios_base::~ios_base()
     for (auto p = callbacks.rbegin(); p != callbacks.rend(); ++p)
         p->func(erase_event, *this, p->index);
 }
+
+/******************************************************************************/
+
+#ifndef KLIB
+// The Init subclass is used to initialise and tidy up the standard streams, in
+// user mode only.
+int ios_base::Init::ref_count = 0;
+
+ios_base::Init::Init()
+{
+    // Initialise the standard streams, but only for the first instance.
+    if (ref_count == 0)
+    {
+        cout = ofstream {stdout};
+        cin = ifstream {stdin};
+        cin.tie(&cout);
+        cerr = ofstream {stderr};
+        cerr.tie(&cout);
+    }
+
+    // Update reference count. This is shared by all instances.
+    ++ref_count;
+}
+
+ios_base::Init::~Init()
+{
+    // Update the reference count. This is shared by all instances.
+    --ref_count;
+
+    // Flush the standard streams, but only for the last instance. No need to
+    // destruct them, as the global _fini routine will handle that. No action is
+    // needed for cin.
+    if (ref_count == 0)
+        // cout is tied to cerr, so this flushes cout too.
+        cerr.flush();
+}
+#endif /* KLIB not defined. */
 
 /******************************************************************************/
 

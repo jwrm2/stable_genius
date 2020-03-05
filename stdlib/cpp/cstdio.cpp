@@ -13,6 +13,7 @@
 #ifndef KLIB
 #include "../include/fcntl.h"
 #include "../include/fstream"
+#include "../include/iostream"
 #include "../include/unistd.h"
 #endif /* KLIB not defined */
 
@@ -20,6 +21,15 @@ namespace NMSP {
 
 // Negative fail value.
 constexpr unsigned int fail_val = -1;
+
+/******************************************************************************
+ ******************************************************************************/
+
+#ifndef KLIB
+FILE* stdin;
+FILE* stdout;
+FILE* stderr;
+#endif /* KLIB not defined */
 
 /******************************************************************************
  ******************************************************************************/
@@ -58,6 +68,33 @@ int sprintf(char* buffer, const char* format, ...)
     va_end(vlist);
     return ret_val;
 }
+
+/******************************************************************************/
+
+#ifndef KLIB
+// This is implemented in the kernel for klib, as it goes to the kernel log.
+// Here it goes to stdout.
+int vprintf(const char* format, va_list vlist)
+{
+    int ret_val = EOF;
+
+    if (!format)
+        return ret_val;
+
+    if (cout)
+    {
+        // Perform the substitutions, then print to the destination.
+        string msg;
+        helper::vstrprintf(msg, format, vlist);
+
+        cout << msg;
+        if (cout)
+            ret_val = msg.size();
+    }
+
+    return ret_val;
+}
+#endif /* KLIB defined */
 
 /******************************************************************************/
 
@@ -216,7 +253,7 @@ int fclose(FILE* stream)
 #ifdef KLIB
     int ret_val = stream->close();
 #else /* KLIB defined */
-    int ret_val = (stream->close() == nullptr ? -1 : 0);
+    int ret_val = (stream->close() == nullptr ? fail_val : 0);
 #endif /* KLIB defined */
     delete stream;
     return ret_val;

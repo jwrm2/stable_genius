@@ -16,6 +16,7 @@
 
 #ifndef KLIB
 #include <fcntl.h>
+#include <initialise.h>
 #include <unistd.h>
 #endif /* KLIB not defined */
 
@@ -192,23 +193,9 @@ public:
      */
     basic_filebuf* open(const char* s, ios_base::openmode m)
     {
-        // Check whether there is already an associated file.
-        if (isopen)
-            return nullptr;
-
-        // Reset flags.
-        reading = false;
-        writing = false;
-        append = false;
-        last_underflow = false;
-
-        // Get rid of ate bit.
-        bool ate = (m & ios_base::ate);
-        m &= ~ios_base::ate;
-
-        // Determine the cstdio mode string.
-        string c_mode = read_cxxmode(m);
-        if (c_mode == "")
+        string c_mode;
+        basic_filebuf* ret_val = open_impl_pre(m, c_mode);
+        if (ret_val == nullptr)
             return nullptr;
 
         // Forward the call to open the file.
@@ -235,61 +222,9 @@ public:
             return nullptr;
 #endif /* KLIB defined */
 
-        // If the ate bit is set, attempt to seek to the end of the file.
-        if (ate)
-        {
-#ifdef KLIB
-            int ret_val = open_file->seek(0, SEEK_END);
-            if (ret_val != 0)
-            {
-                close();
-                return nullptr;
-            }
-#else /* KLIB defined */
-            pos_type ret_val {-1};
-            if (::llseek(fd, 0, 0, &ret_val, SEEK_END) != 0)
-            {
-                close();
-                return nullptr;
-            }
-#endif /* KLIB defined */
-        }
-
-        // If buffers have been provided by setbuf, we may need to set pointers
-        // to nullptr.
-        if (!reading && streambuf_type::eback() != nullptr)
-            streambuf_type::setg(nullptr, nullptr, nullptr);
-        if (!writing && streambuf_type::pbase() != nullptr)
-            streambuf_type::setp(nullptr, nullptr, nullptr);
-
-        // Allocate buffer. The get and put areas share the same space.
-        if (reading && streambuf_type::eback() == nullptr && buffered)
-        {
-            char_type* temp;
-            if (streambuf_type::pbase() == nullptr)
-                temp = new char_type[BUFSIZ];
-            else
-                temp = streambuf_type::pbase();
-            // We haven't read anything yet, so the end of the read buffer is
-            // the same as the start.
-            streambuf_type::setg(temp, temp, temp);
-        }
-
-        if (writing && streambuf_type::pbase() == nullptr && buffered)
-        {
-            char_type* temp;
-            if (streambuf_type::eback() == nullptr)
-                temp = new char_type[BUFSIZ];
-            else
-                temp = streambuf_type::eback();
-            streambuf_type::setp(temp, temp, temp + BUFSIZ);
-        }
-
-        // If reading, and not appending fill the buffer.
-        // Postpone filling the buffer until the first read, to avoid waste if
-        // the first call is a seek.
-//        if (reading && !append && streambuf_type::eback() != nullptr)
-//            underflow();
+        ret_val = open_impl_post(m);
+        if (ret_val == nullptr)
+            return nullptr;
 
         return this;
     }
@@ -992,6 +927,41 @@ protected:
         return streambuf_type::xsputn(s, count);
     }
 
+#ifndef KLIB
+    /**
+        Non-standard open on an existing file descriptor. Doesn't make system
+        calls for opening, but does set up a buffer, Does nothing if there is
+        already an associated file. Allocates memory for the read and/or write
+        internal buffers, depending on the open mode, but does not fill the read
+        buffer.
+
+        @param f Existing file descriptor to open.
+        @param m The mode to open the file in, a combination of
+               ios_base::openmode members.
+        @return this on success, nullptr on failure.
+     */
+    basic_filebuf* open(int f, ios_base::openmode m)
+    {
+        string c_mode;
+        basic_filebuf* ret_val = open_impl_pre(m, c_mode);
+        if (ret_val == nullptr)
+            return nullptr;
+
+        // TODO find some way to check if an fd is open or not?
+        if (f == -1)
+            return nullptr;
+
+        // The file is already open, we just need to set the file descriptor.
+        fd = f;
+
+        ret_val = open_impl_post(m);
+        if (ret_val == nullptr)
+            return nullptr;
+
+        return this;
+    }
+#endif /* KLIB not defined */
+
     // Utility function to read the C++ openmode. Sets reading, writing and
     // append appropriately, and returns the corresponding C-style mode string,
     // or an empty string if the openmode is bad.
@@ -1067,6 +1037,89 @@ protected:
             break;
         }
         return c_mode;
+    }
+
+    // Actions to be carried out on open before opening the file. Returns this
+    // on success and nullptr on failure. c_mode is set to the C-style mode
+    // equaivalent to m.
+    basic_filebuf* open_impl_pre(ios_base::openmode m, string& c_mode)
+    {
+        // Check whether there is already an associated file.
+        if (isopen)
+            return nullptr;
+
+        // Reset flags.
+        reading = false;
+        writing = false;
+        append = false;
+        last_underflow = false;
+
+        // Get rid of ate bit.
+        m &= ~ios_base::ate;
+
+        // Determine the cstdio mode string.
+        c_mode = read_cxxmode(m);
+        if (c_mode == "")
+            return nullptr;
+
+        return this;
+    }
+
+    // Actions to be carried out on open after opening the file.
+    basic_filebuf* open_impl_post(ios_base::openmode m)
+    {
+        // If the ate bit is set, attempt to seek to the end of the file.
+        bool ate = (m & ios_base::ate);
+        if (ate)
+        {
+#ifdef KLIB
+            int ret_val = open_file->seek(0, SEEK_END);
+            if (ret_val != 0)
+            {
+                close();
+                return nullptr;
+            }
+#else /* KLIB defined */
+            pos_type ret_val {-1};
+            if (::llseek(fd, 0, 0, &ret_val, SEEK_END) != 0)
+            {
+                close();
+                return nullptr;
+            }
+#endif /* KLIB defined */
+        }
+
+        // If buffers have been provided by setbuf, we may need to set pointers
+        // to nullptr.
+        if (!reading && streambuf_type::eback() != nullptr)
+            streambuf_type::setg(nullptr, nullptr, nullptr);
+        if (!writing && streambuf_type::pbase() != nullptr)
+            streambuf_type::setp(nullptr, nullptr, nullptr);
+
+        // Allocate buffer. The get and put areas share the same space.
+        if (reading && streambuf_type::eback() == nullptr && buffered)
+        {
+            char_type* temp;
+            if (streambuf_type::pbase() == nullptr)
+                temp = new char_type[BUFSIZ];
+            else
+                temp = streambuf_type::pbase();
+            // We haven't read anything yet, so the end of the read buffer is
+            // the same as the start.
+            streambuf_type::setg(temp, temp, temp);
+        }
+
+        if (writing && streambuf_type::pbase() == nullptr && buffered)
+        {
+            char_type* temp;
+            if (streambuf_type::eback() == nullptr)
+                temp = new char_type[BUFSIZ];
+            else
+                temp = streambuf_type::eback();
+            streambuf_type::setp(temp, temp, temp + BUFSIZ);
+        }
+
+        return this;
     }
 };
 
@@ -1152,6 +1205,12 @@ protected:
     friend int fflush(FILE* stream);
     friend int fgetpos(FILE* stream, fpos_t* pos);
     friend int fseek(FILE* stream, long offset, int origin);
+    // We need to make the C library initialisation a friend so we can access
+    // the special open() to wrap an existing file descriptor.
+    friend void helper::initialise_standard_library();
+    // The function that performs C++ standard stream initialisation needs to be
+    // a friend so it can cast a FILE* to a filebuf*.
+    friend ios_base::Init::Init();
 };
 #endif /* KLIB not defined */
 
@@ -1187,9 +1246,9 @@ public:
         Default constructor. Creates a basic_filebuf not associated with any
         file and constucts the base.
      */
-    basic_ofstream() : ostream_type {nullptr}, fb {}
+    basic_ofstream() : ostream_type {nullptr}, fb {new filebuf_type{}}
     {
-        ostream_type::init(&fb);
+        ostream_type::init(fb);
     }
 
     /**
@@ -1200,10 +1259,12 @@ public:
         @param mode Mode in which to open the file.
      */
     explicit basic_ofstream(const char* filename,
-        ios_base::openmode mode = ios_base::out) : ostream_type {nullptr}, fb {}
+        ios_base::openmode mode = ios_base::out) :
+        ostream_type {nullptr},
+        fb {new filebuf_type{}}
     {
-        ostream_type::init(&fb);
-        if (fb.open(filename, mode | ios_base::out) == nullptr)
+        ostream_type::init(fb);
+        if (fb->open(filename, mode | ios_base::out) == nullptr)
             ostream_type::setstate(ios_base::failbit);
     }
 
@@ -1211,6 +1272,18 @@ public:
         ios_base::openmode mode = ios_base::out) :
         basic_ofstream {filename.c_str(), mode}
     {}
+
+    /**
+        Non-standard constructor, in user mode only, to associate a file stream
+        with an existing filebuf. Used in the initialisation of the standard
+        streams.  The mode is set to ios_base::out.
+
+        @param filebuf Existing filebuf to associate.
+     */
+#ifndef KLIB
+    explicit basic_ofstream(filebuf_type* f) : ostream_type {nullptr}, fb {f}
+    {}
+#endif /* KLIB defined */
 
     /**
         Copy constructor is deleted.
@@ -1231,7 +1304,8 @@ public:
         ostream_type {move(other)},
         fb {move(other.fb)}
     {
-        ostream_type::set_rdbuf(&fb);
+        other.fb = nullptr;
+        ostream_type::set_rdbuf(fb);
         other.set_rdbuf(nullptr);
     }
 
@@ -1247,8 +1321,9 @@ public:
     basic_ofstream& operator=(basic_ofstream&& other)
     {
         ostream_type::operator=(move(other));
-        fb = move(other.fb);
-        ostream_type::set_rdbuf(&fb);
+        fb = other.fb;
+        other.fb = nullptr;
+        ostream_type::set_rdbuf(fb);
         other.set_rdbuf(nullptr);
 
         return *this;
@@ -1264,7 +1339,7 @@ public:
     void swap(basic_ofstream& other)
     {
         ostream_type::swap(other);
-        fb.swap(other.fb);
+        fb->swap(other.fb);
     }
 
     /**
@@ -1274,7 +1349,7 @@ public:
      */
     filebuf_type* rdbuf() const
     {
-        return const_cast<filebuf_type*>(&fb);
+        return const_cast<filebuf_type*>(fb);
     }
 
     /**
@@ -1283,7 +1358,7 @@ public:
 
         @return Whether there is an open file associated with the stream.
      */
-    bool is_open() const { return fb.is_open(); }
+    bool is_open() const { return fb->is_open(); }
 
     /**
         Calls the member filebuf open() method to open and associate a file.
@@ -1295,7 +1370,7 @@ public:
      */
     void open(const char* filename, ios_base::openmode mode = ios_base::out)
     {
-        if (fb.open(filename, mode | ios_base::out) == nullptr)
+        if (fb->open(filename, mode | ios_base::out) == nullptr)
             ostream_type::setstate(ios_base::failbit);
         else
             ostream_type::clear();
@@ -1312,14 +1387,16 @@ public:
      */
     void close()
     {
-        if (fb.close() == nullptr)
+        if (fb->close() == nullptr)
             ostream_type::setstate(ios_base::failbit);
+        delete fb;
+        fb = nullptr;
     }
 
 protected:
     // The basic_filebuf. The inherited buffer member pointer will be set to
     // point at this.
-    filebuf_type fb;
+    filebuf_type* fb;
 };
 
 /**
@@ -1372,9 +1449,9 @@ public:
         Default constructor. Creates a basic_filebuf not associated with any
         file and constucts the base.
      */
-    basic_ifstream() : istream_type {nullptr}, fb {}
+    basic_ifstream() : istream_type {nullptr}, fb {new filebuf_type{}}
     {
-        istream_type::init(&fb);
+        istream_type::init(fb);
     }
 
     /**
@@ -1385,10 +1462,12 @@ public:
         @param mode Mode in which to open the file.
      */
     explicit basic_ifstream(const char* filename,
-        ios_base::openmode mode = ios_base::in) : istream_type {nullptr}, fb {}
+        ios_base::openmode mode = ios_base::in) :
+        istream_type {nullptr},
+        fb {new filebuf_type{}}
     {
-        istream_type::init(&fb);
-        if (fb.open(filename, mode | ios_base::in) == nullptr)
+        istream_type::init(fb);
+        if (fb->open(filename, mode | ios_base::in) == nullptr)
             istream_type::setstate(ios_base::failbit);
     }
 
@@ -1396,6 +1475,18 @@ public:
         ios_base::openmode mode = ios_base::in) :
         basic_ifstream {filename.c_str(), mode}
     {}
+
+    /**
+        Non-standard constructor, in user mode only, to associate a file stream
+        with an existing filebuf. Used in the initialisation of the standard
+        streams. The mode is set to ios_base::in.
+
+        @param filebuf Existing filebuf to associate.
+     */
+#ifndef KLIB
+    explicit basic_ifstream(filebuf_type* f) : istream_type {nullptr}, fb {f}
+    {}
+#endif /* KLIB defined */
 
     /**
         Copy constructor is deleted.
@@ -1416,6 +1507,7 @@ public:
         istream_type {move(other)},
         fb {move(other.fb)}
     {
+        other.fb = nullptr;
         istream_type::set_rdbuf(&fb);
         other.set_rdbuf(nullptr);
     }
@@ -1432,8 +1524,9 @@ public:
     basic_ifstream& operator=(basic_ifstream&& other)
     {
         istream_type::operator=(move(other));
-        fb = move(other.fb);
-        istream_type::set_rdbuf(&fb);
+        fb = other.fb;
+        other.fb = nullptr;
+        istream_type::set_rdbuf(fb);
         other.set_rdbuf(nullptr);
 
         return *this;
@@ -1449,7 +1542,7 @@ public:
     void swap(basic_ifstream& other)
     {
         istream_type::swap(other);
-        fb.swap(other.fb);
+        fb->swap(other.fb);
     }
 
     /**
@@ -1459,7 +1552,7 @@ public:
      */
     filebuf_type* rdbuf() const
     {
-        return const_cast<filebuf_type*>(&fb);
+        return const_cast<filebuf_type*>(fb);
     }
 
     /**
@@ -1468,7 +1561,7 @@ public:
 
         @return Whether there is an open file associated with the stream.
      */
-    bool is_open() const { return fb.is_open(); }
+    bool is_open() const { return fb->is_open(); }
 
     /**
         Calls the member filebuf open() method to open and associate a file.
@@ -1480,7 +1573,7 @@ public:
      */
     void open(const char* filename, ios_base::openmode mode = ios_base::in)
     {
-        if (fb.open(filename, mode | ios_base::in) == nullptr)
+        if (fb->open(filename, mode | ios_base::in) == nullptr)
             istream_type::setstate(ios_base::failbit);
         else
             istream_type::clear();
@@ -1497,14 +1590,16 @@ public:
      */
     void close()
     {
-        if (fb.close() == nullptr)
+        if (fb->close() == nullptr)
             istream_type::setstate(ios_base::failbit);
+        delete fb;
+        fb = nullptr;
     }
 
 protected:
     // The basic_filebuf. The inherited buffer member pointer will be set to
     // point at this.
-    filebuf_type fb;
+    filebuf_type* fb;
 };
 
 /**
@@ -1555,9 +1650,9 @@ public:
         Constructor. Default constructs the file buffer. Does not open any
         files.
      */
-    basic_fstream() : iostream_type {nullptr}, fb {}
+    basic_fstream() : iostream_type {nullptr}, fb {nullptr}
     {
-        iostream_type::init(&fb);
+        iostream_type::init(fb);
     }
 
     /**
@@ -1568,9 +1663,9 @@ public:
      */
     explicit basic_fstream(const char* filename,
         ios_base::openmode mode = ios_base::in | ios_base::out) :
-        iostream_type {nullptr}, fb {}
+        iostream_type {nullptr}, fb {new filebuf_type{}}
     {
-        iostream_type::init(&fb);
+        iostream_type::init(fb);
         if (fb.open(filename, mode) == nullptr)
             iostream_type::setstate(ios_base::failbit);
     }
@@ -1597,9 +1692,9 @@ public:
      */
     basic_fstream(basic_fstream&& other) :
         iostream_type {move(other)},
-        fb {move(other.fb)}
+        fb {other.fb}
     {
-        iostream_type::set_rdbuf(&fb);
+        iostream_type::set_rdbuf(fb);
         other.set_rdbuf(nullptr);
     }
 
@@ -1615,8 +1710,9 @@ public:
     basic_fstream& operator=(basic_fstream&& other)
     {
         iostream_type::operator=(move(other));
-        fb = move(other.fb);
-        iostream_type::set_rdbuf(&fb);
+        fb = other.fb;
+        other.fb = nullptr;
+        iostream_type::set_rdbuf(fb);
         other.set_rdbuf(nullptr);
 
         return *this;
@@ -1632,7 +1728,7 @@ public:
     void swap(basic_fstream& other)
     {
         iostream_type::swap(other);
-        fb.swap(other.fb);
+        fb->swap(other.fb);
     }
 
     /**
@@ -1642,7 +1738,7 @@ public:
      */
     filebuf_type* rdbuf() const
     {
-        return const_cast<filebuf_type*>(&fb);
+        return fb;
     }
 
     /**
@@ -1651,7 +1747,7 @@ public:
 
         @return Whether there is an open file associated with the stream.
      */
-    bool is_open() const { return fb.is_open(); }
+    bool is_open() const { return fb->is_open(); }
 
     /**
         Calls the member filebuf open() method to open and associate a file.
@@ -1664,7 +1760,7 @@ public:
     void open(const char* filename,
         ios_base::openmode mode = ios_base::in | ios_base::out)
     {
-        if (fb.open(filename, mode) == nullptr)
+        if (fb->open(filename, mode) == nullptr)
             iostream_type::setstate(ios_base::failbit);
         else
             iostream_type::clear();
@@ -1682,14 +1778,16 @@ public:
      */
     void close()
     {
-        if (fb.close() == nullptr)
+        if (fb->close() == nullptr)
             iostream_type::setstate(ios_base::failbit);
+        delete fb;
+        fb = nullptr;
     }
 
 protected:
     // The basic_filebuf. The inherited buffer member pointer will be set to
     // point at this.
-    filebuf_type fb;
+    filebuf_type* fb;
 };
 
 /**
