@@ -1,0 +1,57 @@
+#ifndef IOSTREAM_H
+#define IOSTREAM_H
+
+#include <ios>
+#include <streambuf>
+#include <fstream>
+#include <istream>
+#include <ostream>
+
+// Use std as the default namespace.
+#ifndef NMSP
+#define NMSP std
+#endif /* NMSP */
+
+// The objects in this header are for user space only.
+#ifndef KLIB
+
+namespace NMSP {
+
+/**
+    This object, which has global scope, is default constructed, during which
+    the standard stream objects are associated with the appropriate file
+    descriptors. On programme exit, it is destructed, during which the standard
+    output streams are flushed.
+ */
+namespace helper {
+static ios_base::Init std_stream_initialise_object;
+}
+
+/**
+    The standard input stream. It is initialised in programme startup before
+    main. The standard output stream is tied to this, so operations on this
+    stream with first flush standard out. It is associated with file
+    descriptor 0.
+ */
+extern ifstream cin;
+
+/**
+    The standard output stream. It is initialised in programme startup before
+    main. It is tied to the standard in and error streams, so both of those
+    flush this stream before any operation. It is associated with file
+    descriptor 1.
+ */
+extern ofstream cout;
+
+/**
+    The standard error stream. It is initialised in programme startup before
+    main. The standard output stream is tied to this, so operations on this
+    stream with first flush standard out. It is associated with file
+    descriptor 2.
+ */
+extern ofstream cerr;
+
+} // end NMSP namespace
+
+#endif /* KLIB defined */
+#endif /* IOSTREAM_H */

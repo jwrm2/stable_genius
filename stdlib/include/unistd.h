@@ -19,6 +19,13 @@ namespace std {
     using fpos_t = fpos<mbstate_t>;
 }
 
+/**
+    Symbolic constants specifying the file descriptors for the standard streams.
+ */
+#define STDIN_FILENO 0
+#define STDOUT_FILENO 1
+#define STDERR_FILENO 2
+
 // These functions are in the default namespace and have C linkage.
 extern "C" {
 

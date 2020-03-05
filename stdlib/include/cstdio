@@ -53,6 +53,16 @@ using fpos_t = fpos<mbstate_t>;
 #endif /* BUFSIZ */
 
 /**
+    Standard streams. These are initialised in the standard library
+    initialisation before main is called. User space only.
+ */
+#ifndef KLIB
+extern FILE* stdin;
+extern FILE* stdout;
+extern FILE* stderr;
+#endif /* KLIB not defined */
+
+/**
     Prints the given format string and replacements in the variable argument
     list to standard out. This is just a wrapper round vprintf.
 

@@ -499,7 +499,7 @@ public:
 
     private:
         /** Keeps track of the number of instances of this class. */
-        static size_t ref_count;
+        static int ref_count;
     };
 
     /**

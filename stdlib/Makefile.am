@@ -13,13 +13,14 @@ stdlib_includes_common = @stdlib_include_dir@/algorithm @stdlib_include_dir@/cct
     @stdlib_include_dir@/memory @stdlib_include_dir@/ostream @stdlib_include_dir@/sstream @stdlib_include_dir@/streambuf @stdlib_include_dir@/system_error \
     @stdlib_include_dir@/type_traits @stdlib_include_dir@/vector
 stdlib_includes_konly =
-stdlib_includes_conly = @stdlib_include_dir@/unistd.h @stdlib_include_dir@/UserHeap.h
+stdlib_includes_conly = @stdlib_include_dir@/fcntl.h @stdlib_include_dir@/initialise.h @stdlib_include_dir@/iostream @stdlib_include_dir@/unistd.h \
+    @stdlib_include_dir@/UserHeap.h
 stdlib_sources_common = @stdlib_cpp_dir@/cctype.cpp @stdlib_cpp_dir@/cstdio.cpp @stdlib_cpp_dir@/cstring.cpp @stdlib_cpp_dir@/cxxabi.cpp @stdlib_cpp_dir@/ios.cpp \
     @stdlib_cpp_dir@/new.cpp @stdlib_cpp_dir@/stdexcept.cpp @stdlib_cpp_dir@/system_error.cpp @stdlib_cpp_dir@/cmath.cpp @stdlib_cpp_dir@/cstdlib.cpp \
     @stdlib_cpp_dir@/cwchar.cpp @stdlib_cpp_dir@/exception.cpp @stdlib_cpp_dir@/istream.cpp @stdlib_cpp_dir@/ostream.cpp @stdlib_cpp_dir@/string.cpp \
     @stdlib_cpp_dir@/typeinfo.cpp @stdlib_cpp_dir@/UserHeap.cpp @stdlib_cpp_dir@/initialise.cpp
 stdlib_sources_konly =
-stdlib_sources_conly = @stdlib_asm_dir@/syscalls.s
+stdlib_sources_conly = @stdlib_asm_dir@/syscalls.s @stdlib_cpp_dir@/iostream.cpp
 
 # List of headers and sources for the user space library.
 libc_a_SOURCES = $(stdlib_includes_common) $(stdlib_includes_conly) $(stdlib_sources_common) $(stdlib_sources_conly)

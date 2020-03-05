@@ -9,7 +9,10 @@ _start:
     push %ebp # Gives a zero stack base address (%ebp).
     mov %esp, %ebp # Sets stack base address appropriately for this function.
 
-    # TODO Call standard library initialistion here.
+    # Call standard library initialistion here. This must be done before global
+    # constructors are called, as global constructors might rely on library
+    # features that need to be initialised (particularly the heap). Therefore
+    # the initialisation cannot rely on any globally constructed objects.
     call initialise_standard_library
 
     # Run the global contructors.
