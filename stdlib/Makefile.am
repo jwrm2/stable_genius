@@ -1,6 +1,10 @@
 # Create both the kernel and user space libraries. The kernel library is only
-# for linking the kernel and does not need to be 'installed'.
-lib_LIBRARIES = libc.a
+# for linking the kernel and does not need to be 'installed'. We create a
+# libstdc++ for user space. However, currently the C and C++ libraries are not
+# seperate, so it's empty and everything is in libc. If I want true C user space
+# programmes, I'll have to fix that. We also create libm for user space, since
+# the g++ linker line wants it, but it's also currently empty.
+lib_LIBRARIES = libc.a libstdcxx.a libm.a
 crtdir = $(libdir)
 crt_DATA = crti.o crtn.o crt0.o
 noinst_LIBRARIES = libk.a
@@ -31,11 +35,19 @@ crtn.o: @stdlib_crt_dir@/crtn.s
 	$(CCAS) -c @common_ccasflags@ -o $@ $^
 crt0.o: @stdlib_crt_dir@/crt0.s
 	$(CCAS) -c @common_ccasflags@ -o $@ $^
+libstdcxx_a_SOURCES = @stdlib_cpp_dir@/empty.cpp
+libm_a_SOURCES = @stdlib_cpp_dir@/empty.cpp
 
 # Compiler flas for the user space library
 libc_a_CPPFLAGS = @common_cppflags@ @stdlib_cppflags@
 libc_a_CCASFLAGS = @common_ccasflags@
 libc_a_CXXFLAGS = @common_cxxflags@ @stdlib_cxxflags@
+libstdcxx_a_CPPFLAGS = @common_cppflags@ @stdlib_cppflags@
+libstdcxx_a_CCASFLAGS = @common_ccasflags@
+libstdcxx_a_CXXFLAGS = @common_cxxflags@ @stdlib_cxxflags@
+libm_a_CPPFLAGS = @common_cppflags@ @stdlib_cppflags@
+libm_a_CCASFLAGS = @common_ccasflags@
+libm_a_CXXFLAGS = @common_cxxflags@ @stdlib_cxxflags@
 
 # List of headers and sources for the kernel library.
 libk_a_SOURCES = $(stdlib_includes_common) $(stdlib_includes_konly) $(stdlib_sources_common) $(stdlib_sources_konly)
@@ -50,9 +62,10 @@ libk_a_CXXFLAGS = @common_cxxflags@ @stdlib_cxxflags@
 # custom local command to the build to achieve this.
 all-local: $(libdir)/libc.a
 
-$(libdir)/libc.a: $(lib_LIBRARIES) $(include_HEADERS)
+$(libdir)/libc.a: $(lib_LIBRARIES) $(include_HEADERS) $(crt_DATA)
 	$(MKDIR_P) $(libdir)
 	$(INSTALL) $(lib_LIBRARIES) $(libdir)
+	mv $(libdir)/libstdcxx.a $(libdir)/libstdc++.a
 	$(INSTALL) $(crt_DATA) $(crtdir)
 	$(MKDIR_P) $(includedir)
 	$(INSTALL) $(include_HEADERS) $(includedir)

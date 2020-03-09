@@ -18,9 +18,9 @@ exec_str: .string "EXEC\n"
 fork_str: .string "FORK\n"
 
 .section .text
-# Entry point
-.global _start
-_start:
+# Entry point, called from crt0.s
+.global main
+main:
     # Testing
     #mov $0xCAFEBABE, %ecx
     #.test: jmp .test
@@ -32,7 +32,7 @@ _start:
 # Call C function, including saving register
     push %eax
     push %ecx
-    call main
+    call cxx_main
 # Put return value into edx
     mov %eax, %edx
 # Restore eax and ecx

@@ -10,7 +10,7 @@ extern const unsigned int deadbabe_rodata = 0xDEADBABE;
 // .bss entry
 unsigned int cafebabe_bss;
 
-int main()
+int cxx_main()
 {
     cafebabe_bss = 0xCAFEBABE;
     return cafebabe_bss;
