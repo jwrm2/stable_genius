@@ -166,6 +166,7 @@ AC_SUBST(kernel_ldflags, ["-T \$(top_srcdir)/${kernel_dir}/link.ld  -nostdlib -L
 AC_SUBST(kernel_libs, ["-lk"])
 AC_SUBST(user_ldflags, ["--sysroot=\$(prefix)"])
 AC_SUBST(user_libs, [""])
+AC_SUBST(user_dependencies, ["\$(libdir)/libc.a \$(libdir)/libstdc++.a \$(libdir)/libm.a \$(libdir)/crt0.o \$(libdir)/crti.o \$(libdir)/crtn.o"])
 
 # Start files necessary for user space linking. crtbegin.o and crtend.o are
 # provided by the compiler, which can tell us where they are.

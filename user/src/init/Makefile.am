@@ -9,6 +9,7 @@ init_CXXFLAGS = @common_cxxflags@
 init_CCASFLAGS = @common_ccasflags@
 init_LDFLAGS = @common_ldflags@ @user_ldflags@
 init_LDADD = @user_libs@ @common_libs@
+EXTRA_init_DEPENDENCIES = @user_dependencies@
 
 # The install target doesn't really meet our requirements. Instead, make the run
 # target put everything into the file tree that will become the root filesystem.

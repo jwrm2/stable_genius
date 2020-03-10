@@ -60,6 +60,8 @@ libk_a_CXXFLAGS = @common_cxxflags@ @stdlib_cxxflags@
 # The user space stdlib, start files and includes need to be in place in the
 # image directory so the user space builds can use that as the sysroot. Add a
 # custom local command to the build to achieve this.
+run-local: all-local
+
 all-local: $(libdir)/libc.a
 
 $(libdir)/libc.a: $(lib_LIBRARIES) $(include_HEADERS) $(crt_DATA)

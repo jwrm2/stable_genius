@@ -22,8 +22,8 @@ fork_str: .string "FORK\n"
 .global main
 main:
     # Testing
-    #mov $0xCAFEBABE, %ecx
-    #.test: jmp .test
+#    mov $0xCAFEBABE, %ecx
+#    .test: jmp .test
 # Read from the .data
     mov deadbeef_data, %eax
 # Read from the .rodata
