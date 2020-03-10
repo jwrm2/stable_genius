@@ -628,6 +628,7 @@ SED
 RANLIB
 crtend
 crtbegin
+user_dependencies
 user_libs
 user_ldflags
 kernel_libs
@@ -4424,6 +4425,8 @@ kernel_libs="-lk"
 user_ldflags="--sysroot=\$(prefix)"
 
 user_libs=""
+
+user_dependencies="\$(libdir)/libc.a \$(libdir)/libstdc++.a \$(libdir)/libm.a \$(libdir)/crt0.o \$(libdir)/crti.o \$(libdir)/crtn.o"
 
 
 # Start files necessary for user space linking. crtbegin.o and crtend.o are

@@ -9,6 +9,7 @@ sgsh_CXXFLAGS = @common_cxxflags@
 sgsh_CCASFLAGS = @common_ccasflags@
 sgsh_LDFLAGS = @common_ldflags@ @user_ldflags@
 sgsh_LDADD = @user_libs@ @common_libs@
+EXTRA_sgsh_DEPENDENCIES = @user_dependencies@
 
 # The install target doesn't really meet our requirements. Instead, make the run
 # target put everything into the file tree that will become the root filesystem.
