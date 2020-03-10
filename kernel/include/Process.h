@@ -247,6 +247,32 @@ public:
     size_t get_ppid() const { return parent_pid; }
 
     /**
+        Gets or sets the maximum user space stack size. The maximum size will be
+        rounded up to an integer number of pages.
+
+        @param max Maximum stack size to set.
+        @return Current maximum stack size.
+     */
+    size_t user_max_stack() const { return max_stack; }
+    void user_max_stack(size_t max)
+    {
+        max_stack = max - max % PageDescriptorTable::page_size +
+            PageDescriptorTable::page_size;
+    }
+
+    /**
+        Sets the current user space stack size. The set will do nothing
+        successfully if the specified value is less than the current stack size,
+        and will fail if the requested size is greater than the current maximum
+        stack size. It will allocate new memory to the stack below the current
+        base and move the base downwards.
+
+        @param sz New size for the user space stack.
+        @return 0 on success, -1 on failure.
+     */
+    int set_user_stack(size_t sz);
+
+    /**
         Sets the break point, ie changes the size of the heap. Will fail if the
         new address is into stack memory, or before the start of the heap. As a
         special case, if the value 0 is passed, instead returns the current
@@ -287,13 +313,23 @@ public:
     const klib::vector<size_t>& get_children() const { return child_pids; }
 
 private:
+    // Initial size of the user stack, currently one page.
+    static constexpr size_t start_stack = PageDescriptorTable::page_size;
+    // Size of the kernel stack for this process. This is only used for
+    // executing system calls.
+    static constexpr size_t kernel_stack_size = PageDescriptorTable::page_size;
+    // Default maximum size of the user space stack. The user stack will be
+    // dynamically expanded (by catching page faults) until it is this size.
+    static constexpr size_t default_max_stack = 1 << 23;
+
     // Entry point for the process, as read from the ELF header.
     uintptr_t entry_point;
     // Page Descriptor Table for this process. PDTs own their associated Page
     // Tables, so we don't need a list of PTs here.
     PageDescriptorTable* pdt;
-    // Current size of the user stack.
+    // Current size of the user stack and maximum size.
     size_t current_stack;
+    size_t max_stack = default_max_stack;
     // Bottom of the kernel stack for this process.
     uintptr_t* kernel_stack;
     // Virtual break point, that is the memory address of the end of the
@@ -321,12 +357,8 @@ private:
     size_t parent_pid;
     // List of the pids of children.
     klib::vector<size_t> child_pids;
-
-    // Initial size of the user stack, currently one page.
-    static constexpr size_t start_stack = PageDescriptorTable::page_size;
-    // Size of the kernel stack for this process. This is only used for
-    // executing system calls.
-    static constexpr size_t kernel_stack_size = PageDescriptorTable::page_size;
+    // Whether we've been editing the PDT. Forces it to be reloaded on resume.
+    bool pdt_changed;
 };
 
 /**

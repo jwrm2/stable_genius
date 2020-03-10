@@ -11,6 +11,8 @@
 #include "paging.h"
 #include "Pic.h"
 #include "Pit.h"
+#include "Process.h"
+#include "ProcTable.h"
 #include "Scheduler.h"
 #include "SignalManager.h"
 #include "Syscall.h"
@@ -216,6 +218,22 @@ void GpfHandler::handle()
 
 void PageFaultHandler::handle()
 {
+    // If the page fault has come from user mode, and it's an attempted user
+    // space access, we can try to expand the stack.
+    if (is.code() & 0x4 && get_cr2() < kernel_virtual_base)
+    {
+        Process* p = global_kernel->get_proc_table().get_process(
+            global_kernel->get_scheduler().get_last());
+        size_t new_size = kernel_virtual_base - get_cr2();
+        if (p != nullptr && p->set_user_stack(new_size) == 0)
+            // We've succeeded in expanding the stack. We can safely return to
+            // user mode.
+            return;
+        // We've failed to expand the stack. This either means it wasn't a stack
+        // overflow to start with, we've run out of permitted stack space, or
+        // we've run out of physical memory. Whichever, continue with the error.
+    }
+
     klib::string msg {"Page Fault:\n"};
 
     // Violation or not present
