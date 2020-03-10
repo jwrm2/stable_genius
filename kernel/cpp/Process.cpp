@@ -35,7 +35,8 @@ Process::Process(const klib::string& name) :
     file_desc {},
     ret_val {},
     parent_pid {},
-    child_pids {}
+    child_pids {},
+    pdt_changed {false}
 {
 //    elf.dump(*global_kernel->syslog()->stream());
 
@@ -68,7 +69,8 @@ Process::Process() :
     file_desc {},
     ret_val {},
     parent_pid {},
-    child_pids {}
+    child_pids {},
+    pdt_changed {false}
 {
     // This constructor is specifically designed to set the process up to be
     // duplicated in a fork call. Thus we create a new PDT but leave it blank,
@@ -93,7 +95,8 @@ Process::Process(Process&& other) :
     file_desc {other.file_desc},
     ret_val {other.ret_val},
     parent_pid {other.parent_pid},
-    child_pids {klib::move(other.child_pids)}
+    child_pids {klib::move(other.child_pids)},
+    pdt_changed {other.pdt_changed}
 {
     // Set the pointers in other to nullptr. Prevents the other destructor from
     // messing this up.
@@ -129,6 +132,7 @@ Process& Process::operator=(Process&& other)
     ret_val = other.ret_val;
     parent_pid = other.parent_pid;
     child_pids = klib::move(other.child_pids);
+    pdt_changed = other.pdt_changed;
 
     // Set the pointers in other to nullptr. Prevents the other destructor from
     // messing this up.
@@ -209,6 +213,7 @@ void Process::fork_duplicate(const Process& other)
     // the other process is active.
     pdt->duplicate_user_space(reinterpret_cast<void*>(kernel_virtual_base));
     break_point = other.break_point;
+    pdt_changed = true;
 
     // Duplicate the file description table. We need to increment the counts of
     // each entry in the global table.
@@ -277,6 +282,7 @@ void Process::launch(PageDescriptorTable& k_pdt)
             return;
         }
     }
+    pdt_changed = true;
 
     // Allocate kernel stack space.
     kernel_stack = new uintptr_t[kernel_stack_size / sizeof(kernel_stack)];
@@ -334,10 +340,14 @@ void Process::resume()
 {
     // Reload the PDT for this process.
     // This is fairly expensive. We'll skip it if this is already the active
-    // process.
-    if (stat != ProcStatus::active)
+    // process. However, we still need to do it if we've been making adjustments
+    // to the PDT.
+    if (stat != ProcStatus::active || pdt_changed)
+    {
         global_kernel->get_pdt()->update_user_space(*pdt,
             reinterpret_cast<void*>(kernel_virtual_base));
+        pdt_changed = false;
+    }
 
 //    global_kernel->get_pdt()->dump(*global_kernel->syslog()->device());
 //    global_kernel->syslog()->info("process resume %%eip, %%cs, %%eflags, %%esp, %%ss is %X, %X, %X, %X, %X\n", is.eip(), is.cs(), is.eflags(), is.esp(), is.ss());
@@ -457,6 +467,49 @@ int Process::get_fd_key(int fd)
 
 /******************************************************************************/
 
+int Process::set_user_stack(size_t sz)
+{
+    // Do nothing successfully if the requested size is smaller than the current
+    // size.
+    if (sz < current_stack)
+        return 0;
+
+    // Round sz up to an integer number of pages.
+    sz = sz - sz % PageDescriptorTable::page_size +
+        PageDescriptorTable::page_size;
+
+    // Fail if the requested size is larger than the current maximum size.
+    if (sz > max_stack)
+        return -1;
+
+    // Fail if the new size would clash with the heap, ie. we have run out of
+    // virtual address space.
+    if (kernel_virtual_base - sz < reinterpret_cast<uintptr_t>(break_point))
+        return -1;
+
+    // The page configuration must be set to present, user mode and
+    // writable.
+    uint32_t conf = static_cast<uint32_t>(PdeSettings::present) | 
+        static_cast<uint32_t>(PdeSettings::writable) |
+        static_cast<uint32_t>(PdeSettings::user_access);
+
+    // Increase the current stack size to match the new size.
+    while (current_stack < sz)
+    {
+        void* new_stack = reinterpret_cast<void*>(kernel_virtual_base -
+            current_stack - PageDescriptorTable::page_size);
+        global_kernel->syslog()->info("Process::set_user_stack allocating new page at %p\n", new_stack);
+        if (!pdt->allocate(new_stack, conf))
+            return -1;
+        pdt_changed = true;
+        current_stack += PageDescriptorTable::page_size;
+    }
+
+    return 0;
+}
+
+/******************************************************************************/
+
 int Process::brk(void* addr)
 {
     uintptr_t v_addr = reinterpret_cast<uintptr_t>(addr);
@@ -487,15 +540,19 @@ int Process::brk(void* addr)
     // Test whether we need to allocate more pages.
     while (v_addr > break_bot)
     {
+        global_kernel->syslog()->info("Process::brk allocating new page at %X\n", break_bot);
         if (!pdt->allocate(reinterpret_cast<void*>(break_bot), conf))
             return -1;
         break_bot += PageDescriptorTable::page_size;
+        pdt_changed = true;
     }
     // Test whether we need to deallocate pages.
     while (addr_top <= v_bp)
     {
+        global_kernel->syslog()->info("Process::brk deallocating page at %X\n", v_bp);
         pdt->free(reinterpret_cast<void*>(v_bp));
         v_bp -= PageDescriptorTable::page_size;
+        pdt_changed = true;
     }
 
     break_point = static_cast<uintptr_t*>(addr);
