@@ -226,9 +226,11 @@ void PageFaultHandler::handle()
             global_kernel->get_scheduler().get_last());
         size_t new_size = kernel_virtual_base - get_cr2();
         if (p != nullptr && p->set_user_stack(new_size) == 0)
+        {
             // We've succeeded in expanding the stack. We can safely return to
             // user mode.
             return;
+        }
         // We've failed to expand the stack. This either means it wasn't a stack
         // overflow to start with, we've run out of permitted stack space, or
         // we've run out of physical memory. Whichever, continue with the error.

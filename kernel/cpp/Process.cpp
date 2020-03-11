@@ -498,11 +498,18 @@ int Process::set_user_stack(size_t sz)
     {
         void* new_stack = reinterpret_cast<void*>(kernel_virtual_base -
             current_stack - PageDescriptorTable::page_size);
-        global_kernel->syslog()->info("Process::set_user_stack allocating new page at %p\n", new_stack);
         if (!pdt->allocate(new_stack, conf))
             return -1;
         pdt_changed = true;
         current_stack += PageDescriptorTable::page_size;
+    }
+
+    // Update the kernel PDT.
+    if (pdt_changed)
+    {
+        global_kernel->get_pdt()->update_user_space(*pdt,
+            reinterpret_cast<void*>(kernel_virtual_base));
+        pdt_changed = false;
     }
 
     return 0;
@@ -540,7 +547,6 @@ int Process::brk(void* addr)
     // Test whether we need to allocate more pages.
     while (v_addr > break_bot)
     {
-        global_kernel->syslog()->info("Process::brk allocating new page at %X\n", break_bot);
         if (!pdt->allocate(reinterpret_cast<void*>(break_bot), conf))
             return -1;
         break_bot += PageDescriptorTable::page_size;
@@ -549,13 +555,21 @@ int Process::brk(void* addr)
     // Test whether we need to deallocate pages.
     while (addr_top <= v_bp)
     {
-        global_kernel->syslog()->info("Process::brk deallocating page at %X\n", v_bp);
         pdt->free(reinterpret_cast<void*>(v_bp));
         v_bp -= PageDescriptorTable::page_size;
         pdt_changed = true;
     }
 
     break_point = static_cast<uintptr_t*>(addr);
+
+    // Update the kernel PDT.
+    if (pdt_changed)
+    {
+        global_kernel->get_pdt()->update_user_space(*pdt,
+            reinterpret_cast<void*>(kernel_virtual_base));
+        pdt_changed = false;
+    }
+
     return 0;
 }
 
