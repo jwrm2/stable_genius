@@ -65,7 +65,8 @@ public:
         fd {-1},
 #endif /* KLIB defined */
         buffered {true}
-    {}
+    {
+    }
 
     /**
         The copy constructor is deleted.
@@ -1650,7 +1651,7 @@ public:
         Constructor. Default constructs the file buffer. Does not open any
         files.
      */
-    basic_fstream() : iostream_type {nullptr}, fb {nullptr}
+    basic_fstream() : iostream_type {nullptr}, fb {new filebuf_type{}}
     {
         iostream_type::init(fb);
     }

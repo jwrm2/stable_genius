@@ -535,8 +535,12 @@ int Process::brk(void* addr)
     if (addr_top >= kernel_virtual_base - current_stack)
         return -1;
 
-    // Round the current address down to a page boundary.
-    uintptr_t break_bot = v_bp - v_bp % PageDescriptorTable::page_size;
+    // Round the current address down to the highest allocated page start.
+    uintptr_t break_bot;
+    if (v_bp % PageDescriptorTable::page_size == 0)
+        break_bot = v_bp - PageDescriptorTable::page_size;
+    else
+        break_bot = v_bp - v_bp % PageDescriptorTable::page_size;
 
     // The page configuration must be set to present, user mode and
     // writable.
@@ -545,9 +549,11 @@ int Process::brk(void* addr)
         static_cast<uint32_t>(PdeSettings::user_access);
 
     // Test whether we need to allocate more pages.
-    while (v_addr > break_bot)
+    while (v_addr > break_bot + PageDescriptorTable::page_size)
     {
-        if (!pdt->allocate(reinterpret_cast<void*>(break_bot), conf))
+        if (!pdt->allocate(
+            reinterpret_cast<void*>(break_bot + PageDescriptorTable::page_size),
+            conf))
             return -1;
         break_bot += PageDescriptorTable::page_size;
         pdt_changed = true;

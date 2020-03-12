@@ -26,3 +26,12 @@ _start:
     # must call the _fini function.
     push %eax
     call exit
+
+# This function, used for testing purposes, can be called to make the system
+# hang in a specified state. We put a value to print out as a parameter, which
+# appears at %esp + 4
+.global hang
+hang:
+    mov 4(%esp), %eax
+    mov $0xCAFEBABE, %ecx
+    .test: jmp .test
