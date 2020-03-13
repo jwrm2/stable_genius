@@ -35,8 +35,7 @@ Process::Process(const klib::string& name) :
     file_desc {},
     ret_val {},
     parent_pid {},
-    child_pids {},
-    pdt_changed {false}
+    child_pids {}
 {
 //    elf.dump(*global_kernel->syslog()->stream());
 
@@ -69,8 +68,7 @@ Process::Process() :
     file_desc {},
     ret_val {},
     parent_pid {},
-    child_pids {},
-    pdt_changed {false}
+    child_pids {}
 {
     // This constructor is specifically designed to set the process up to be
     // duplicated in a fork call. Thus we create a new PDT but leave it blank,
@@ -95,8 +93,7 @@ Process::Process(Process&& other) :
     file_desc {other.file_desc},
     ret_val {other.ret_val},
     parent_pid {other.parent_pid},
-    child_pids {klib::move(other.child_pids)},
-    pdt_changed {other.pdt_changed}
+    child_pids {klib::move(other.child_pids)}
 {
     // Set the pointers in other to nullptr. Prevents the other destructor from
     // messing this up.
@@ -132,7 +129,6 @@ Process& Process::operator=(Process&& other)
     ret_val = other.ret_val;
     parent_pid = other.parent_pid;
     child_pids = klib::move(other.child_pids);
-    pdt_changed = other.pdt_changed;
 
     // Set the pointers in other to nullptr. Prevents the other destructor from
     // messing this up.
@@ -213,7 +209,6 @@ void Process::fork_duplicate(const Process& other)
     // the other process is active.
     pdt->duplicate_user_space(reinterpret_cast<void*>(kernel_virtual_base));
     break_point = other.break_point;
-    pdt_changed = true;
 
     // Duplicate the file description table. We need to increment the counts of
     // each entry in the global table.
@@ -262,6 +257,7 @@ void Process::launch(PageDescriptorTable& k_pdt)
     // that need to go on the kernel heap. We'll allocate them all in the kernel
     // PDT, copy to new one, then clean the kernel PDT.
     elf.allocate(k_pdt);
+    global_kernel->syslog()->info("Process::launch text memory allocated\n");
 
     // The page configuration must be set to present and user mode. It does need
     // to be writable to copy the data to it. We might consider setting .text
@@ -282,10 +278,13 @@ void Process::launch(PageDescriptorTable& k_pdt)
             return;
         }
     }
-    pdt_changed = true;
+
+    global_kernel->syslog()->info("Process::launch user stack allocated\n");
 
     // Allocate kernel stack space.
-    kernel_stack = new uintptr_t[kernel_stack_size / sizeof(kernel_stack)];
+    if (kernel_stack == nullptr)
+        kernel_stack = new uintptr_t[kernel_stack_size / sizeof(kernel_stack)];
+    global_kernel->syslog()->info("Process::launch kernel stack allocated\n");
 
     // We need to make sure the PDT is 4K aligned.
     pdt = static_cast<PageDescriptorTable*>(
@@ -293,6 +292,7 @@ void Process::launch(PageDescriptorTable& k_pdt)
         PageDescriptorTable::page_size));
     // Copy from the existing kernel PDT.
     pdt = new (pdt) PageDescriptorTable{k_pdt};
+    global_kernel->syslog()->info("Process::launch PDT created at %p\n", pdt);
 
     // Now clean all the user space mappings from the kernel PDT.
 //    k_pdt.clean_user_space(reinterpret_cast<void*>(kernel_virtual_base));
@@ -314,8 +314,9 @@ void Process::launch(PageDescriptorTable& k_pdt)
 //        reinterpret_cast<void*>(kernel_virtual_base));
 
     // Copy the binary from the ELF to the virtual mapping we created for it.
+    global_kernel->syslog()->info("Process::launch calling elf.load()\n");
     elf.load();
-//    global_kernel->syslog()->info("Binary copied.\n");
+    global_kernel->syslog()->info("Process::launch binary loaded\n");
 
     // Set the state to active so we don't reload the PDT in resume().
     stat = ProcStatus::active;
@@ -329,6 +330,7 @@ void Process::launch(PageDescriptorTable& k_pdt)
     // able to start normally with the resume.
     switch_blocked_for_exec = false;
 
+    global_kernel->syslog()->info("Process::launch switches unblocked\n");
     // Starting the process is now the same as resuming.
 //    global_kernel->syslog()->info("Launching process.\n");
     resume();
@@ -340,14 +342,10 @@ void Process::resume()
 {
     // Reload the PDT for this process.
     // This is fairly expensive. We'll skip it if this is already the active
-    // process. However, we still need to do it if we've been making adjustments
-    // to the PDT.
-    if (stat != ProcStatus::active || pdt_changed)
-    {
+    // process.
+    if (stat != ProcStatus::active)
         global_kernel->get_pdt()->update_user_space(*pdt,
             reinterpret_cast<void*>(kernel_virtual_base));
-        pdt_changed = false;
-    }
 
 //    global_kernel->get_pdt()->dump(*global_kernel->syslog()->device());
 //    global_kernel->syslog()->info("process resume %%eip, %%cs, %%eflags, %%esp, %%ss is %X, %X, %X, %X, %X\n", is.eip(), is.cs(), is.eflags(), is.esp(), is.ss());
@@ -494,6 +492,7 @@ int Process::set_user_stack(size_t sz)
         static_cast<uint32_t>(PdeSettings::user_access);
 
     // Increase the current stack size to match the new size.
+    bool pdt_changed;
     while (current_stack < sz)
     {
         void* new_stack = reinterpret_cast<void*>(kernel_virtual_base -
@@ -506,11 +505,8 @@ int Process::set_user_stack(size_t sz)
 
     // Update the kernel PDT.
     if (pdt_changed)
-    {
         global_kernel->get_pdt()->update_user_space(*pdt,
             reinterpret_cast<void*>(kernel_virtual_base));
-        pdt_changed = false;
-    }
 
     return 0;
 }
@@ -549,6 +545,7 @@ int Process::brk(void* addr)
         static_cast<uint32_t>(PdeSettings::user_access);
 
     // Test whether we need to allocate more pages.
+    bool pdt_changed;
     while (v_addr > break_bot + PageDescriptorTable::page_size)
     {
         if (!pdt->allocate(
@@ -570,11 +567,8 @@ int Process::brk(void* addr)
 
     // Update the kernel PDT.
     if (pdt_changed)
-    {
         global_kernel->get_pdt()->update_user_space(*pdt,
             reinterpret_cast<void*>(kernel_virtual_base));
-        pdt_changed = false;
-    }
 
     return 0;
 }

@@ -393,16 +393,23 @@ void KernelHeap::next_page()
     // Try to get the next page.
     uint32_t conf = static_cast<uint32_t>(PdeSettings::present) |
         static_cast<uint32_t>(PdeSettings::writable);
-    if (!pdt->allocate(next_page_addr, conf))
+    bool recursive_call = false;
+    if (!pdt->allocate(next_page_addr, conf, nullptr, &recursive_call))
     {
         // Unable to get a new page.
         global_kernel->panic("Unable to allocate a new page for the heap");
     }
 
-    // Increase next_page_addr to reflect the new space.
-    next_page_addr = reinterpret_cast<void*>(
-        reinterpret_cast<size_t>(next_page_addr) +
-        PageDescriptorTable::page_size);
+    // Update next_page_addr to reflect the new space. This is not entirely
+    // trivial, as allocating new Page Tables can cause recursive calls to this
+    // function. The bool* in the allocate is used to indicate this special
+    // case.
+    if (!recursive_call)
+    {
+        next_page_addr = reinterpret_cast<void*>(
+            reinterpret_cast<size_t>(next_page_addr) +
+            PageDescriptorTable::page_size);
+    }
 }
 
 /******************************************************************************

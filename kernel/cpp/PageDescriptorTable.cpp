@@ -145,7 +145,7 @@ PageDescriptorTable& PageDescriptorTable::operator=(
 /******************************************************************************/
 
 bool PageDescriptorTable::allocate(const void* virt_addr,
-    uint32_t conf, const void* phys_addr)
+    uint32_t conf, const void* phys_addr, bool* recursive)
 {
     // Fail if the configuration is for not present
     if (!(conf & static_cast<uint32_t>(PdeSettings::present)))
@@ -230,11 +230,35 @@ bool PageDescriptorTable::allocate(const void* virt_addr,
         if (pt == nullptr)
             return false;
 
+        // We can get a weird fail condition here: if we created a new Page
+        // Table that contains it's own virtual address, it may occupy the space
+        // we were asked to allocate. In that case, we need to not overwrite it
+        // with the physical memory we just got, or we'll wipe the Page Table
+        // data and get a page fault. Thus we just need to check that the page
+        // is not present first.
+
         // Calculate the Page Table index.
         size_t pt_index = (v_addr >> 12) & 0x000003FF;
 
         // Set the value
-        success = pt->set(p_addr, pt_index, conf, virt_addr);
+        if ((pt->entries[pt_index] &
+            static_cast<size_t>(PdeSettings::present)) == 0)
+        {
+            success = pt->set(p_addr, pt_index, conf, virt_addr);
+        }
+        else
+        {
+            // This is a weird situation: we've set up a mapping for the virtual
+            // memory requested, but promptly filled it. This is only going to
+            // be an issue for the kernel heap (as new Page Tables only go on
+            // the kernel heap), so we'll trust the heap to sort it out. We do
+            // want to free the physical memory we just grabbed, or it will be
+            // leaked.
+            pfa.free(p_addr);
+            if (recursive != nullptr)
+                *recursive = true;
+            success = true;
+        }
     }
 
     return success;
@@ -636,7 +660,7 @@ void PageDescriptorTable::new_page_table(const void* virt_addr, uint32_t conf)
         global_kernel->panic("Bad configuration for temporary page table");
 
     // Free the virtual address for the temporary page table. We don't want to
-    // free the physical space, that could be bad as it might be where the
+    // free the physical space: that could be bad as it might be where the
     // previously added page table exists.
     size_t pdt_index = reinterpret_cast<size_t>(temp_page_table) >> 22;
     PageTable* pt = get(pdt_index);
