@@ -357,8 +357,6 @@ private:
     size_t parent_pid;
     // List of the pids of children.
     klib::vector<size_t> child_pids;
-    // Whether we've been editing the PDT. Forces it to be reloaded on resume.
-    bool pdt_changed;
 };
 
 /**

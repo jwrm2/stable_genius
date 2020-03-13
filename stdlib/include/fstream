@@ -1306,8 +1306,8 @@ public:
         fb {move(other.fb)}
     {
         other.fb = nullptr;
-        ostream_type::set_rdbuf(fb);
         other.set_rdbuf(nullptr);
+        ostream_type::set_rdbuf(fb);
     }
 
     /**
@@ -1322,10 +1322,11 @@ public:
     basic_ofstream& operator=(basic_ofstream&& other)
     {
         ostream_type::operator=(move(other));
+        delete fb;
         fb = other.fb;
         other.fb = nullptr;
-        ostream_type::set_rdbuf(fb);
         other.set_rdbuf(nullptr);
+        ostream_type::set_rdbuf(fb);
 
         return *this;
     }
@@ -1341,6 +1342,8 @@ public:
     {
         ostream_type::swap(other);
         fb->swap(other.fb);
+        ostream_type::set_rdbuf(fb);
+        other.set_rdbuf(other.rdbuf());
     }
 
     /**
@@ -1509,8 +1512,8 @@ public:
         fb {move(other.fb)}
     {
         other.fb = nullptr;
-        istream_type::set_rdbuf(&fb);
         other.set_rdbuf(nullptr);
+        istream_type::set_rdbuf(fb);
     }
 
     /**
@@ -1525,10 +1528,11 @@ public:
     basic_ifstream& operator=(basic_ifstream&& other)
     {
         istream_type::operator=(move(other));
+        delete fb;
         fb = other.fb;
         other.fb = nullptr;
-        istream_type::set_rdbuf(fb);
         other.set_rdbuf(nullptr);
+        istream_type::set_rdbuf(fb);
 
         return *this;
     }
@@ -1544,6 +1548,8 @@ public:
     {
         istream_type::swap(other);
         fb->swap(other.fb);
+        istream_type::set_rdbuf(fb);
+        other.set_rdbuf(other.rdbuf());
     }
 
     /**
@@ -1695,8 +1701,8 @@ public:
         iostream_type {move(other)},
         fb {other.fb}
     {
-        iostream_type::set_rdbuf(fb);
         other.set_rdbuf(nullptr);
+        iostream_type::set_rdbuf(fb);
     }
 
     /**
@@ -1711,10 +1717,11 @@ public:
     basic_fstream& operator=(basic_fstream&& other)
     {
         iostream_type::operator=(move(other));
+        delete fb;
         fb = other.fb;
         other.fb = nullptr;
-        iostream_type::set_rdbuf(fb);
         other.set_rdbuf(nullptr);
+        iostream_type::set_rdbuf(fb);
 
         return *this;
     }
@@ -1730,6 +1737,8 @@ public:
     {
         iostream_type::swap(other);
         fb->swap(other.fb);
+        iostream_type::set_rdbuf(fb);
+        other.set_rdbuf(nullptr);
     }
 
     /**

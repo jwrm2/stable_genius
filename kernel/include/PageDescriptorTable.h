@@ -142,11 +142,15 @@ public:
         @param virt_addr Virtual memory address.
         @param conf Configuration.
         @param phys_addr Physical address to map to.
+        @param recursive Set to true in the special case of the allocation
+               creating a new Page Table that occupies the requested virtual
+               memory.
         @return Whether the operation succeeded.
      */
     bool allocate(const void* virt_addr,
         uint32_t conf,
-        const void* phys_addr = nullptr);
+        const void* phys_addr = nullptr,
+        bool* already_existed = nullptr);
 
     /**
         Clears any entries below the indicated index (in 4MB blocks). Does not

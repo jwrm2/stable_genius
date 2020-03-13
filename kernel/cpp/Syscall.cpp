@@ -412,6 +412,7 @@ int32_t execve(const char* filename, char* const argv[], char* const envp[])
 {
     // Ignore argv and envp for now.
     (void)argv; (void)envp;
+    global_kernel->syslog()->info("execve: filename = %s\n", filename);
 
     // We require the file name string to be in user space.
     size_t len = klib::strlen(filename);
@@ -475,6 +476,7 @@ int32_t execve(const char* filename, char* const argv[], char* const envp[])
     // End block for destructors.
     }
 
+    global_kernel->syslog()->info("execve: about to launch new process at %p\n", new_p);
     // Launch the new process
     if (new_p)
         new_p->launch(*global_kernel->get_pdt());
