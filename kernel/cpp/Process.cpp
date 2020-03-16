@@ -257,7 +257,6 @@ void Process::launch(PageDescriptorTable& k_pdt)
     // that need to go on the kernel heap. We'll allocate them all in the kernel
     // PDT, copy to new one, then clean the kernel PDT.
     elf.allocate(k_pdt);
-    global_kernel->syslog()->info("Process::launch text memory allocated\n");
 
     // The page configuration must be set to present and user mode. It does need
     // to be writable to copy the data to it. We might consider setting .text
@@ -279,12 +278,9 @@ void Process::launch(PageDescriptorTable& k_pdt)
         }
     }
 
-    global_kernel->syslog()->info("Process::launch user stack allocated\n");
-
     // Allocate kernel stack space.
     if (kernel_stack == nullptr)
         kernel_stack = new uintptr_t[kernel_stack_size / sizeof(kernel_stack)];
-    global_kernel->syslog()->info("Process::launch kernel stack allocated\n");
 
     // We need to make sure the PDT is 4K aligned.
     pdt = static_cast<PageDescriptorTable*>(
@@ -292,7 +288,6 @@ void Process::launch(PageDescriptorTable& k_pdt)
         PageDescriptorTable::page_size));
     // Copy from the existing kernel PDT.
     pdt = new (pdt) PageDescriptorTable{k_pdt};
-    global_kernel->syslog()->info("Process::launch PDT created at %p\n", pdt);
 
     // Now clean all the user space mappings from the kernel PDT.
 //    k_pdt.clean_user_space(reinterpret_cast<void*>(kernel_virtual_base));
@@ -314,9 +309,7 @@ void Process::launch(PageDescriptorTable& k_pdt)
 //        reinterpret_cast<void*>(kernel_virtual_base));
 
     // Copy the binary from the ELF to the virtual mapping we created for it.
-    global_kernel->syslog()->info("Process::launch calling elf.load()\n");
     elf.load();
-    global_kernel->syslog()->info("Process::launch binary loaded\n");
 
     // Set the state to active so we don't reload the PDT in resume().
     stat = ProcStatus::active;
@@ -330,9 +323,7 @@ void Process::launch(PageDescriptorTable& k_pdt)
     // able to start normally with the resume.
     switch_blocked_for_exec = false;
 
-    global_kernel->syslog()->info("Process::launch switches unblocked\n");
     // Starting the process is now the same as resuming.
-//    global_kernel->syslog()->info("Launching process.\n");
     resume();
 }
 
@@ -346,10 +337,6 @@ void Process::resume()
     if (stat != ProcStatus::active)
         global_kernel->get_pdt()->update_user_space(*pdt,
             reinterpret_cast<void*>(kernel_virtual_base));
-
-//    global_kernel->get_pdt()->dump(*global_kernel->syslog()->device());
-//    global_kernel->syslog()->info("process resume %%eip, %%cs, %%eflags, %%esp, %%ss is %X, %X, %X, %X, %X\n", is.eip(), is.cs(), is.eflags(), is.esp(), is.ss());
-//    global_kernel->syslog()->info("process resume %%edi, %%esi, %%ebp, %%ebx, %%edx, %%ecx, %%eax is %X, %X, %X, %X, %X, %X, %X\n", ir.edi(), ir.esi(), ir.ebp(), ir.ebx(), ir.edx(), ir.ecx(), ir.eax());
 
     if (is.eip() >= kernel_virtual_base)
     {

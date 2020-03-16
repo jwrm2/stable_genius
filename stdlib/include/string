@@ -844,9 +844,13 @@ public:
         Returns a pointer to the underlying data, which will be a null
         terminated C string.
 
-        @return Const pointer to the start of the underlying C string.
+        @return Pointer to the start of the underlying C string.
      */
     const_pointer data() const
+    {
+        return elem;
+    }
+    pointer data()
     {
         return elem;
     }

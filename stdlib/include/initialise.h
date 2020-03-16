@@ -1,13 +1,13 @@
 #ifndef INITIALISE_H
 #define INITIALISE_H
 
-namespace NMSP {
-namespace helper {
-
 // Use std as the default namespace.
 #ifndef NMSP
 #define NMSP std
 #endif /* NMSP */
+
+namespace NMSP {
+namespace helper {
 
 #ifndef KLIB
 
@@ -17,7 +17,7 @@ namespace helper {
     entry into main. This includes the heap and standard streams.
  */
 extern "C"
-void initialise_standard_library();
+void initialise_standard_library() noexcept;
 
 #endif /* KLIB not defined */
 } // end helper namespace
