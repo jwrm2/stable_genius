@@ -1208,7 +1208,7 @@ protected:
     friend int fseek(FILE* stream, long offset, int origin);
     // We need to make the C library initialisation a friend so we can access
     // the special open() to wrap an existing file descriptor.
-    friend void helper::initialise_standard_library();
+    friend void helper::initialise_standard_library() noexcept;
     // The function that performs C++ standard stream initialisation needs to be
     // a friend so it can cast a FILE* to a filebuf*.
     friend ios_base::Init::Init();
@@ -1332,6 +1332,19 @@ public:
     }
 
     /**
+        Destructor. Calls close to close the filebuffer and delete it.
+     */
+    virtual ~basic_ofstream()
+    {
+        close();
+        delete fb;
+        fb = nullptr;
+        delete ostream_type::sbuf;
+        ostream_type::sbuf = nullptr;
+        ostream_type::tsp = nullptr;
+    }
+
+    /**
         Swaps the state and buffer of this ofstream with another. The parent
         ostream swap() method is called to swap the state and the swap()
         method of the underlying buffer is called to swap the buffers.
@@ -1391,10 +1404,8 @@ public:
      */
     void close()
     {
-        if (fb->close() == nullptr)
+        if (fb != nullptr && fb->close() == nullptr)
             ostream_type::setstate(ios_base::failbit);
-        delete fb;
-        fb = nullptr;
     }
 
 protected:
@@ -1538,6 +1549,19 @@ public:
     }
 
     /**
+        Destructor. Calls close to close the filebuffer and delete it.
+     */
+    virtual ~basic_ifstream()
+    {
+        close();
+        delete fb;
+        fb = nullptr;
+        delete istream_type::sbuf;
+        istream_type::sbuf = nullptr;
+        istream_type::tsp = nullptr;
+    }
+
+    /**
         Swaps the state and buffer of this ifstream with another. The parent
         istream swap() method is called to swap the state and the swap()
         method of the underlying buffer is called to swap the buffers.
@@ -1597,10 +1621,8 @@ public:
      */
     void close()
     {
-        if (fb->close() == nullptr)
+        if (fb != nullptr && fb->close() == nullptr)
             istream_type::setstate(ios_base::failbit);
-        delete fb;
-        fb = nullptr;
     }
 
 protected:
@@ -1701,6 +1723,7 @@ public:
         iostream_type {move(other)},
         fb {other.fb}
     {
+        other.fb = nullptr;
         other.set_rdbuf(nullptr);
         iostream_type::set_rdbuf(fb);
     }
@@ -1724,6 +1747,19 @@ public:
         iostream_type::set_rdbuf(fb);
 
         return *this;
+    }
+
+    /**
+        Destructor. Calls close to close the filebuffer and delete it.
+     */
+    virtual ~basic_fstream()
+    {
+        close();
+        delete fb;
+        fb = nullptr;
+        delete iostream_type::sbuf;
+        iostream_type::sbuf = nullptr;
+        iostream_type::tsp = nullptr;
     }
 
     /**
@@ -1788,10 +1824,8 @@ public:
      */
     void close()
     {
-        if (fb->close() == nullptr)
+        if (fb != nullptr && fb->close() == nullptr)
             iostream_type::setstate(ios_base::failbit);
-        delete fb;
-        fb = nullptr;
     }
 
 protected:

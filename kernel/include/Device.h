@@ -62,7 +62,6 @@ protected:
 /**
     Abstract class for character device drivers. Provides functions for an
     attached FILE object to call.
-    TODO this should eventually be able to read characters too.
  */
 class CharacterDevice : public Device {
 public:

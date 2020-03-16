@@ -1,3 +1,5 @@
+#include "../include/initialise.h"
+
 #include "../include/cstdlib"
 #include "../include/fstream"
 #include "../include/ios"
@@ -14,7 +16,7 @@ namespace helper {
 
 // This function is nothrow, as we can't handle exceptions in the calling
 // assembly routine. All exceptions must be caught.
-void initialise_standard_library()
+void initialise_standard_library() noexcept
 {
     try {
         // The nothrow oject is used by new for allocations, but is a global
@@ -32,7 +34,7 @@ void initialise_standard_library()
         // and setup according the standard numbers from unistd.h.
         // If this is the init process, these descriptors will not exist. That
         // shouldn't matter, as long as init opens them in the right order with
-        // a direct syscall before trying to write to any of them.
+        // a direct syscall before trying to do anything to any of them.
         stdin = new (nothrow) FILE {};
         if (stdin != nullptr)
             stdin->open(STDIN_FILENO, ios_base::in);

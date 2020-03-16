@@ -763,12 +763,12 @@ bool Ext2File::truncate_recursive(size_t bl, size_t depth)
     const size_t addr_per_block = bl_sz / sizeof(size_t);
 
     // Create a buffer to read the block.
-    char* buf = new char[bl_sz];
+    klib::string buf (bl_sz, '\0');
     bool finished = false;
 
     // Read the current indirect block.
-    fs.read(bl * bl_sz, buf, bl_sz);
-    size_t* buffer_blocks = reinterpret_cast<size_t*>(buf);
+    fs.read(bl * bl_sz, buf.data(), bl_sz);
+    size_t* buffer_blocks = reinterpret_cast<size_t*>(buf.data());
     for (size_t i = 0; i < addr_per_block && !finished; ++i)
     {
         if (buffer_blocks[i] != 0)
@@ -781,8 +781,6 @@ bool Ext2File::truncate_recursive(size_t bl, size_t depth)
         else
             finished = true;
     }
-
-    delete[] buf;
 
     // Free the block storing the indirect information.
     ext2fs.deallocate_block(bl);
@@ -839,9 +837,8 @@ Ext2Directory::Ext2Directory(size_t indx, Ext2FileSystem& fs, bool w) :
                 sizeof(entry_size);
             if (skip_length != 0)
             {
-                char* name_buf = new char[skip_length];
-                ifs.read(name_buf, sizeof(char), skip_length);
-                delete[] name_buf;
+                klib::string name_buf (skip_length, '\0');
+                ifs.read(name_buf.data(), sizeof(char), skip_length);
             }
             continue;
         }
@@ -868,19 +865,17 @@ Ext2Directory::Ext2Directory(size_t indx, Ext2FileSystem& fs, bool w) :
         // Now we have the name length. This should be a multiple of 4 with null
         // if necessary. We'll read it into a buffer and then make a string of
         // it.
-        char* name_buf = new char[name_length];
-        ifs.read(name_buf, sizeof(char), name_length);
-        klib::string name {name_buf, name_length};
-        delete[] name_buf;
+        klib::string name_buf (name_length, '\0');
+        ifs.read(name_buf.data(), sizeof(char), name_length);
+        klib::string name {name_buf.c_str(), name_length};
 
         // There might be some extra space in the entry that we need to skip.
         size_t skip_length = entry_size - sizeof(entry_inode) -
             sizeof(entry_size) - sizeof(name_length) - name_length;
         if (skip_length != 0)
         {
-            name_buf = new char[skip_length];
-            ifs.read(name_buf, sizeof(char), skip_length);
-            delete[] name_buf;
+            name_buf = klib::string (skip_length, '\0');
+            ifs.read(name_buf.data(), sizeof(char), skip_length);
         }
 
         // Create the entry.

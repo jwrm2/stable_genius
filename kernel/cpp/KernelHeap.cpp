@@ -91,7 +91,10 @@ void KernelHeap::dump(klib::ostream& dest)
         dest << "Block number " << i << ": location " << current;
         dest << ", size " << current->size << " bytes";
         dest << ", free " << current->free;
-        dest << ", next " << current->next << "\n";
+        dest << ", next " << current->next;
+        if (current->magic != 0)
+            dest << ", magic " << current->magic;
+        dest << "\n";
 
         if (current->next != nullptr &&
             static_cast<size_t>((current->next - current)*sizeof(BlockData)) != 
@@ -125,6 +128,7 @@ void KernelHeap::free(void* addr)
     BlockData* current = reinterpret_cast<BlockData*>(
         reinterpret_cast<size_t>(addr) - data_size);
     current->free = true;
+    current->magic = 0;
 
     // Let's see if we can merge with the block after. Checking the block
     // before is prohibitively slow unless we change BlockData to be a doubly-
@@ -153,6 +157,7 @@ void KernelHeap::initialise(void* virt_addr)
     start->size = 0;
     start->next = nullptr;
     start->free = true;
+    start->magic = 0;
     last = start;
 
     // Set up the next page address. Assumes that only the current page is
@@ -164,7 +169,7 @@ void KernelHeap::initialise(void* virt_addr)
 
 /******************************************************************************/
 
-void* KernelHeap::malloc(size_t size, size_t align)
+void* KernelHeap::malloc(size_t size, size_t align, size_t magic)
 {
     // Do nothing if size is zero.
     if (size <= 0)
@@ -178,6 +183,10 @@ void* KernelHeap::malloc(size_t size, size_t align)
     if (result == last)
         // No exisiting blocks large enough, create a new one.
         result = new_block(size, align);
+
+    // Set the magic number.
+    if (result != nullptr)
+        result->magic = magic;
 
     // Return a pointer to the space, not the metadata.
     return
@@ -243,10 +252,12 @@ KernelHeap::BlockData* KernelHeap::find_free_block(size_t size, size_t align)
                     prev = current;
                     prev->size = as - s - data_size;
                     prev->free = true;
+                    prev->magic = 0;
                     current = reinterpret_cast<BlockData*>(as - data_size);
                     current->next = prev->next;
                     prev->next = current;
                     current->size = e - as;
+                    current->magic = 0;
                 }
                 else
                 {
@@ -287,6 +298,7 @@ KernelHeap::BlockData* KernelHeap::find_free_block(size_t size, size_t align)
         nb->free = true;
         nb->size = current->size - size - data_size;
         nb->next = current->next;
+        nb->magic = 0;
         current->size = size;
         current->next = nb;
     }

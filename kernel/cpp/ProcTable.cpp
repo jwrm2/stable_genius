@@ -153,7 +153,6 @@ FileTable::FileDescription::FileDescription(const klib::string& n,
     // Initialise the file stream.
     fs.open(name, mode);
 
-//    global_kernel->syslog()->info("FileDescription name = %s, count = %u, dev at %p\n", name.c_str(), count, dev);
     // Set count to zero on failure to open.
     if (!fs)
         count = 0;

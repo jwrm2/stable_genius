@@ -201,6 +201,22 @@ void* operator new(size_t n, const klib::nothrow_t&) noexcept
 
 void* operator new(size_t n, void* ptr) noexcept { (void)n; return ptr; }
 
+void* operator new(size_t n, const klib::nothrow_t&, size_t magic) noexcept
+{
+    if (global_kernel->get_heap() == nullptr)
+        return nullptr;
+    return global_kernel->get_heap()->malloc(n, 0, magic);
+}
+
+void* operator new(size_t n, size_t magic)
+{
+    void* ret_val = operator new(n, klib::nothrow, magic);
+    if (ret_val == nullptr)
+        throw klib::bad_alloc {};
+
+    return ret_val;
+}
+
 /******************************************************************************/
 
 void* operator new[](size_t n)
@@ -220,6 +236,22 @@ void* operator new[](size_t n, const klib::nothrow_t&) noexcept
 }
 
 void* operator new[](size_t n, void* ptr) noexcept { (void)n; return ptr; }
+
+void* operator new[](size_t n, const klib::nothrow_t&, size_t magic) noexcept
+{
+    if (global_kernel->get_heap() == nullptr)
+        return nullptr;
+    return global_kernel->get_heap()->malloc(n, 0, magic);
+}
+
+void* operator new[](size_t n, size_t magic)
+{
+    void* ret_val = operator new(n, klib::nothrow, magic);
+    if (ret_val == nullptr)
+        throw klib::bad_alloc {};
+
+    return ret_val;
+}
 
 /******************************************************************************
  ******************************************************************************/

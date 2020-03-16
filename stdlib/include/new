@@ -82,6 +82,21 @@ void* operator new[](size_t n, const NMSP::nothrow_t&) noexcept;
 void* operator new[](size_t n, void* ptr) noexcept;
 
 /**
+    Non-standard new-operator for kernel memory tracing. Takes an integer value
+    which will be placed into the heap metadata for the allocated block.
+
+    @param n Number of bytes to allocate.
+    @param magic Magic number to record in the heap metadata.
+    @return Pointer to the storage, or nullptr on failure.
+ */
+#ifdef KLIB
+void* operator new(size_t n, size_t magic);
+void* operator new(size_t n, const NMSP::nothrow_t&, size_t magic) noexcept;
+void* operator new[](size_t n, size_t magic);
+void* operator new[](size_t n, const NMSP::nothrow_t&, size_t magic) noexcept;
+#endif /* KLIB defined */
+
+/**
     Deletes storage previously allocated by new.
 
     @param p Location of storage.

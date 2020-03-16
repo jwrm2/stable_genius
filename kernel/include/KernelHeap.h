@@ -81,10 +81,13 @@ public:
         @param align Specify that the start of the data must be aligned to a
                      the given number of bytes. Most useful for Page Tables,
                      which must be aligned to 4096 bytes.
+        @param magic A number that will be recorded in the heap metadata for
+               the allocated block, allowing tracing of where memory was
+               allocated from.
         @return Pointer to the start of the allocated memory, or nullptr for
                 failure.
      */
-    void* malloc(size_t size, size_t align = 0);
+    void* malloc(size_t size, size_t align = 0, size_t magic = 0);
 
     /**
         Reallocates the memory at the address given to the new size.
@@ -108,6 +111,8 @@ private:
         BlockData* next = nullptr;
         // Whether the block is currently available.
         bool free = true;
+        // A magic number for allocation tracing.
+        size_t magic = 0;
     };
 
     // Memory address of the start of the heap.
@@ -121,7 +126,7 @@ private:
     // Page Descriptor Table for memory allocation.
     PageDescriptorTable* pdt;
 
-    // Size of the BlockData. Even though we expect this to be 12 bytes, we'll
+    // Size of the BlockData. Even though we expect this to be 16 bytes, we'll
     // set it up in the constructor to be aligned to heap_align.
     size_t data_size;
 
