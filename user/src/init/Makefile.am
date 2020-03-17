@@ -1,7 +1,7 @@
 bin_PROGRAMS = init
 
 # List of headers and sources for init.
-init_SOURCES = main.cpp start.s
+init_SOURCES = main.cpp
 
 # Compiler flas for init
 init_CPPFLAGS = @common_cppflags@ @user_cppflags@
