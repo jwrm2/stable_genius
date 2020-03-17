@@ -138,9 +138,9 @@ Kernel::Kernel(void* kvs,
         panic("Uncaught unknown exception during kernel initialisation\n");
     }
 
-    log->info("Initialisation complete\n");
+    log->info("Kernel initialisation complete\n");
     klib::ofstream tty {"/dev/tty"};
-    tty << "Initialisation complete.\n";
+    tty << "Kernel initialisation complete.\n";
 }
 
 /******************************************************************************/
