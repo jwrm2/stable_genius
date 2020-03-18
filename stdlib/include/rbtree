@@ -906,7 +906,7 @@ public:
         rebind_alloc<value_type>::pointer;
     /** Type of a const pointer to a value. */
     using const_pointer = typename allocator_traits<Allocator>::template
-        rebind_alloc<value_type>::const_pointer;;
+        rebind_alloc<value_type>::const_pointer;
     /** Type of an iterator. */
     using iterator = rb_iterator<true, value_type, pointer, reference>;
     /** Type of a const iterator. */

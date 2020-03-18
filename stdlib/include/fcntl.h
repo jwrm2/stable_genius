@@ -1,6 +1,8 @@
 #ifndef FNCTL_H
 #define FNCTL_H
 
+#include <stdint.h>
+
 // Use std as the default namespace.
 #ifndef NMSP
 #define NMSP std

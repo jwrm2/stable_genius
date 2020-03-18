@@ -256,18 +256,28 @@ void* operator new[](size_t n, size_t magic)
 /******************************************************************************
  ******************************************************************************/
 
-void operator delete(void* p)
+void operator delete(void* p) noexcept
 {
     if (global_kernel->get_heap() != nullptr)
         global_kernel->get_heap()->free(p);
 }
 
+void operator delete(void* p, size_t) noexcept
+{
+    operator delete(p);
+}
+
 /******************************************************************************/
 
-void operator delete[](void* p)
+void operator delete[](void* p) noexcept
 {
     if (global_kernel->get_heap() != nullptr)
         global_kernel->get_heap()->free(p);
+}
+
+void operator delete[](void* p, size_t) noexcept
+{
+    operator delete[](p);
 }
 
 /******************************************************************************

@@ -3,7 +3,6 @@
 #include "../include/cstdlib"
 #include "../include/fstream"
 #include "../include/ios"
-#include "../include/new"
 #include "../include/unistd.h"
 #include "../include/UserHeap.h"
 
@@ -13,6 +12,8 @@ namespace NMSP {
 #ifndef KLIB
 
 namespace helper {
+
+extern "C" void hang(int);
 
 // This function is nothrow, as we can't handle exceptions in the calling
 // assembly routine. All exceptions must be caught.
@@ -35,15 +36,15 @@ void initialise_standard_library() noexcept
         // If this is the init process, these descriptors will not exist. That
         // shouldn't matter, as long as init opens them in the right order with
         // a direct syscall before trying to do anything to any of them.
-        stdin = new (nothrow) FILE {};
-        if (stdin != nullptr)
-            stdin->open(STDIN_FILENO, ios_base::in);
-        stdout = new (nothrow) FILE {};
-        if (stdout != nullptr)
-            stdout->open(STDOUT_FILENO, ios_base::out);
-        stderr = new (nothrow) FILE {};
-        if (stderr != nullptr)
-            stderr->open(STDERR_FILENO, ios_base::out);
+        stdin = new FILE {};
+        if (stdin->open(STDIN_FILENO, ios_base::in) == nullptr)
+            hang(1);
+        stdout = new FILE {};
+        if (stdout->open(STDOUT_FILENO, ios_base::out) == nullptr)
+            hang(2);
+        stderr = new FILE {};
+        if (stderr->open(STDERR_FILENO, ios_base::out) == nullptr)
+            hang(3);
     }
     catch (...) { /* TODO we should possibly abort here... */ }
 }

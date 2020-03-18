@@ -146,7 +146,7 @@ AC_CHECK_HEADERS([limits.h], [AC_DEFINE([HAVE_LIMITS_H], 1, [Define to 1 if limi
 CFLAGS=${user_cflags}
 
 # Common CXXFLAGS and specifics for components.
-AC_SUBST(common_cxxflags, ["-std=c++11 -ffreestanding -O2 -Wall -Wextra -Werror"])
+AC_SUBST(common_cxxflags, ["-std=c++14 -ffreestanding -O2 -Wall -Wextra -Werror -pedantic"])
 AC_SUBST(stdlib_cxxflags, ["-fPIC"])
 
 # Common CCASFLAGS and specifics for components.
@@ -154,7 +154,7 @@ AC_SUBST(common_ccasflags, ["-Wa,--fatal-warnings"])
 
 # Common CPPFLAGS and specifics for components.
 AC_SUBST(common_cppflags, [""])
-AC_SUBST(user_cppflags, ["--sysroot=\$(prefix)"])
+AC_SUBST(user_cppflags, ["--sysroot=\$(prefix) -I\$(prefix)/include"])
 AC_SUBST(stdlib_cppflags, ["-I\$(top_srcdir)/${stdlib_dir}/include"])
 AC_SUBST(kernel_cppflags, ["-I\$(top_srcdir)/${stdlib_dir}/include -I\$(top_srcdir)/${kernel_dir}/include"])
 AC_SUBST(kernel_defs, ["-DNMSP=klib -DKLIB=1"])
