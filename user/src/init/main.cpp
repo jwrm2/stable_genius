@@ -1,7 +1,9 @@
 #include <fcntl.h>
-#include <string.h>
+#include <iostream>
+#include <string>
 #include <unistd.h>
 
+extern "C" void hang(void*);
 
 int main ()
 {
@@ -11,14 +13,22 @@ int main ()
     // should then be inherited by any fork'd or exec'd process.
     std::string tty {"/dev/tty"};
     // stdout
-    std::open(tty.c_str(), O_WRONLY, 0);
+    open(tty.c_str(), O_RDONLY, 0);
     // stdin
-    std::open(tty.c_str(), O_RDONLY, 0);
+    open(tty.c_str(), O_WRONLY, 0);
     // stderr
-    std::open(tty.c_str(), O_WRONLY, 0);
+    open(tty.c_str(), O_WRONLY, 0);
 
-    // Check that cout works.
-    cout << "User space initialisation complete\n";
+    // Use syscall directly.
+    write(STDOUT_FILENO, "Direct syscall\n", 15);
+
+    hang(std::stdout);
+
+    // Use C-style.
+    std::fwrite("C-style\n", sizeof(char), 8, std::stdout);
+
+    // Use C++ style.
+    std::cout << "C++ style\n";
 
     // Loop forever, testing only.
     while (true) ;

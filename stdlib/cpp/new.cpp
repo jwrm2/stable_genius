@@ -88,16 +88,26 @@ void* operator new[](size_t n, void* ptr) noexcept { (void)n; return ptr; }
 /******************************************************************************
  ******************************************************************************/
 
-void operator delete(void* p)
+void operator delete(void* p) noexcept
 {
     NMSP::helper::user_heap.free(p);
 }
 
+void operator delete(void* p, size_t) noexcept
+{
+    operator delete(p);
+}
+
 /******************************************************************************/
 
-void operator delete[](void* p)
+void operator delete[](void* p) noexcept
 {
     NMSP::helper::user_heap.free(p);
+}
+
+void operator delete[](void* p, size_t) noexcept
+{
+    operator delete[](p);
 }
 
 /******************************************************************************

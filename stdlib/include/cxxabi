@@ -78,7 +78,7 @@ void __cxa_guard_abort(__guard* g);
 struct AtExitFuncEntry {
     /**
         Function pointer to the object destructor. This takes the object to be
-        destoryed as its argument.
+        destroyed as its argument.
      */
     void (*destructor_func)(void*);
 
@@ -108,13 +108,13 @@ int __cxa_atexit(void (*destructor_func)(void*), void* obj_ptr,
     void* dso_handle);
 
 /**
-    Calls the destructor provided on the appropriate function, or all registered
-    destructors if nullptr.
+    Calls alls the destructors registered with a DSO handle matching the
+    provided one, or all destructors if called with nullptr.
 
-    @param destructor_func Destructor to call, or nullptr for all destructors.
+    @param dso_handle Handle to check against.
  */
 extern "C"
-void __cxa_finalize(void* destructor_func);
+void __cxa_finalize(void* dso_handle);
 
 /**
     Something to do with Dynamic Shared Objects, which I'm not using.

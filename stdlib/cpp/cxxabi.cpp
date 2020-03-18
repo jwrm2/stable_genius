@@ -92,19 +92,19 @@ int __cxa_atexit(void (*destructor_func)(void*), void* obj_ptr,
 /******************************************************************************
  ******************************************************************************/
 
-void __cxa_finalize(void* destructor_func)
+void __cxa_finalize(void* dso_handle)
 {
     // Exit if nothing was ever registered with atexit.
     if (atexit_func_list == nullptr)
         return;
 
-    if (destructor_func != nullptr)
+    if (dso_handle != nullptr)
     {
         // Search for the specific destructor.
         for (auto p = atexit_func_list->begin(); p != atexit_func_list->end();
             ++p)
         {
-            if (p->destructor_func == destructor_func)
+            if (p->dso_handle == dso_handle)
             {
                 // Call the destructor.
                 p->destructor_func(p->obj_ptr);
