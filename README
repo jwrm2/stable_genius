@@ -2,10 +2,8 @@ Welcome to Stable Genius OS.
 
 This package is a kernel, along with some user space programs. The functionality
 is somewhat limited and it is certainly not intended to be a fully-fledged
-operating system. The author uses it as an experimental and educational project
-and, while having no objection to other people using it for a similar purpose,
-does not have the time or inclination to help them to do so. Any bug reports,
-comments or feature requests are therefore likely to go unheard.
+operating system for general use. The author uses it as an experimental and
+educational project.
 
 Currently, the kernel is only available for i686. An i686 toolchain is required
 for builing. OSDev has a good set of instructions for how to build one
