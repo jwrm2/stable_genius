@@ -90,10 +90,16 @@ ios_base::Init::Init()
     // Initialise the standard streams, but only for the first instance.
     if (ref_count == 0)
     {
-        cout = ofstream {stdout};
-        cin = ifstream {stdin};
+        // This a a little complicated, as the standard streams are also global
+        // objects, but this Init constructor will come first, meaning the
+        // standard streams are in an invalid state. Therefore move assignment
+        // won't work. The only way I could think of calling a constructor on a
+        // supposedly existing object is placement-new. We use a non-standard
+        // constructor that initialises with an already open file buffer.
+        new (&cout) ofstream {stdout};
+        new (&cin) ifstream {stdin};
         cin.tie(&cout);
-        cerr = ofstream {stderr};
+        new (&cerr) ofstream {stderr};
         cerr.tie(&cout);
     }
 

@@ -507,7 +507,7 @@ long double strtold(const char* str, char** str_end)
 
 void* malloc(size_t size)
 {
-    return helper::user_heap.malloc(size);
+    return helper::user_heap->malloc(size);
 }
 
 /******************************************************************************
@@ -515,7 +515,7 @@ void* malloc(size_t size)
 
 void free(void* ptr)
 {
-    return helper::user_heap.free(ptr);
+    return helper::user_heap->free(ptr);
 }
 
 /******************************************************************************

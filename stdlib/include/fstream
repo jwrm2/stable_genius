@@ -913,7 +913,7 @@ protected:
 
         @param s Buffer to get the characters from.
         @param count Number of characters to write.
-        @return The number of characters write. Will equal count on success.
+        @return The number of characters written. Will equal count on success.
                 Will be less than count if eof was reached.
      */
     virtual streamsize xsputn(const char_type* s, streamsize count)
@@ -959,6 +959,7 @@ protected:
         if (ret_val == nullptr)
             return nullptr;
 
+        isopen = true;
         return this;
     }
 #endif /* KLIB not defined */
@@ -1275,14 +1276,14 @@ public:
     {}
 
     /**
-        Non-standard constructor, in user mode only, to associate a file stream
+        Non-standard constructor, in user mode only, associates a file stream
         with an existing filebuf. Used in the initialisation of the standard
         streams.  The mode is set to ios_base::out.
 
         @param filebuf Existing filebuf to associate.
      */
 #ifndef KLIB
-    explicit basic_ofstream(filebuf_type* f) : ostream_type {nullptr}, fb {f}
+    explicit basic_ofstream(filebuf_type* f) : ostream_type {f}, fb {f}
     {}
 #endif /* KLIB defined */
 

@@ -780,7 +780,7 @@ public:
         @param n Index of the character to get.
         @return Reference to the character at the specified index.
      */
-/*
+
     reference at(size_type pos)
     {
         if (pos >= size)
@@ -795,7 +795,6 @@ public:
         
         return elem[pos];
     }
- */
 
     /**
         Gets the character at the specified index without bounds checking.

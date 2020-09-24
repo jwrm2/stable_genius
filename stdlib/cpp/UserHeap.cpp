@@ -15,7 +15,10 @@ namespace helper {
  ******************************************************************************/
 
 // Global UserHeap. This needs to be in the bss section, so we put it here.
-UserHeap user_heap;
+// However, we also need to not call its global constructor, so the real object
+// is actually a char[] of the right size and alignment.
+UserHeap* user_heap;
+alignas(UserHeap) char user_heap_space[sizeof(UserHeap) / sizeof(char)];
 
 /******************************************************************************
  ******************************************************************************/
