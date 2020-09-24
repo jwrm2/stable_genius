@@ -26,8 +26,14 @@ void initialise_standard_library() noexcept
         nothrow = nothrow_t {};
 
         // Initialise the heap. We can get the initial programme break point by
-        // calling brk(0).
-        helper::user_heap = helper::UserHeap {reinterpret_cast<void*>(brk(0))};
+        // calling brk(0). We need to call the constructor here, so it is ready
+        // for standard stream initialisation, but we also need to prevent the
+        // constructor being called later from the list of global objects. We
+        // have a pointer to the heap (user_heap) as well as a char[] of the
+        // correct size and alignment. We construct the heap in place on the
+        // char[], then set the pointer to the right location.
+        helper::user_heap = new (helper::user_heap_space) helper::UserHeap
+            {reinterpret_cast<void*>(brk(0))};
 
         // Initialise the C-style standard streams. Must be after heap
         // initialisation, as they use heap buffers. The file descriptors are

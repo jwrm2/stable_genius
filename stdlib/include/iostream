@@ -15,17 +15,16 @@
 // The objects in this header are for user space only.
 #ifndef KLIB
 
-namespace NMSP {
-
 /**
     This object, which has global scope, is default constructed, during which
     the standard stream objects are associated with the appropriate file
     descriptors. On programme exit, it is destructed, during which the standard
-    output streams are flushed.
+    output streams are flushed. It is in the global scope to guarantee that it
+    is constructed before main() is called.
  */
-namespace helper {
-static ios_base::Init std_stream_initialise_object;
-}
+static NMSP::ios_base::Init std_stream_initialise_object;
+
+namespace NMSP {
 
 /**
     The standard input stream. It is initialised in programme startup before

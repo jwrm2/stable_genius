@@ -114,10 +114,12 @@ private:
 };
 
 /**
-    Global heap. This can['t be on the heap, so we put it here to go into the
-    bss section.
+    Global heap. This can't be on the heap, so we put a pointer to it here, and
+    also reserve some space to it. The pointer is fiddled in the standard
+    library initialisation.
  */
-extern UserHeap user_heap;
+extern UserHeap* user_heap;
+extern char user_heap_space[sizeof(UserHeap) / sizeof(char)];
 
 } // end helper namespace
 
