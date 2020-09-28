@@ -14,8 +14,12 @@ exception::~exception() {}
 
 const char* exception::what() const noexcept
 {
+#ifdef KLIB
     // Basic exception doesn't allow specifiying the string.
     return "klib::exception";
+#else /* KLIB */
+    return "std::exception";
+#endif /* KLIB */
 }
 
 /******************************************************************************
